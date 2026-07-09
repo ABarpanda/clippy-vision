@@ -1,0 +1,15 @@
+                   precision    recall  f1-score   support
+
+    time_anchored      0.706     0.857     0.774        28
+     topic_search      0.929     0.531     0.675        49
+      aggregation      0.906     1.000     0.951        29
+  specific_recall      0.965     0.786     0.866        70
+     memory_query      0.913     1.000     0.955        21
+           casual      0.970     0.914     0.941        35
+follow_up_inherit      0.324     1.000     0.490        12
+
+         accuracy                          0.816       244
+        macro avg      0.816     0.870     0.807       244
+     weighted avg      0.886     0.816     0.827       244
+
+Secondary hint rate: 0.31  (fraction of examples where >= 1 non-primary label exceeded threshold=0.2)

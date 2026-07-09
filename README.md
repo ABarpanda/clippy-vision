@@ -1,5 +1,34 @@
 ﻿# Clippy Vision V1.0
 
+> **A fully local AI assistant that watches your work 24/7 to eliminate the context problem. 100% private—no cloud, no data leakage.**
+
+---
+
+## 🚀 Quick Start
+
+**New to Clippy Vision?** Get up and running in 5 minutes:
+
+### Windows Installation
+
+```powershell
+git clone https://github.com/yourusername/clippy-vision.git
+cd clippy-vision
+.\setup.ps1
+```
+
+Then start using it:
+```powershell
+# Terminal 1: Start capturing
+python core\screen_capture.py
+
+# Terminal 2: Chat with Clippy
+python agent\react_agent.py
+```
+
+📖 **[Full installation guide & troubleshooting →](QUICKSTART.md)**
+
+---
+
 ## Motivation
 
 When building projects, I don't just write code...I juggle between reading articles, studying similar products, diving into documentation, and figuring out how to debug issues. Every time I turn to an LLM like ChatGPT or Claude for help, I have to re-explain everything: my idea, what I've already researched, what I've already tried. This gets exhausting fast. And when a conversation thread grows too long and you start a new session, all that intermediate context is gone, and the model has no idea where you left off.

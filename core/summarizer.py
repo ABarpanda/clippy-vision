@@ -70,16 +70,27 @@ def summarize_window(events: list[dict], session_id: str) -> dict | None:
     result = json.loads(content) if isinstance(content, str) else content
 
     now = time.time()
+    summary_text = result.get("summary", "")
+
+    # Embed the summary for semantic search at query time
+    embedding = None
+    if summary_text:
+        try:
+            embedding = gateway.embed(summary_text, embed_model="nomic-embed-text", priority=Priority.BACKGROUND)
+        except Exception:
+            pass  # best-effort; retrieval.py will back-fill on first query
+
     summary = {
         "summary_id":   str(uuid.uuid4()),
         "session_id":   session_id,
         "created_at":   now,
         "window_start": events[0]["timestamp"],
         "window_end":   events[-1]["timestamp"],
-        "summary":      result.get("summary", ""),
+        "summary":      summary_text,
         "active_task":  result.get("active_task"),
         "entities":     result.get("entities", []),
         "event_count":  len(events),
+        "embedding":    embedding,
     }
     return summary
 
@@ -98,7 +109,7 @@ def _refresh_vision_enriched_sessions(session_id: str):
             summary["summary_id"] = s["summary_id"]  # overwrite in-place via INSERT OR REPLACE
             if should_distil():
                 distil()
-            store_summary(summary, vision_enriched=True)
+            store_summary(summary, vision_enriched=True, embedding=summary.pop("embedding", None))
             print(f"  [SUMMARIZER] Refreshed — {summary['active_task']}")
         else:
             mark_session_vision_enriched(s["summary_id"])
@@ -125,7 +136,7 @@ def summarizer_loop():
                 print(f"  [SUMMARIZER] Summarizing {len(events)} events since {time.strftime('%H:%M', time.localtime(since))}")
                 summary = summarize_window(events, session_id)
                 if summary:
-                    store_summary(summary, vision_enriched=False)
+                    store_summary(summary, vision_enriched=False, embedding=summary.pop("embedding", None))
                     print(f"  [SUMMARIZER] Done — {summary['active_task']}")
                     print(f"               {summary['summary'][:120]}...")
                 else:

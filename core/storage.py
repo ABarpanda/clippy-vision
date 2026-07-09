@@ -2,7 +2,7 @@ import os
 import sqlite3
 import json
 import time
-from events import Event
+from core.events import Event
 
 TTL_RAW_DAYS = 7
 TTL_SUMMARY_DAYS = 90
@@ -63,7 +63,8 @@ CREATE TABLE IF NOT EXISTS sessions(
     entities          TEXT,
     event_count       INTEGER,
     expires_at        REAL NOT NULL,
-    vision_enriched   INTEGER DEFAULT 0
+    vision_enriched   INTEGER DEFAULT 0,
+    summary_embedding TEXT
 )
 """)
 conn.commit()
@@ -196,14 +197,14 @@ def store_event(event: Event):
 ####### HELPERS FOR STORING SUMMARY #######
 ###########################################
 
-def store_summary(summary: dict, vision_enriched: bool = False):
+def store_summary(summary: dict, vision_enriched: bool = False, embedding: list | None = None):
     conn.execute(
         """INSERT OR REPLACE INTO sessions (
             session_id, summary_id, created_at,
             window_start, window_end,
             summary, active_task, entities,
-            event_count, expires_at, vision_enriched
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+            event_count, expires_at, vision_enriched, summary_embedding
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
         (
             summary["session_id"],
             summary["summary_id"],
@@ -216,6 +217,7 @@ def store_summary(summary: dict, vision_enriched: bool = False):
             summary["event_count"],
             summary["created_at"] + (TTL_SUMMARY_DAYS * 24 * 60 * 60),
             1 if vision_enriched else 0,
+            json.dumps(embedding) if embedding else None,
         )
     )
     conn.commit()

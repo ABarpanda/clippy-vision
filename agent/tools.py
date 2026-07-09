@@ -22,7 +22,10 @@ TOOL_SCHEMAS = [
                 "Use for: broad time windows (yesterday, this week), daily/weekly overviews, "
                 "what-did-I-work-on questions, project topics, task recaps. "
                 "Returns paragraph summaries — NOT granular event detail. "
-                "If the result says the info isn't there, call search_events next."
+                "The result header shows 'X of Y total' — if Y > X, the result is partial; "
+                "call search_events with a more specific query to find what you're looking for. "
+                "ALWAYS follow up with search_events when the user asks about: URLs, links, "
+                "websites, clipboard content, specific messages, or any fine-grained detail."
             ),
             "parameters": {
                 "type": "object",
@@ -40,8 +43,10 @@ TOOL_SCHEMAS = [
             "description": (
                 "Search individual events in the activity database. "
                 "Use for: specific messages, OCR screen text, exact URLs, clipboard content, "
-                "app usage, WhatsApp/email content, fine-grained timestamps, copy-paste history. "
+                "app usage, message content, fine-grained timestamps, copy-paste history, "
+                "links the user visited, articles the user read, browser activity. "
                 "Returns raw event rows with screen/OCR data. "
+                "The result header shows 'X of Y total' — if Y > X, refine the query to be more specific. "
                 "If the result says the info isn't there, call search_sessions next."
             ),
             "parameters": {

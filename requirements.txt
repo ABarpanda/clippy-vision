@@ -1,10 +1,11 @@
-win32gui
-win32api
+pywin32>=306
 uiautomation
 mss
 Pillow
 pynput
 psutil
-pywin32
 imagehash
 mcp
+transformers>=4.40.0
+torch
+scikit-learn

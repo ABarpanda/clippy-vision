@@ -24,7 +24,9 @@ def save_identity_field( field: str, value: str, source: str="agent", op: str="s
         # distiller never overwrites an agent-written field
         if source == "distiller" and existing.get("source") == "agent":
             return f"Skipped — agent-written value for '{field}' is protected."
-    
+    else:
+        existing = {}
+
 
     now = time.time()
 

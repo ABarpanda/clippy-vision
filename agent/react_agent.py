@@ -3,7 +3,8 @@ import time
 import uuid
 import threading
 from agent.tools import TOOLS, TOOL_SCHEMAS
-from agent.memory import get_autobiographical_context, semantic_memory_context
+from agent.memory import get_autobiographical_context, semantic_memory_context_from_vec
+from agent.router import classify_query, should_prefetch
 
 from core.llm_gateway import gateway, Priority
 from core.distil import ingest_conversation
@@ -53,9 +54,11 @@ Tool Policy:
 - If the user asks for detail, specifics, or "everything" about an activity period, always follow up with search_events — session summaries are too high-level for detailed answers.
 - Activity search — choose the right tool first, then escalate if needed:
   • search_sessions → broad time windows, daily/weekly overviews, project topics, "what did I work on"
-  • search_events  → specific messages, OCR text, URLs, clipboard, app-level detail, WhatsApp/email content
+  • search_events  → specific messages, OCR text, URLs, links, articles, clipboard, app-level detail, message content
   • If a tool returns "no matching records" or its result does not contain the answer, call the OTHER tool before giving up.
-  • Read the result header — it tells you which table was searched and how many rows matched. Use that to decide whether to escalate.
+  • Read the result header — it tells you how many rows matched vs total. If the header says "X of Y total" and Y > X, the result is partial; call search_events with a more specific query rather than giving up.
+  • For ANY question involving a link, URL, article, webpage, or browser activity: ALWAYS call search_events — session summaries never contain raw URLs.
+  • When a prior tool result already contains a specific timestamp or date (e.g. "time: 2026-06-23 12:45"), use that exact date in the next tool call — write it as "on 2026-06-23" or "on June 23 2026". Never re-derive the date from relative terms like "yesterday" when you already know the exact date.
 - Save tools: use immediately when the user asks you to remember something or shares personal identity information.
 - Delete tools: use immediately when the user asks you to forget or delete something.
 - Do not call activity tools for casual chat or general advice that requires no evidence.
@@ -69,7 +72,20 @@ Response Style:
 - Do not expose raw SQL, validators, tiers, or internal implementation details unless the user asks."""
 
 
-def _build_conversation_history(conversation_id: str, user_message: str) -> str:
+
+def _build_combined_query_context(conversation_id: str, user_message: str) -> str:
+
+    recent_turns = get_recent_chats(conversation_id, limit=3)
+    if not recent_turns:
+        return user_message
+    
+    prior = " | ".join(
+        f"{'User' if t['role'] == 'user' else 'Clippy'}: {t['content']}"
+        for t in recent_turns
+    )
+    return f"User: {user_message} | Prior turns: {prior}"
+
+def _build_conversation_history(conversation_id: str, q_vec: list|None=None) -> str:
     """Assemble the conversation history block for the system prompt.
 
     Tier 1 (always): last 2 rolling summaries + last 4 raw turns.
@@ -77,14 +93,15 @@ def _build_conversation_history(conversation_id: str, user_message: str) -> str:
     """
     parts = []
 
+
     # Tier 2 — semantically relevant older summaries (only when history is deep)
-    try:
-        q_vec = gateway.embed(user_message, embed_model=EMBED_MODEL, priority=Priority.INTERACTIVE)
-        deep = get_relevant_summaries(conversation_id, q_vec)
-        if deep:
-            parts.append("[Earlier relevant context]\n" + "\n\n".join(deep))
-    except Exception:
-        pass
+    if q_vec:
+        try:
+            deep = get_relevant_summaries(conversation_id, q_vec)
+            if deep:
+                parts.append("[Earlier relevant context]\n" + "\n\n".join(deep))
+        except Exception:
+            pass
 
     # Tier 1a — recent rolling summaries
     recent_summaries = get_recent_summaries(conversation_id)
@@ -114,11 +131,20 @@ def _build_conflict_notice() -> str:
     return "\n".join(lines)
 
 
-def _build_system_prompt(conversation_id: str, user_message: str = "") -> str:
+def _build_system_prompt(conversation_id: str, user_message: str = "", needs_memory_fetch: bool = False) -> str:
     now    = time.localtime()
     dt_str = time.strftime("%A %B %d, %Y at %H:%M", now)
+    combined_query_context = _build_combined_query_context(conversation_id, user_message)
 
-    mem_ctx = semantic_memory_context(user_message) if user_message else ""
+    q_vec = None
+
+    if combined_query_context:
+        try:
+            q_vec = gateway.embed(combined_query_context, embed_model=EMBED_MODEL, priority=Priority.INTERACTIVE)
+        except Exception:
+            pass
+
+    mem_ctx = semantic_memory_context_from_vec(q_vec) if q_vec else ""
     if not mem_ctx:
         mem_ctx = "No relevant memory found for this query."
 
@@ -137,7 +163,13 @@ def _build_system_prompt(conversation_id: str, user_message: str = "") -> str:
 
 
 def _call_ollama(messages: list[dict]) -> dict:
-    return gateway.chat(messages, MODEL, tools=TOOL_SCHEMAS, priority=Priority.INTERACTIVE, timeout=180, think=True)
+
+    has_tool_results = any(m["role"] == "tool" for m in messages)
+    return gateway.chat(messages, MODEL,
+     tools=TOOL_SCHEMAS, 
+     priority=Priority.INTERACTIVE, 
+     timeout=180, 
+     think=has_tool_results)
 
 
 def _compress_old_tool_messages(messages: list[dict], keep_last: int = 1) -> None:
@@ -176,7 +208,7 @@ def run(user_message: str, conversation_id: str) -> str:
             ).start()
             threading.Thread(
                 target=maybe_summarize,
-                args=(conversation_id,),
+                args=(conversation_id),
                 daemon=True,
             ).start()
             return answer

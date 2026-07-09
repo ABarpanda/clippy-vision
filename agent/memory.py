@@ -12,7 +12,7 @@ from core.llm_gateway import gateway, Priority
 
 EMBED_MODEL      = "nomic-embed-text"
 MEMORY_TOP_K     = 8     # max facts to inject per turn
-MEMORY_MIN_SIM   = 0.30  # floor — below this a fact is unrelated
+MEMORY_MIN_SIM   = 0.55  # floor — below this a fact is unrelated (was 0.30; raised to reduce noise)
 MAX_MEMORY_CHARS = 2000  # token budget guard
 
 
@@ -23,10 +23,9 @@ def _cosine_sim(a: list, b: list) -> float:
     return dot / (na * nb) if na and nb else 0.0
 
 
-def semantic_memory_context(user_message: str) -> str:
-    """Per-fact retrieval: embed the query, score every active fact individually,
-    return the top-K most relevant facts grouped by cluster. Returns empty string
-    when nothing clears the floor — caller omits the section."""
+def semantic_memory_context_from_vec(q_vec: list) -> str:
+    """Same as semantic_memory_context but accepts a pre-computed query vector.
+    Use this when the caller has already embedded the query to avoid a second embed call."""
     import json
     import os, sys
     _CORE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "core")
@@ -34,7 +33,6 @@ def semantic_memory_context(user_message: str) -> str:
         sys.path.insert(0, _CORE_DIR)
     from storage import conn as _conn
 
-    # Load all active facts with their vectors and cluster labels in one query
     rows = _conn.execute("""
         SELECT f.fact_id, f.text, f.vector_embedding, f.cluster_id,
                c.label, c.description
@@ -46,14 +44,6 @@ def semantic_memory_context(user_message: str) -> str:
     if not rows:
         return ""
 
-    # Embed the query
-    try:
-        q_vec = gateway.embed(user_message, embed_model=EMBED_MODEL,
-                              priority=Priority.INTERACTIVE)
-    except Exception:
-        return ""
-
-    # Score every fact individually
     scored = []
     for fact_id, text, vec_json, cluster_id, label, description in rows:
         if not vec_json:
@@ -66,11 +56,9 @@ def semantic_memory_context(user_message: str) -> str:
     if not scored:
         return ""
 
-    # Top-K facts by relevance
     scored.sort(key=lambda x: x[0], reverse=True)
     top = scored[:MEMORY_TOP_K]
 
-    # Group by cluster for readable output, preserving relevance order
     seen_clusters: dict[str, dict] = {}
     for sim, text, cluster_id, label, description in top:
         if cluster_id not in seen_clusters:
@@ -80,7 +68,6 @@ def semantic_memory_context(user_message: str) -> str:
             }
         seen_clusters[cluster_id]["facts"].append((sim, text))
 
-    # Build output — clusters ordered by their top fact's similarity
     clusters_ordered = sorted(
         seen_clusters.values(), key=lambda c: c["max_sim"], reverse=True
     )
