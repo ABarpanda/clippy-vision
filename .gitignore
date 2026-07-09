@@ -1,5 +1,53 @@
+# Database files
 core/data/*
+*.db
+*.db-wal
+*.db-shm
+
+# Screenshots (contain potentially sensitive data)
+core/screenshots/*
+
+# Python cache
 __pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# IDE
+.vscode/
+.idea/
 .cursor/
+*.swp
+*.swo
+*~
+
+# Logs
+logs/*
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Test/bench outputs
 tests/*
 bench/*
+!tests/__init__.py
+!bench/__init__.py
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# Environment variables (if you add any)
+.env
+.env.local
