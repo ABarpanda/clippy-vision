@@ -1,26 +1,75 @@
-# Database files
-core/data/*
+
+# SQLite database (contains personal event history)
 *.db
 *.db-wal
 *.db-shm
+core/data/events.db*
 
-# Screenshots (contain potentially sensitive data)
-core/screenshots/*
+# Screenshots (contains private user data)
+core/data/screenshots/
 
-# Python cache
+# All generated/runtime data under core/data
+# (router_generated.jsonl, router_augmented.jsonl, baseline.json, etc.)
+# Exception: router_seed.jsonl is intentional source data and IS committed.
+core/data/
+!core/data/router_seed.jsonl
+
+# ============================================================
+# MODEL WEIGHTS  (large binaries — host on Hugging Face / GitHub Releases)
+# ============================================================
+*.pt
+*.bin
+*.safetensors
+models/router_classifier/
+
+# ============================================================
+# BUILD / PACKAGING ARTIFACTS
+# ============================================================
+Clippy_Vision.egg-info/
+*.egg-info/
+dist/
+build/
+*.egg
+*.whl
+MANIFEST
+
+# ============================================================
+# PYTHON CACHE & COMPILED FILES
+# ============================================================
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
 
-# Virtual environments
+# ============================================================
+# VIRTUAL ENVIRONMENTS
+# ============================================================
 venv/
 env/
 ENV/
-.venv
+.venv/
+.env
 
-# IDE
+# ============================================================
+# TEST & BENCH OUTPUT FILES  (run-generated results)
+# ============================================================
+tests/results/
+testing/router_eval/results/
+bench/results/
+
+# ============================================================
+# SCRATCH / TEMP FILES
+# ============================================================
+_tmp_*.py
+*.tmp
+*.temp
+*.bak
+.cache/
+
+# ============================================================
+# IDE & EDITOR FILES
+# ============================================================
 .vscode/
 .idea/
 .cursor/
@@ -28,26 +77,23 @@ ENV/
 *.swo
 *~
 
-# Logs
-logs/*
+# ============================================================
+# LOGS
+# ============================================================
+logs/
 *.log
 
-# OS files
+# ============================================================
+# OS FILES
+# ============================================================
 .DS_Store
 Thumbs.db
 desktop.ini
 
-# Test/bench outputs
-tests/*
-bench/*
-!tests/__init__.py
-!bench/__init__.py
-
-# Temporary files
-*.tmp
-*.temp
-.cache/
-
-# Environment variables (if you add any)
+# ============================================================
+# ENVIRONMENT / SECRETS
+# ============================================================
 .env
 .env.local
+.env.*
+secrets.json
