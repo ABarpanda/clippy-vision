@@ -43,8 +43,8 @@ from rapidfuzz.distance import DamerauLevenshtein
 _cal = parsedatetime.Calendar()
 
 _TEMPORAL_VOCAB = [
-    "today", "yesterday", "tomorrow", "next", "last", "month", "year", "week", "day", "hour",
-    "minute", "second", "months", "weeks", "days", "hours", "minutes", "seconds",
+    "today", "yesterday", "tomorrow", "next", "last", "year", "years",
+    "months", "weeks", "days", "hours", "minutes", "seconds",
     "morning", "afternoon", "evening", "night", "midnight", "noon", "breakfast", "lunch", "dinner", "supper",
     "dawn", "dusk", "previous", "prior", "earlier", "before", "after", "past", "weekday", "weekend",
     "january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december",
@@ -91,6 +91,14 @@ _ROLLING_WINDOW_RE = re.compile(
     r'\b(?:(?:over|in|from)\s+(?:the\s+)?)?'
     r'(?:last|past|previous|prior)\s+'
     r'(?P<n>\d+)\s+(?P<unit>days?|weeks?|months?|hours?)\b',
+    re.IGNORECASE,
+)
+
+# "N hours/minutes ago" — parsedatetime resolves these to a point in time and
+# then snaps to day_bounds, losing the sub-day resolution entirely. Handle
+# them here before parsedatetime gets a chance.
+_HOURS_AGO_RE = re.compile(
+    r'\b(?P<n>\d+)\s+(?P<unit>hours?|minutes?|mins?)\s+(ago|before)\b',
     re.IGNORECASE,
 )
 
@@ -284,7 +292,7 @@ def _rolling_window_delta(n: int, unit: str) -> tuple[timedelta, str]:
     """Return (lookback delta, granularity) for 'last N units' phrases."""
     u = unit.lower().rstrip("s")
     if u == "hour":
-        return timedelta(hours=n), "day"
+        return timedelta(hours=n), "hour"
     if u == "day":
         return timedelta(days=n), "day"
     if u == "week":
@@ -384,6 +392,13 @@ def resolve_temporal_range(query: str, now: datetime | None = None) -> TemporalR
         delta, granularity = _rolling_window_delta(n, rolling_match.group("unit"))
         start = now - delta
         return _finalize(rolling_match.group(0).strip(), start, now, granularity, now)
+
+    hours_ago_match = _HOURS_AGO_RE.search(normalized)
+    if hours_ago_match:
+        n = int(hours_ago_match.group("n"))
+        u = hours_ago_match.group("unit").lower().rstrip("s").replace("min", "minute")
+        delta = timedelta(hours=n) if u == "hour" else timedelta(minutes=n)
+        return _finalize(hours_ago_match.group(0).strip(), now - delta, now, "hour", now)
 
     try:
         matches = _cal.nlp(normalized, sourceTime=now)
