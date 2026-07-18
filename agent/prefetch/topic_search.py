@@ -9,7 +9,7 @@ import json
 from core.llm_gateway import gateway, Priority
 from agent.helpers.keywords import keywords_from_query, content_keywords
 
-_DB_PATH = Path(__file__).parent.parent / "core" / "data" / "events.db"
+_DB_PATH = Path(__file__).parent.parent.parent / "core" / "data" / "events.db"
 _conn = sqlite3.connect(str(_DB_PATH), check_same_thread=False, timeout=30)
 _conn.execute("PRAGMA journal_mode=WAL")
 
@@ -103,7 +103,9 @@ def topic_search(query: str, q_vec, temporal_range= None) -> str:
     return result
 
 if __name__ == "__main__":
-    from agent.time_resolver import resolve_temporal_range
+    import sys
+    sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+    from agent.helpers.time_resolver import resolve_temporal_range
 
     while True:
         query = input("Enter a query: ").strip()

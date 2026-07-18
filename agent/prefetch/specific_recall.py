@@ -4,12 +4,12 @@ import sqlite3
 import time
 from pathlib import Path
 
-from agent.topic_search import cosine_similarity
-from agent.time_resolver import resolve_temporal_range
+from agent.prefetch.topic_search import cosine_similarity
+from agent.helpers.time_resolver import resolve_temporal_range
 from agent.helpers.detect_recency import detect_recency_hint
 from agent.helpers.keywords import keywords_from_query, content_keywords, STOPWORDS
 
-DB_PATH = Path(__file__).parent.parent / "core"/ "data" / "events.db"
+DB_PATH = Path(__file__).parent.parent.parent / "core" / "data" / "events.db"
 conn = sqlite3.connect(str(DB_PATH), check_same_thread=False, timeout=30.0)
 
 conn.execute("PRAGMA journal_mode=WAL")
@@ -585,6 +585,3 @@ if __name__ == "__main__":
         print()
         print(specific_recall(query, temporal_range=tr))
         print()
-
-
-
