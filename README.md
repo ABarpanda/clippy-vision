@@ -236,7 +236,82 @@ The Distiller also runs after the second pass of the summarizer (post-vision re-
 
 ---
 
-## Segment 4: The Agent
+## Segment 4: Query Router
+
+Before the agent takes any action, the query router classifies what kind of question is being asked and — for questions that can be answered from data — prefetches the most relevant context in parallel so the LLM receives it without needing to call a tool.
+
+### Classification
+
+A fine-tuned **MiniLM-L3** classifier (`agent/router.py`) maps every incoming query to one of seven categories:
+
+| Category | What it means |
+|---|---|
+| `time_anchored` | User asks about activity at a specific, calendar-resolvable time ("yesterday", "last week", "3 days ago") |
+| `topic_search` | User asks about activity related to a topic or project, with no explicit time anchor |
+| `specific_recall` | User wants a specific artifact: URL, clipboard content, pasted text, something seen on screen |
+| `aggregation` | User asks for a count, total, duration, or statistical breakdown *(prefetch not yet implemented)* |
+| `memory_query` | User asks about facts the assistant has memorized from past conversations *(prefetch not yet implemented)* |
+| `casual` | General chat or factual/general knowledge — no retrieval needed |
+| `follow_up_inherit` | Vague follow-up that inherits the retrieval strategy from the prior turn |
+
+The classifier outputs a **primary** category and a list of **secondary** categories for queries that require more than one retrieval strategy. Confidence thresholds per category (`_PREFETCH_THRESHOLDS`) gate whether prefetch actually runs — low-confidence classifications fall back to letting the agent use tools reactively.
+
+---
+
+### Prefetch Modules
+
+Each implemented category has a dedicated prefetch module. All of them accept the resolved time range when relevant and return a formatted string injected directly into the agent's context.
+
+---
+
+#### `agent/specific_recall.py`
+
+Handles artifact retrieval: URLs, clipboard copies, paste events, and screen content. Routes to one of four artifact types based on the query:
+
+- **url** — two-track search: session-level (up to 90 days, vector similarity) + event-level (last 7 days, FTS5)
+- **clipboard / paste** — FTS5 on the `payload` field; falls back to pure-recency scan when no keywords are present
+- **screen** — FTS5 on `vision_ocr_text`; falls back to recency
+- **generic** — broad FTS5 across all text fields
+
+Accepts an optional `temporal_range` to filter results to a specific time window. This covers the `specific_recall + [time_anchored]` routing shape — no separate time fetch is needed.
+
+---
+
+#### `agent/topic_search.py`
+
+Handles topic and project-level queries against the `sessions` table. Embeds the query with `nomic-embed-text`, computes cosine similarity against stored `summary_embedding` vectors, and applies an entity boost for exact keyword matches. Accepts an optional `temporal_range` to narrow the search to a specific window.
+
+---
+
+#### `agent/time_anchor.py`
+
+Handles pure time-anchored queries where the user is asking "what was I doing at time X" without a specific topic or artifact. Uses a three-tier system based on the resolved time window:
+
+| Tier | Condition | Data source |
+|---|---|---|
+| 0 — Raw events | Window ≤ 2 hours and within 7-day TTL | `events` table, `interesting = 1`, noise types filtered |
+| 1 — Sessions | Window within 90-day session TTL | `sessions` table with greedy dedup + density cap |
+| 2 — Distiller | Beyond 90 days | *(not yet implemented)* |
+
+**Session deduplication:** Sessions in the time window are greedy-clustered by cosine similarity. The threshold scales with window width — narrow windows (≤ 3 days) use 0.86 to preserve detail; broad windows use 0.78 for more compression. One representative per cluster is kept — the densest one by `event_count`, breaking ties by recency.
+
+**Density cap:** After dedup, if more than 15 sessions remain, the 15 densest are kept (by `event_count` then `window_start`), then re-sorted chronologically so the LLM sees a coherent narrative.
+
+---
+
+#### `agent/time_resolver.py`
+
+Converts natural-language time expressions into absolute `[start, end)` epoch ranges. Used by `time_anchor.py`, `specific_recall.py`, and `topic_search.py` to filter queries to the right time window.
+
+Key behaviors:
+- Handles phrases parsedatetime can't: "last weekend", "last 3 days", "last N weeks/months"
+- Typo correction scoped to temporal vocabulary only (Damerau-Levenshtein, strict thresholds)
+- Tense/modal disambiguation: "what should I do this weekend?" vs "this weekend was exhausting" resolve differently
+- Returns `None` for future-intent expressions — callers know no data can exist rather than getting an empty result
+
+---
+
+## Segment 5: The Agent
 
 The agent is the interface between the user and everything Clippy Vision has learned. It's built as a **ReAct agent with function calling**, giving it the ability to reason across raw events, summaries, and memory before answering.
 
@@ -269,7 +344,7 @@ When the user chats with the agent, the conversation is also passed to the Disti
 
 ---
 
-## Segment 5: SQLite Database
+## Segment 6: SQLite Database
 
 All data accessible to the agent is stored locally in SQLite. See `core/storage.py` for full table schemas.
 
