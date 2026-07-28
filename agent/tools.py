@@ -1,15 +1,21 @@
 from agent.retrieval import search_sessions, search_events
-from agent.memory import recall_memory, fetch_cluster, save_identity, save_note, delete_note
+from agent.memory import save_identity, save_note, delete_note
 
 
 TOOLS = {
     "search_sessions": search_sessions,
     "search_events":   search_events,
-    "recall_memory":   recall_memory,
-    "fetch_cluster":   fetch_cluster,
     "save_identity":   save_identity,
     "save_note":       save_note,
     "delete_note":     delete_note,
+}
+
+# Used when prefetch already supplied retrieval context — model only gets
+# write/delete tools so it physically cannot trigger a redundant search.
+WRITE_TOOLS = {
+    "save_identity": save_identity,
+    "save_note":     save_note,
+    "delete_note":   delete_note,
 }
 
 TOOL_SCHEMAS = [
@@ -22,6 +28,7 @@ TOOL_SCHEMAS = [
                 "Use for: broad time windows (yesterday, this week), daily/weekly overviews, "
                 "what-did-I-work-on questions, project topics, task recaps. "
                 "Returns paragraph summaries — NOT granular event detail. "
+                "Use when <prefetch_context> is empty, insufficient, or the user asks for more detail. "
                 "The result header shows 'X of Y total' — if Y > X, the result is partial; "
                 "call search_events with a more specific query to find what you're looking for. "
                 "ALWAYS follow up with search_events when the user asks about: URLs, links, "
@@ -46,6 +53,7 @@ TOOL_SCHEMAS = [
                 "app usage, message content, fine-grained timestamps, copy-paste history, "
                 "links the user visited, articles the user read, browser activity. "
                 "Returns raw event rows with screen/OCR data. "
+                "Use when <prefetch_context> is empty, insufficient, or the user needs granular detail. "
                 "The result header shows 'X of Y total' — if Y > X, refine the query to be more specific. "
                 "If the result says the info isn't there, call search_sessions next."
             ),
@@ -61,46 +69,24 @@ TOOL_SCHEMAS = [
     {
         "type": "function",
         "function": {
-            "name": "recall_memory",
-            "description": "List all long-term memory clusters with labels and descriptions. Use when the user asks what you know about them, or before fetching a specific cluster.",
-            "parameters": {"type": "object", "properties": {}, "required": []},
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "fetch_cluster",
-            "description": "Get all facts stored in a named memory cluster. Use after recall_memory to get the full content of a specific topic.",
+            "name": "save_identity",
+            "description": (
+                "Save a personal fact about the user. "
+                "Use op='set' for scalar facts (name, location, job). "
+                "Use op='add_items' with items=[] for adding to a list (hobbies, skills). "
+                "Use op='override' only when the user explicitly corrects a previous fact."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "label": {"type": "string", "description": "The cluster label, e.g. 'clippy_vision', 'employment'"}
+                    "field": {"type": "string", "description": "Field name, e.g. 'name', 'hobbies'"},
+                    "value": {"type": "string", "description": "Value for scalar fields (set/override). Leave empty for list ops."},
+                    "op":    {"type": "string", "enum": ["set", "add_items", "remove_items", "override"],
+                              "description": "Operation type. Default is 'set'."},
+                    "items": {"type": "array", "items": {"type": "string"},
+                              "description": "List of items for add_items or remove_items ops."}
                 },
-                "required": ["label"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-                "name": "save_identity",
-    "description": (
-        "Save a personal fact about the user. "
-        "Use op='set' for scalar facts (name, location, job). "
-        "Use op='add_items' with items=[] for adding to a list (hobbies, skills). "
-        "Use op='override' only when the user explicitly corrects a previous fact."
-    ),
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "field": {"type": "string", "description": "Field name, e.g. 'name', 'hobbies'"},
-            "value": {"type": "string", "description": "Value for scalar fields (set/override). Leave empty for list ops."},
-            "op":    {"type": "string", "enum": ["set", "add_items", "remove_items", "override"],
-                      "description": "Operation type. Default is 'set'."},
-            "items": {"type": "array", "items": {"type": "string"},
-                      "description": "List of items for add_items or remove_items ops."}
-        },
-        "required": ["field", "op"],
+                "required": ["field", "op"],
             },
         },
     },
@@ -137,3 +123,6 @@ TOOL_SCHEMAS = [
         },
     },
 ]
+
+# Schemas for write-only mode (used when prefetch context is present)
+WRITE_TOOL_SCHEMAS = [s for s in TOOL_SCHEMAS if s["function"]["name"] in WRITE_TOOLS]

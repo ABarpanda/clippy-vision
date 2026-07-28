@@ -7,12 +7,12 @@ Tier 2 --> Distiller (beyond 7 days)
 import sqlite3
 import time
 import json
-from pathlib import Path
 
 from agent.helpers.time_resolver import resolve_temporal_range, TemporalRange
 from agent.prefetch.topic_search import cosine_similarity
+from core.paths import get_db_path
 
-DB_PATH = Path(__file__).parent.parent.parent / "core" / "data" / "events.db"
+DB_PATH = get_db_path()
 conn = sqlite3.connect(str(DB_PATH), check_same_thread=False, timeout=30.0)
 conn.execute("PRAGMA journal_mode = WAL")
 
@@ -21,8 +21,11 @@ EVENT_TIER_MAX_SECONDS = 7200  # 2 hours'
 RAW_EVENTS_TTL_DAYS = 7
 SESSION_EVENTS_TTL_DAYS = 90
 SESSION_TIER_MAX_SECONDS = 604800  # 7 days
+DISTILLER_CLUSTER_GATE_SIM = 0.30
+DISTILLER_FACT_MIN_SIM = 0.40
 MAX_EVENTS = 30
 MAX_SESSIONS = 15
+MAX_DISTILLER_FACTS = 20
 COMPRESSION_THRESHOLD_NARROW = 0.86 # tight window (1-3 days)
 COMPRESSION_THRESHOLD_WIDE = 0.78 # broad window (3-7 days)
 
@@ -197,6 +200,63 @@ def cap_sessions(sessions: list[dict], limit: int = MAX_SESSIONS) -> list[dict]:
     top.sort(key=lambda s: s["window_start"])
     return top
 
+###########################################
+############ Tier 3: Distiller ############
+###########################################
+
+def fetch_distiller_facts(temporal_range: TemporalRange, q_vec: list) -> list[dict]:
+    cluster_rows = conn.execute(
+        "SELECT cluster_id, centroid FROM memory_clusters"
+    ).fetchall()
+
+    if not cluster_rows:
+        return []
+
+    surviving = set()
+    for cluster_id, centroid in cluster_rows:
+        if not centroid:
+            surviving.add(cluster_id)
+            continue
+        sim = cosine_similarity(q_vec, json.loads(centroid))
+        if sim >= DISTILLER_CLUSTER_GATE_SIM:
+            surviving.add(cluster_id)
+
+    if not surviving:
+        return []
+
+    placeholders = ",".join("?" * len(surviving))
+    fact_rows = conn.execute(
+        f"""
+        SELECT f.text, f.vector_embedding, f.created_at, f.valid_from, f.valid_to, c.label
+        FROM memory_facts f
+        JOIN memory_clusters c ON f.cluster_id = c.cluster_id
+        WHERE f.source = 'distiller'
+          AND f.cluster_id IN ({placeholders})
+          AND f.valid_from  <= ?
+          AND (f.valid_to IS NULL OR f.valid_to >= ?)
+        """,
+        [*surviving, temporal_range.end_ts, temporal_range.start_ts],
+    ).fetchall()
+
+    if not fact_rows:
+        return []
+
+    scored = []
+    for text, emb_json, created_at, valid_from, valid_to, label in fact_rows:
+        if not emb_json:
+            continue
+        sim = cosine_similarity(q_vec, json.loads(emb_json))
+        if sim >= DISTILLER_FACT_MIN_SIM:
+            scored.append({
+                "text":       text,
+                "sim":        sim,
+                "created_at": created_at,
+                "label":      label,
+            })
+
+    scored.sort(key=lambda x: x["sim"], reverse=True)
+    return scored[:MAX_DISTILLER_FACTS]
+
 
 ###########################################
 ############# Formatting ##################
@@ -263,11 +323,37 @@ def format_sessions(sessions: list[dict], temporal_range: TemporalRange, total_b
     return "\n\n---\n".join(parts)
 
 
+
+def format_distiller(facts: list[dict], temporal_range: TemporalRange) -> str:
+    start_str = time.strftime("%Y-%m-%d", time.localtime(temporal_range.start_ts))
+    end_str   = time.strftime("%Y-%m-%d", time.localtime(temporal_range.end_ts))
+    if not facts:
+        return (
+            f"[distiller] no activity records found for {start_str} to {end_str}.\n"
+            f"Note: raw events and session summaries have expired for this period. "
+            f"Only high-level memory facts are available beyond 90 days."
+        )
+    header = (
+        f"[activity memory — {start_str} to {end_str}, "
+        f"{len(facts)} facts, approximate timestamps]\n"
+        f"Note: these are distilled from session summaries. "
+        f"Timestamps reflect when the fact was recorded, not exact activity time."
+    )
+    # Group by label so related facts are presented together
+    by_label: dict[str, list[str]] = {}
+    for f in facts:
+        by_label.setdefault(f["label"], []).append(f["text"])
+    sections = [header]
+    for label, texts in by_label.items():
+        block = f"[{label}]\n" + "\n".join(f"  - {t}" for t in texts)
+        sections.append(block)
+    return "\n\n".join(sections)
+
 ###########################################
 ############# Time Anchor #################
 ###########################################
 
-def time_anchor_fetch(temporal_range: TemporalRange) -> str:
+def time_anchor_fetch(temporal_range: TemporalRange, q_vec: list | None = None) -> str:
     tier = select_tier(temporal_range)
 
     if tier == "none":
@@ -283,11 +369,13 @@ def time_anchor_fetch(temporal_range: TemporalRange) -> str:
         threshold = compress_threshold(temporal_range)
         sessions = compress_sessions(sessions, threshold)
         sessions = cap_sessions(sessions)
-
         return format_sessions(sessions, temporal_range, total_before_dedup)
 
     if tier == "distiller":
-        return "Distiller is not yet supported"
+        if not q_vec:
+            return "[distiller] no query vector available — cannot retrieve distiller facts."
+        facts = fetch_distiller_facts(temporal_range, q_vec)
+        return format_distiller(facts, temporal_range)
 
     return "Unknown tier"
 

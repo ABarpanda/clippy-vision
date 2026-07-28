@@ -1,0 +1,2102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Clippy Vision</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,500;8..60,600&display=swap" rel="stylesheet" />
+  <style>
+    /* Copper Signal — muted warm sand on espresso */
+    :root {
+      --bg: #12100E;
+      --panel: #1C1917;
+      --surface: #0E0C0B;
+      --inset: #090807;
+      --border: #3A3530;
+      --accent: #A8906C;
+      --accent-hover: #BBA27E;
+      --accent-muted: #2A251F;
+      --accent-fill: #8A7352;
+      --accent-fill-hover: #9C8460;
+      --text: #EDE8E0;
+      --muted: #9A9288;
+      --user-bubble: #24201A;
+      --user-text: #D6CEC2;
+      --bot-bubble: #1C1917;
+      --danger: #C9887C;
+      --danger-border: #6B3E36;
+      --danger-bg: #241816;
+      --success: #7BA87E;
+      --success-bg: #1A2A1C;
+      --success-border: #4F7A53;
+      --scrollbar-thumb: rgba(168, 144, 108, 0.22);
+      --scrollbar-thumb-hover: rgba(168, 144, 108, 0.4);
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    /* Thin transparent scrollbars — Copper Signal */
+    * {
+      scrollbar-width: thin;
+      scrollbar-color: var(--scrollbar-thumb) transparent;
+    }
+
+    *::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+
+    *::-webkit-scrollbar-track,
+    *::-webkit-scrollbar-corner {
+      background: transparent;
+    }
+
+    *::-webkit-scrollbar-thumb {
+      background: var(--scrollbar-thumb);
+      border-radius: 999px;
+      border: 2px solid transparent;
+      background-clip: padding-box;
+    }
+
+    *::-webkit-scrollbar-thumb:hover {
+      background: var(--scrollbar-thumb-hover);
+      border: 2px solid transparent;
+      background-clip: padding-box;
+    }
+
+    body {
+      font-family: 'Outfit', 'Segoe UI', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    header {
+      background: var(--panel);
+      padding: 16px 20px;
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--accent);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .view { display: none; flex-direction: column; flex: 1; min-height: 0; }
+    .view.active { display: flex; }
+
+    /* ---- Name setup view ---- */
+    #name-view {
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      gap: 16px;
+    }
+
+    #name-view h1 {
+      font-size: 22px;
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    #name-view p {
+      opacity: 0.7;
+      font-size: 14px;
+      margin-bottom: 8px;
+      color: var(--muted);
+    }
+
+    #name-row {
+      display: flex;
+      gap: 10px;
+      width: 100%;
+      max-width: 360px;
+    }
+
+    #name-input {
+      flex: 1;
+      padding: 10px 14px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--inset);
+      color: var(--text);
+      font-size: 14px;
+      outline: none;
+    }
+
+    #name-input:focus { border-color: var(--accent); }
+
+    #name-submit {
+      padding: 10px 20px;
+      background: var(--accent-fill);
+      color: var(--bg);
+      border: none;
+      border-radius: 8px;
+      font-weight: 600;
+      cursor: pointer;
+      font-size: 14px;
+    }
+
+    #name-submit:hover { background: var(--accent-fill-hover); }
+
+    #name-error {
+      color: var(--danger);
+      font-size: 13px;
+      min-height: 18px;
+    }
+
+    /* ---- Chat view layout ---- */
+    #chat-layout {
+      display: flex;
+      flex: 1;
+      min-height: 0;
+      position: relative;
+    }
+
+    #chat-main {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      min-width: 0;
+      min-height: 0;
+      position: relative;
+    }
+
+    /* ---- Welcome / empty chat ---- */
+    .welcome-screen {
+      display: none;
+      flex: 1;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 32px 24px 48px;
+      gap: 28px;
+      min-height: 0;
+    }
+
+    #chat-main.is-welcome .welcome-screen { display: flex; }
+    #chat-main.is-welcome #messages,
+    #chat-main.is-welcome #input-row { display: none; }
+
+    .welcome-brand {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      gap: 4px;
+      max-width: 420px;
+    }
+
+    .welcome-logo {
+      width: 112px;
+      height: 58px;
+      object-fit: cover;
+      object-position: center;
+      border-radius: 0;
+      margin-bottom: 0;
+    }
+
+    .welcome-title {
+      font-family: 'Source Serif 4', Georgia, serif;
+      font-size: 34px;
+      font-weight: 550;
+      letter-spacing: -0.02em;
+      color: var(--text);
+      line-height: 1.15;
+    }
+
+    .welcome-sub {
+      font-size: 14.5px;
+      font-weight: 450;
+      color: var(--muted);
+      line-height: 1.45;
+      max-width: 340px;
+    }
+
+    .welcome-composer {
+      width: min(640px, 100%);
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 22px;
+      padding: 14px 16px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.28);
+    }
+
+    #welcome-input {
+      width: 100%;
+      min-height: 52px;
+      max-height: 160px;
+      resize: none;
+      border: none;
+      outline: none;
+      background: transparent;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 15px;
+      font-weight: 450;
+      line-height: 1.45;
+      padding: 2px 2px 0;
+    }
+
+    #welcome-input::placeholder { color: var(--muted); }
+
+    .welcome-composer-bar {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 10px;
+    }
+
+    .char-count {
+      margin-right: auto;
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+      opacity: 0;
+      transition: opacity 0.15s ease, color 0.15s ease;
+    }
+
+    .char-count.is-visible { opacity: 1; }
+    .char-count.is-warn { color: var(--accent-hover); }
+    .char-count.is-limit { color: var(--danger); }
+
+    #welcome-send {
+      padding: 8px 16px;
+      background: var(--accent-fill);
+      color: var(--bg);
+      border: none;
+      border-radius: 999px;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    #welcome-send:hover { background: var(--accent-fill-hover); }
+    #welcome-send:disabled { opacity: 0.5; cursor: default; }
+
+    /* ---- Conversation drawer ---- */
+    #drawer-backdrop {
+      display: none;
+      position: absolute;
+      inset: 0;
+      background: rgba(18, 16, 14, 0.78);
+      z-index: 20;
+    }
+
+    #drawer-backdrop.open { display: block; }
+
+    #conv-drawer {
+      position: absolute;
+      top: 0;
+      left: 0;
+      bottom: 0;
+      width: 292px;
+      max-width: 85vw;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      z-index: 30;
+      transform: translateX(-100%);
+      transition: transform 0.2s ease;
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+    }
+
+    #conv-drawer.open { transform: translateX(0); }
+
+    /* Wide: docked sidebar beside chat */
+    @media (min-width: 800px) {
+      #drawer-toggle { display: none; }
+
+      #drawer-backdrop,
+      #drawer-backdrop.open { display: none !important; }
+
+      #drawer-close { display: none; }
+
+      #conv-drawer {
+        position: relative;
+        top: auto;
+        left: auto;
+        bottom: auto;
+        max-width: none;
+        transform: none !important;
+        z-index: 1;
+        transition: none;
+      }
+    }
+
+    .drawer-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 14px 10px;
+      border-bottom: 1px solid var(--border);
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+    }
+
+    .drawer-search-wrap {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    #conv-search {
+      width: 100%;
+      padding: 7px 10px;
+      border-radius: 7px;
+      border: 1px solid var(--border);
+      background: var(--inset);
+      color: var(--text);
+      font-family: inherit;
+      font-size: 12.5px;
+      font-weight: 400;
+      outline: none;
+    }
+
+    #conv-search::placeholder {
+      color: var(--muted);
+      font-weight: 400;
+    }
+
+    #conv-search:focus { border-color: var(--accent); }
+
+    .conv-search-hint {
+      margin-top: 6px;
+      font-size: 10.5px;
+      font-weight: 500;
+      letter-spacing: 0.02em;
+      color: var(--muted);
+    }
+
+    .conv-search-hint:empty { display: none; }
+
+    #drawer-close {
+      background: transparent;
+      border: none;
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1;
+      cursor: pointer;
+      padding: 4px 6px;
+      border-radius: 5px;
+    }
+
+    #drawer-close:hover {
+      color: var(--text);
+      background: var(--panel);
+    }
+
+    #conv-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 6px 8px 12px;
+    }
+
+    .conv-item {
+      width: 100%;
+      text-align: left;
+      padding: 7px 10px;
+      margin-bottom: 1px;
+      background: transparent;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      color: var(--text);
+      font-size: 12.5px;
+      font-family: inherit;
+      font-weight: 500;
+      line-height: 1.3;
+      cursor: pointer;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      word-break: break-word;
+      transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+    }
+
+    .conv-item:hover {
+      background: var(--panel);
+      border-color: transparent;
+    }
+
+    .conv-item.active {
+      background: rgba(168, 144, 108, 0.12);
+      border-color: rgba(168, 144, 108, 0.35);
+      color: var(--accent-hover);
+      font-weight: 600;
+    }
+
+    .conv-empty {
+      padding: 20px 12px;
+      font-size: 12.5px;
+      font-weight: 500;
+      text-align: center;
+      color: var(--muted);
+      line-height: 1.4;
+    }
+
+    .conv-section {
+      margin-bottom: 4px;
+    }
+
+    .conv-section + .conv-section {
+      margin-top: 6px;
+    }
+
+    .conv-section-label {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      width: 100%;
+      padding: 6px 10px 3px;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      text-align: left;
+      font-family: inherit;
+    }
+
+    .conv-section-label:hover { color: var(--text); }
+
+    .conv-section-chevron {
+      display: inline-block;
+      font-size: 8px;
+      opacity: 0.7;
+      transition: transform 0.15s ease;
+      transform: rotate(90deg);
+    }
+
+    .conv-section.collapsed .conv-section-chevron {
+      transform: rotate(0deg);
+    }
+
+    .conv-section-items {
+      display: block;
+      padding: 1px 0 2px;
+    }
+
+    .conv-section.collapsed .conv-section-items {
+      display: none;
+    }
+
+    .conv-section-count {
+      margin-left: auto;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0;
+      text-transform: none;
+      color: var(--muted);
+      background: var(--panel);
+      border-radius: 999px;
+      padding: 1px 6px;
+      line-height: 1.4;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .header-btn {
+      padding: 6px 12px;
+      background: var(--panel);
+      color: var(--accent);
+      border: 1px solid var(--accent);
+      border-radius: 6px;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 12.5px;
+      font-weight: 500;
+    }
+
+    .header-btn:hover { background: var(--accent-muted); }
+
+    .header-actions { display: flex; gap: 8px; align-items: center; }
+
+    /* ---- Capture toggle button ---- */
+    #capture-btn,
+    .capture-btn {
+      padding: 6px 14px;
+      border: none;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: background 0.2s, color 0.2s;
+      background: var(--success-bg);
+      color: var(--success);
+      border: 1px solid var(--success-border);
+      font-family: inherit;
+    }
+
+    #capture-btn.active,
+    .capture-btn.active {
+      background: var(--danger-bg);
+      color: var(--danger);
+      border-color: var(--danger);
+    }
+
+    #capture-btn .capture-dot,
+    .capture-btn .capture-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--success);
+      display: inline-block;
+      flex-shrink: 0;
+    }
+
+    #capture-btn.active .capture-dot,
+    .capture-btn.active .capture-dot {
+      background: var(--danger);
+      animation: pulse 1.2s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.35; }
+    }
+
+    /* ---- Messages ---- */
+    #messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .message {
+      max-width: 70%;
+      padding: 10px 14px;
+      border-radius: 12px;
+      line-height: 1.5;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+
+    .message.user {
+      background: var(--user-bubble);
+      align-self: flex-end;
+      color: var(--user-text);
+    }
+
+    .message.bot {
+      background: var(--bot-bubble);
+      align-self: flex-start;
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+
+    .message.bot.has-think {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-width: min(70%, 560px);
+    }
+
+    .think-block {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface);
+      overflow: hidden;
+    }
+
+    .think-toggle {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 10px;
+      background: transparent;
+      border: none;
+      color: var(--muted);
+      font-family: inherit;
+      font-size: 12px;
+      font-weight: 550;
+      cursor: pointer;
+      text-align: left;
+    }
+
+    .think-toggle:hover { color: var(--text); }
+
+    .think-chevron {
+      display: inline-block;
+      font-size: 10px;
+      transition: transform 0.15s ease;
+      transform: rotate(0deg);
+    }
+
+    .think-block.is-open .think-chevron {
+      transform: rotate(90deg);
+    }
+
+    .think-block.is-pending .think-label {
+      opacity: 0.85;
+    }
+
+    .think-block.is-pending .think-chevron {
+      animation: pulse 1.2s ease-in-out infinite;
+    }
+
+    .think-body {
+      display: none;
+      max-height: 180px;
+      overflow-y: auto;
+      padding: 0 10px 10px;
+      font-size: 12px;
+      font-weight: 400;
+      line-height: 1.45;
+      color: var(--muted);
+      white-space: pre-wrap;
+      word-break: break-word;
+      border-top: 1px solid transparent;
+    }
+
+    .think-block.is-open .think-body {
+      display: block;
+      border-top-color: var(--border);
+      padding-top: 8px;
+    }
+
+    .message-body {
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .message-body:empty { display: none; }
+
+    #input-row {
+      display: flex;
+      align-items: center;
+      padding: 16px;
+      gap: 10px;
+      background: var(--panel);
+      border-top: 1px solid var(--border);
+    }
+
+    #input-box {
+      flex: 1;
+      padding: 10px 14px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--inset);
+      color: var(--text);
+      font-size: 14px;
+      font-family: inherit;
+      outline: none;
+    }
+
+    #input-box:focus { border-color: var(--accent); }
+
+    #input-row .char-count {
+      margin-right: 0;
+      flex-shrink: 0;
+      min-width: 4.5em;
+      text-align: right;
+    }
+
+    #send-btn {
+      padding: 10px 20px;
+      background: var(--accent-fill);
+      color: var(--bg);
+      border: none;
+      border-radius: 8px;
+      font-weight: 600;
+      cursor: pointer;
+      font-size: 14px;
+    }
+
+    #send-btn:hover { background: var(--accent-fill-hover); }
+
+    /* ---- Loading / startup view ---- */
+    #loading-view {
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      padding: 24px;
+    }
+
+    .loading-spinner {
+      width: 36px;
+      height: 36px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: lspin 0.9s linear infinite;
+    }
+
+    @keyframes lspin { to { transform: rotate(360deg); } }
+
+    .loading-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--accent);
+      text-align: center;
+      max-width: 360px;
+      line-height: 1.45;
+      min-height: 1.45em;
+      transition: opacity 0.35s ease;
+    }
+
+    .loading-title.is-fading {
+      opacity: 0;
+    }
+
+    .loading-sub {
+      font-size: 13px;
+      opacity: 0.5;
+      text-align: center;
+      max-width: 300px;
+      line-height: 1.6;
+      color: var(--muted);
+    }
+
+    .loading-error {
+      font-size: 13px;
+      color: var(--danger);
+      text-align: center;
+      max-width: 340px;
+      line-height: 1.6;
+      display: none;
+    }
+
+    /* ---- Settings view ---- */
+    #settings-view {
+      min-height: 0;
+    }
+
+    #settings-view > header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-shrink: 0;
+    }
+
+    #settings-scroll {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px 24px 32px;
+      display: flex;
+      flex-direction: column;
+      gap: 28px;
+    }
+
+    .settings-section h2 {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--accent);
+      margin-bottom: 6px;
+    }
+
+    .settings-section > .settings-hint {
+      font-size: 13px;
+      opacity: 0.65;
+      margin-bottom: 14px;
+      line-height: 1.45;
+      color: var(--muted);
+    }
+
+    .settings-field {
+      margin-bottom: 12px;
+    }
+
+    .settings-field label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--muted);
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+
+    .settings-field input,
+    .settings-field textarea {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--inset);
+      color: var(--text);
+      font-size: 14px;
+      outline: none;
+      font-family: inherit;
+    }
+
+    .settings-field textarea {
+      min-height: 72px;
+      resize: vertical;
+      line-height: 1.4;
+    }
+
+    .settings-field input:focus,
+    .settings-field textarea:focus {
+      border-color: var(--accent);
+    }
+
+    #identity-fields {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .identity-row {
+      display: flex;
+      gap: 8px;
+      align-items: flex-start;
+    }
+
+    .identity-row .identity-key {
+      width: 140px;
+      flex-shrink: 0;
+    }
+
+    .identity-row .identity-val {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .identity-row .identity-remove {
+      flex-shrink: 0;
+      padding: 8px 10px;
+      background: transparent;
+      border: 1px solid var(--danger-border);
+      color: var(--danger);
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+
+    .identity-row .identity-remove:hover {
+      background: var(--danger-bg);
+      border-color: var(--danger);
+    }
+
+    #identity-add-row {
+      display: flex;
+      gap: 8px;
+      margin-top: 4px;
+    }
+
+    #identity-add-row input {
+      flex: 1;
+      padding: 8px 12px;
+      border-radius: 8px;
+      border: 1px dashed var(--border);
+      background: transparent;
+      color: var(--text);
+      font-size: 13px;
+      outline: none;
+    }
+
+    #identity-add-row input:focus { border-color: var(--accent); border-style: solid; }
+
+    .settings-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-top: 8px;
+    }
+
+    .settings-save-btn {
+      padding: 10px 18px;
+      background: var(--accent-fill);
+      color: var(--bg);
+      border: none;
+      border-radius: 8px;
+      font-weight: 600;
+      cursor: pointer;
+      font-size: 14px;
+    }
+
+    .settings-save-btn:hover { background: var(--accent-fill-hover); }
+    .settings-save-btn:disabled { opacity: 0.5; cursor: default; }
+
+    .settings-status {
+      font-size: 13px;
+      min-height: 18px;
+      opacity: 0.85;
+    }
+
+    .settings-status.error { color: var(--danger); }
+    .settings-status.ok { color: var(--accent); }
+
+    .settings-section-title-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 6px;
+    }
+
+    .settings-section-title-row h2 {
+      margin-bottom: 0;
+    }
+
+    .settings-badge {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--muted);
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 3px 8px;
+      line-height: 1.2;
+    }
+
+    .settings-section-disabled {
+      opacity: 0.72;
+      pointer-events: none;
+      user-select: none;
+    }
+
+    .settings-coming-soon {
+      border: 1px dashed var(--border);
+      border-radius: 10px;
+      padding: 16px 18px;
+      background: var(--surface);
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 500;
+      line-height: 1.5;
+    }
+
+    .settings-coming-soon p {
+      margin: 0 0 12px;
+      color: var(--text);
+      opacity: 0.88;
+    }
+
+    .settings-coming-soon p:last-child {
+      margin-bottom: 0;
+    }
+
+    .settings-coming-soon .settings-coming-label {
+      display: block;
+      font-size: 10.5px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+
+    .settings-capture-demos {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin: 0 0 14px;
+    }
+
+    .settings-capture-demos .capture-btn {
+      cursor: default;
+    }
+
+    .privacy-list {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+      background: var(--surface);
+    }
+
+    .privacy-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .privacy-row:last-child { border-bottom: none; }
+
+    .privacy-row-text {
+      min-width: 0;
+      flex: 1;
+    }
+
+    .privacy-row-text strong {
+      display: block;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 3px;
+    }
+
+    .privacy-row-text span {
+      font-size: 12px;
+      opacity: 0.6;
+      line-height: 1.4;
+      color: var(--muted);
+    }
+
+    /* Toggle switch */
+    .toggle {
+      position: relative;
+      width: 44px;
+      height: 24px;
+      flex-shrink: 0;
+    }
+
+    .toggle input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+      position: absolute;
+    }
+
+    .toggle-track {
+      position: absolute;
+      inset: 0;
+      background: var(--border);
+      border-radius: 999px;
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+
+    .toggle-track::after {
+      content: '';
+      position: absolute;
+      top: 3px;
+      left: 3px;
+      width: 18px;
+      height: 18px;
+      background: var(--muted);
+      border-radius: 50%;
+      transition: transform 0.15s ease;
+    }
+
+    .toggle input:checked + .toggle-track {
+      background: var(--accent);
+    }
+
+    .toggle input:checked + .toggle-track::after {
+      transform: translateX(20px);
+      background: var(--bg);
+    }
+
+    .toggle input:disabled + .toggle-track {
+      opacity: 0.5;
+      cursor: default;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Loading / startup view -->
+  <div id="loading-view" class="view">
+    <div class="loading-spinner"></div>
+    <div class="loading-title" id="loading-title">Clippy is stretching… don’t watch, it’s weird.</div>
+    <div class="loading-sub" id="loading-sub">Getting things ready…</div>
+    <div class="loading-error" id="loading-error"></div>
+  </div>
+
+  <!-- Name setup view -->
+  <div id="name-view" class="view">
+    <h1>Welcome to Clippy Vision</h1>
+    <p>What should I call you?</p>
+    <div id="name-row">
+      <input id="name-input" type="text" placeholder="Your name" autocomplete="off" />
+      <button id="name-submit">Continue</button>
+    </div>
+    <div id="name-error"></div>
+  </div>
+
+  <!-- Chat / message view -->
+  <div id="chat-view" class="view">
+    <header style="display:flex; justify-content:space-between; align-items:center;">
+      <div class="header-actions">
+        <button id="drawer-toggle" class="header-btn" title="Conversations">☰</button>
+        <span>Clippy Vision</span>
+      </div>
+      <div class="header-actions">
+        <button id="new-chat-btn" class="header-btn">New Chat</button>
+        <button id="settings-btn" class="header-btn" title="Settings">Settings</button>
+        <button id="capture-btn" title="Toggle screen capture">
+          <span class="capture-dot"></span>
+          <span id="capture-label">Start Capture</span>
+        </button>
+      </div>
+    </header>
+
+    <div id="chat-layout">
+      <div id="drawer-backdrop"></div>
+      <aside id="conv-drawer">
+        <div class="drawer-header">
+          <span>Conversations</span>
+          <button id="drawer-close" aria-label="Close">✕</button>
+        </div>
+        <div class="drawer-search-wrap">
+          <input id="conv-search" type="search" placeholder="Search chats…" autocomplete="off" />
+          <div id="conv-search-hint" class="conv-search-hint"></div>
+        </div>
+        <div id="conv-list"></div>
+      </aside>
+
+      <div id="chat-main" class="is-welcome">
+        <div id="welcome-screen" class="welcome-screen">
+          <div class="welcome-brand">
+            <img class="welcome-logo" src="../assets/logo_active.png" alt="" />
+            <h1 class="welcome-title">Clippy Vision</h1>
+            <p class="welcome-sub">Sees what you do. Remembers what you don’t.</p>
+          </div>
+          <div class="welcome-composer">
+            <textarea
+              id="welcome-input"
+              rows="2"
+              placeholder="How can I help you today?"
+              autocomplete="off"
+              maxlength="4000"
+            ></textarea>
+            <div class="welcome-composer-bar">
+              <span id="welcome-char-count" class="char-count" aria-live="polite"></span>
+              <button type="button" id="welcome-send">Send</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="messages"></div>
+
+        <div id="input-row">
+          <input id="input-box" type="text" placeholder="Ask Clippy..." maxlength="4000" />
+          <span id="input-char-count" class="char-count" aria-live="polite"></span>
+          <button id="send-btn">Send</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings view -->
+  <div id="settings-view" class="view">
+    <header>
+      <div class="header-actions">
+        <button id="settings-back" class="header-btn" title="Back to chat">← Back</button>
+        <span>Settings</span>
+      </div>
+    </header>
+
+    <div id="settings-scroll">
+      <section class="settings-section" id="profile-section">
+        <h2>Profile</h2>
+        <p class="settings-hint">
+          Your display name and what Clippy has stored about you. Edit anything here to correct or update it.
+        </p>
+
+        <div class="settings-field">
+          <label for="settings-name">Display name</label>
+          <input id="settings-name" type="text" autocomplete="off" placeholder="Your name" />
+        </div>
+
+        <div class="settings-field">
+          <label for="settings-intro">Introduction</label>
+          <textarea id="settings-intro" placeholder="A short intro Clippy keeps about you (optional)"></textarea>
+        </div>
+
+        <div class="settings-field">
+          <label>Memory profile</label>
+          <div id="identity-fields"></div>
+          <div id="identity-add-row">
+            <input id="identity-new-key" type="text" placeholder="Field (e.g. location)" />
+            <input id="identity-new-val" type="text" placeholder="Value" />
+            <button type="button" id="identity-add-btn" class="header-btn">Add</button>
+          </div>
+        </div>
+
+        <div class="settings-actions">
+          <button type="button" id="profile-save-btn" class="settings-save-btn">Save profile</button>
+          <span id="profile-status" class="settings-status"></span>
+        </div>
+      </section>
+
+      <section class="settings-section settings-section-disabled" id="privacy-section">
+        <div class="settings-section-title-row">
+          <h2>Access control</h2>
+          <span class="settings-badge">Coming soon</span>
+        </div>
+        <p class="settings-hint">
+          Soon you’ll be able to pick which apps and windows Clippy can see — sensitive ones
+          (messages, banking, etc.) will be blacked out automatically in screenshots.
+        </p>
+        <div class="settings-coming-soon" aria-disabled="true">
+          <p>
+            <strong style="font-weight:600; color: var(--text);">For now:</strong>
+            use screen capture as your privacy switch. When capture is off, Clippy stops
+            taking screenshots until you turn it back on.
+          </p>
+          <span class="settings-coming-label">Header controls</span>
+          <div class="settings-capture-demos">
+            <button type="button" class="capture-btn" tabindex="-1" aria-hidden="true">
+              <span class="capture-dot"></span>
+              <span>Start Capture</span>
+            </button>
+            <button type="button" class="capture-btn active" tabindex="-1" aria-hidden="true">
+              <span class="capture-dot"></span>
+              <span>Stop Capture</span>
+            </button>
+          </div>
+          <p>
+            Find these on the main chat header. Tap <em>Start Capture</em> when you want
+            Clippy watching your screen; tap <em>Stop Capture</em> whenever you need privacy
+            or you’re done for the moment.
+          </p>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <script>
+    const nameView = document.getElementById('name-view')
+    const chatView = document.getElementById('chat-view')
+    const settingsView = document.getElementById('settings-view')
+    const nameInput = document.getElementById('name-input')
+    const nameSubmit = document.getElementById('name-submit')
+    const nameError = document.getElementById('name-error')
+
+    const messages = document.getElementById('messages')
+    const inputBox = document.getElementById('input-box')
+    const sendBtn = document.getElementById('send-btn')
+    const newChatBtn = document.getElementById('new-chat-btn')
+    const settingsBtn = document.getElementById('settings-btn')
+    const settingsBack = document.getElementById('settings-back')
+    const captureBtn = document.getElementById('capture-btn')
+    const captureLabel = document.getElementById('capture-label')
+    const chatMain = document.getElementById('chat-main')
+    const welcomeInput = document.getElementById('welcome-input')
+    const welcomeSend = document.getElementById('welcome-send')
+    const welcomeCharCount = document.getElementById('welcome-char-count')
+    const inputCharCount = document.getElementById('input-char-count')
+
+    const USER_MESSAGE_MAX_CHARS = 4000
+    const CHAR_COUNT_SHOW_AT = Math.floor(USER_MESSAGE_MAX_CHARS * 0.7)
+
+    const drawer = document.getElementById('conv-drawer')
+    const drawerBackdrop = document.getElementById('drawer-backdrop')
+    const drawerToggle = document.getElementById('drawer-toggle')
+    const drawerClose = document.getElementById('drawer-close')
+    const convList = document.getElementById('conv-list')
+    const convSearch = document.getElementById('conv-search')
+    const convSearchHint = document.getElementById('conv-search-hint')
+
+    let searchTimer = null
+    let searchSeq = 0
+    let activeSearchQuery = ''
+
+    const loadingView  = document.getElementById('loading-view')
+    const loadingSub   = document.getElementById('loading-sub')
+    const loadingError = document.getElementById('loading-error')
+
+    const settingsName = document.getElementById('settings-name')
+    const settingsIntro = document.getElementById('settings-intro')
+    const identityFields = document.getElementById('identity-fields')
+    const identityNewKey = document.getElementById('identity-new-key')
+    const identityNewVal = document.getElementById('identity-new-val')
+    const identityAddBtn = document.getElementById('identity-add-btn')
+    const profileSaveBtn = document.getElementById('profile-save-btn')
+    const profileStatus = document.getElementById('profile-status')
+
+    let isLoading = false
+    // In-flight bot reply kept across conversation switches
+    let pendingReply = null // { conversationId, shell }
+    // Working copy of identity fields while editing settings (key -> value)
+    let identityDraft = {}
+    // Fields the user removed in the UI — sent as "" so the backend clears them
+    let identityCleared = new Set()
+
+    let conversationId = crypto.randomUUID()
+
+    function parseAssistantContent(raw) {
+      const text = raw || ''
+      const match = text.match(/^\s*<thinking>\s*([\s\S]*?)\s*<\/thinking>\s*([\s\S]*)$/i)
+        || text.match(/^\s*<think>\s*([\s\S]*?)\s*<\/think>\s*([\s\S]*)$/i)
+      if (match) {
+        return { thinking: match[1].trim(), content: match[2].trim() }
+      }
+      return { thinking: '', content: text }
+    }
+
+    function createBotReplyShell({ thinking = '', content = '', pending = false } = {}) {
+      const root = document.createElement('div')
+      root.className = 'message bot has-think'
+
+      const thinkBlock = document.createElement('div')
+      thinkBlock.className = 'think-block' + (pending ? ' is-pending' : '')
+
+      const toggle = document.createElement('button')
+      toggle.type = 'button'
+      toggle.className = 'think-toggle'
+      toggle.setAttribute('aria-expanded', 'false')
+      toggle.innerHTML = `<span class="think-chevron">▸</span><span class="think-label">${pending ? 'Thinking' : 'Thought'}</span>`
+
+      const thinkBody = document.createElement('div')
+      thinkBody.className = 'think-body'
+      thinkBody.textContent = thinking
+
+      toggle.addEventListener('click', () => {
+        const open = thinkBlock.classList.toggle('is-open')
+        toggle.setAttribute('aria-expanded', open ? 'true' : 'false')
+      })
+
+      thinkBlock.appendChild(toggle)
+      thinkBlock.appendChild(thinkBody)
+
+      const messageBody = document.createElement('div')
+      messageBody.className = 'message-body'
+      messageBody.textContent = content
+
+      root.appendChild(thinkBlock)
+      root.appendChild(messageBody)
+
+      if (!thinking && !pending) {
+        thinkBlock.style.display = 'none'
+      }
+
+      const label = toggle.querySelector('.think-label')
+
+      return {
+        root,
+        appendThinking(delta) {
+          thinkBlock.style.display = ''
+          thinkBlock.classList.add('is-pending')
+          thinkBody.textContent += delta
+          if (thinkBlock.classList.contains('is-open')) {
+            thinkBody.scrollTop = thinkBody.scrollHeight
+          }
+        },
+        appendContent(delta) {
+          messageBody.textContent += delta
+          messages.scrollTop = messages.scrollHeight
+        },
+        resetContent() {
+          messageBody.textContent = ''
+        },
+        setStatus(text) {
+          thinkBlock.style.display = ''
+          thinkBlock.classList.add('is-pending')
+          label.textContent = text || 'Thinking'
+        },
+        finalize() {
+          thinkBlock.classList.remove('is-pending')
+          label.textContent = thinkBody.textContent.trim() ? 'Thought' : 'Thinking'
+          if (!thinkBody.textContent.trim()) {
+            thinkBlock.style.display = 'none'
+          }
+        },
+        fail(message) {
+          thinkBlock.classList.remove('is-pending')
+          thinkBlock.style.display = 'none'
+          messageBody.textContent = message
+          messageBody.style.color = 'var(--danger)'
+        },
+      }
+    }
+
+    function updateCharCount(inputEl, countEl) {
+      const n = (inputEl.value || '').length
+      countEl.textContent = `${n} / ${USER_MESSAGE_MAX_CHARS}`
+      countEl.classList.toggle('is-visible', n >= CHAR_COUNT_SHOW_AT)
+      countEl.classList.toggle('is-warn', n >= CHAR_COUNT_SHOW_AT && n < USER_MESSAGE_MAX_CHARS)
+      countEl.classList.toggle('is-limit', n >= USER_MESSAGE_MAX_CHARS)
+      if (inputEl === welcomeInput) {
+        welcomeSend.disabled = isLoading || n > USER_MESSAGE_MAX_CHARS
+      } else {
+        sendBtn.disabled = isLoading || n > USER_MESSAGE_MAX_CHARS
+      }
+    }
+
+    function showView(view) {
+      nameView.classList.remove('active')
+      chatView.classList.remove('active')
+      loadingView.classList.remove('active')
+      settingsView.classList.remove('active')
+      view.classList.add('active')
+    }
+
+    const wideLayoutMq = window.matchMedia('(min-width: 800px)')
+
+    function isWideLayout() {
+      return wideLayoutMq.matches
+    }
+
+    function openDrawer() {
+      if (isWideLayout()) {
+        refreshConversationList()
+        return
+      }
+      drawer.classList.add('open')
+      drawerBackdrop.classList.add('open')
+      refreshConversationList()
+      setTimeout(() => convSearch.focus(), 50)
+    }
+
+    function closeDrawer() {
+      if (isWideLayout()) return
+      drawer.classList.remove('open')
+      drawerBackdrop.classList.remove('open')
+    }
+
+    function syncDrawerLayout() {
+      if (isWideLayout()) {
+        drawer.classList.remove('open')
+        drawerBackdrop.classList.remove('open')
+        if (chatView.classList.contains('active')) {
+          refreshConversationList()
+        }
+      } else {
+        drawer.classList.remove('open')
+        drawerBackdrop.classList.remove('open')
+      }
+    }
+
+    function setChatMode(mode) {
+      const welcome = mode === 'welcome'
+      chatMain.classList.toggle('is-welcome', welcome)
+      if (welcome) {
+        welcomeInput.value = ''
+        welcomeInput.style.height = 'auto'
+        setTimeout(() => welcomeInput.focus(), 40)
+      } else {
+        setTimeout(() => inputBox.focus(), 40)
+      }
+    }
+
+    function resetConversation() {
+      conversationId = crypto.randomUUID()
+      messages.innerHTML = ''
+      inputBox.value = ''
+      setChatMode('welcome')
+      highlightActiveConversation()
+      closeDrawer()
+    }
+
+    function addMessage(text, role) {
+      const uiRole = role === 'assistant' ? 'bot' : role
+      if (uiRole === 'bot') {
+        const parsed = parseAssistantContent(text)
+        const shell = createBotReplyShell({
+          thinking: parsed.thinking,
+          content: parsed.content,
+          pending: false,
+        })
+        messages.appendChild(shell.root)
+        messages.scrollTop = messages.scrollHeight
+        return shell.root
+      }
+
+      const div = document.createElement('div')
+      div.className = 'message user'
+      div.textContent = text
+      messages.appendChild(div)
+      messages.scrollTop = messages.scrollHeight
+      return div
+    }
+
+    function highlightActiveConversation() {
+      convList.querySelectorAll('.conv-item').forEach(el => {
+        el.classList.toggle('active', el.dataset.id === conversationId)
+      })
+    }
+
+    function startOfDay(d) {
+      return new Date(d.getFullYear(), d.getMonth(), d.getDate())
+    }
+
+    function getTimeBucket(timestamp) {
+      const date = new Date((timestamp || 0) * 1000)
+      const today = startOfDay(new Date())
+      const thatDay = startOfDay(date)
+      const diffDays = Math.round((today - thatDay) / 86400000)
+
+      if (diffDays <= 0) return { key: 'today', label: 'Today', order: 0 }
+      if (diffDays === 1) return { key: 'yesterday', label: 'Yesterday', order: 1 }
+      if (diffDays <= 3) return { key: '3days', label: '3 days ago', order: 2 }
+      if (diffDays <= 7) return { key: 'week', label: '1 week ago', order: 3 }
+      if (diffDays <= 30) return { key: 'last-month', label: 'Last month', order: 4 }
+
+      const label = date.toLocaleString('en-US', { month: 'long', year: 'numeric' })
+      const ym = date.getFullYear() * 12 + date.getMonth()
+      // 5 = one past the last recent bucket order (0-4)
+      // subtract from a fixed ceiling so newer months sort before older ones
+      const YM_CEILING = 2100 * 12
+      return {
+        key: `ym-${ym}`,
+        label,
+        order: 5 + (YM_CEILING - ym),
+      }
+    }
+
+    function groupConversationsByTime(items) {
+      const groups = new Map()
+
+      for (const item of items) {
+        const bucket = getTimeBucket(item.last_timestamp)
+        if (!groups.has(bucket.key)) {
+          groups.set(bucket.key, { ...bucket, items: [] })
+        }
+        groups.get(bucket.key).items.push(item)
+      }
+
+      return Array.from(groups.values()).sort((a, b) => {
+        if (a.order !== b.order) return a.order - b.order
+        return 0
+      })
+    }
+
+    function createConvButton(c) {
+      const btn = document.createElement('button')
+      btn.className = 'conv-item'
+      btn.dataset.id = c.conversation_id
+      btn.textContent = c.title || c.conversation_id
+      btn.title = c.title || c.conversation_id
+      if (c.conversation_id === conversationId) btn.classList.add('active')
+      btn.addEventListener('click', () => loadConversation(c.conversation_id))
+      return btn
+    }
+
+    function renderGroupedConversations(items) {
+      if (!items.length) {
+        convList.innerHTML = '<div class="conv-empty">No conversations yet</div>'
+        return
+      }
+
+      const groups = groupConversationsByTime(items)
+      const openByDefault = new Set(['today', 'yesterday', '3days'])
+      convList.innerHTML = ''
+
+      for (const group of groups) {
+        const section = document.createElement('div')
+        section.className = 'conv-section'
+        if (!openByDefault.has(group.key)) {
+          section.classList.add('collapsed')
+        }
+
+        const label = document.createElement('button')
+        label.type = 'button'
+        label.className = 'conv-section-label'
+        label.innerHTML =
+          `<span class="conv-section-chevron">▸</span>` +
+          `<span>${group.label}</span>` +
+          `<span class="conv-section-count">${group.items.length}</span>`
+        label.addEventListener('click', () => {
+          section.classList.toggle('collapsed')
+        })
+        section.appendChild(label)
+
+        const itemsWrap = document.createElement('div')
+        itemsWrap.className = 'conv-section-items'
+        for (const c of group.items) {
+          itemsWrap.appendChild(createConvButton(c))
+        }
+        section.appendChild(itemsWrap)
+
+        convList.appendChild(section)
+      }
+    }
+
+    function renderSearchResults(items, query) {
+      convList.innerHTML = ''
+      if (!items.length) {
+        convList.innerHTML = `<div class="conv-empty">No chats match “${query}”</div>`
+        return
+      }
+
+      const section = document.createElement('div')
+      section.className = 'conv-section'
+
+      const label = document.createElement('div')
+      label.className = 'conv-section-label'
+      label.style.cursor = 'default'
+      label.innerHTML =
+        `<span>Best matches</span>` +
+        `<span class="conv-section-count">${items.length}</span>`
+      section.appendChild(label)
+
+      const itemsWrap = document.createElement('div')
+      itemsWrap.className = 'conv-section-items'
+      for (const c of items) {
+        itemsWrap.appendChild(createConvButton(c))
+      }
+      section.appendChild(itemsWrap)
+      convList.appendChild(section)
+    }
+
+    async function refreshConversationList() {
+      const q = (convSearch.value || '').trim()
+      activeSearchQuery = q
+      const seq = ++searchSeq
+
+      if (!q) {
+        convSearchHint.textContent = ''
+        try {
+          const data = await window.clippy.listConversations()
+          if (seq !== searchSeq) return
+          const items = (data.conversations || []).slice().sort(
+            (a, b) => (b.last_timestamp || 0) - (a.last_timestamp || 0)
+          )
+          renderGroupedConversations(items)
+        } catch (error) {
+          if (seq !== searchSeq) return
+          convList.innerHTML = `<div class="conv-empty">Failed to load: ${error.message}</div>`
+        }
+        return
+      }
+
+      convSearchHint.textContent = 'Searching…'
+      try {
+        const data = await window.clippy.searchConversations(q)
+        if (seq !== searchSeq) return
+        const items = data.conversations || []
+        renderSearchResults(items, q)
+      } catch (error) {
+        if (seq !== searchSeq) return
+        convSearchHint.textContent = ''
+        convList.innerHTML = `<div class="conv-empty">Search failed: ${error.message}</div>`
+      }
+    }
+
+    function scheduleConversationSearch() {
+      clearTimeout(searchTimer)
+      searchTimer = setTimeout(() => refreshConversationList(), 280)
+    }
+
+    async function loadConversation(id) {
+      try {
+        const data = await window.clippy.getConversation(id)
+        conversationId = id
+        messages.innerHTML = ''
+        const msgs = data.messages || []
+        if (!msgs.length && !(pendingReply && pendingReply.conversationId === id)) {
+          setChatMode('welcome')
+        } else {
+          setChatMode('chat')
+          for (const m of msgs) {
+            addMessage(m.content, m.role)
+          }
+          // Re-attach in-flight reply if user left and came back mid-stream
+          if (pendingReply && pendingReply.conversationId === id) {
+            const last = msgs[msgs.length - 1]
+            if (last && (last.role === 'assistant' || last.role === 'bot')) {
+              pendingReply = null
+            } else {
+              messages.appendChild(pendingReply.shell.root)
+              messages.scrollTop = messages.scrollHeight
+            }
+          }
+        }
+        highlightActiveConversation()
+        closeDrawer()
+      } catch (error) {
+        setChatMode('chat')
+        addMessage(`Error loading chat: ${error.message}`, 'bot')
+      }
+    }
+
+    async function send(fromWelcome = false) {
+      const source = fromWelcome ? welcomeInput : inputBox
+      const text = source.value.trim()
+      if (!text || isLoading) return
+      if (text.length > USER_MESSAGE_MAX_CHARS) {
+        updateCharCount(source, fromWelcome ? welcomeCharCount : inputCharCount)
+        return
+      }
+
+      if (fromWelcome || chatMain.classList.contains('is-welcome')) {
+        setChatMode('chat')
+      }
+
+      const requestConvId = conversationId
+      isLoading = true
+      addMessage(text, 'user')
+      source.value = ''
+      if (fromWelcome) welcomeInput.style.height = 'auto'
+      sendBtn.disabled = true
+      welcomeSend.disabled = true
+
+      const shell = createBotReplyShell({ pending: true })
+      messages.appendChild(shell.root)
+      messages.scrollTop = messages.scrollHeight
+      pendingReply = { conversationId: requestConvId, shell }
+
+      try {
+        await window.clippy.chatStream(text, requestConvId, (event) => {
+          if (!pendingReply || pendingReply.conversationId !== requestConvId) return
+          const s = pendingReply.shell
+          if (event.type === 'status') s.setStatus(event.text || 'Thinking')
+          else if (event.type === 'thinking') s.appendThinking(event.delta || '')
+          else if (event.type === 'content') s.appendContent(event.delta || '')
+          else if (event.type === 'reset_content') s.resetContent()
+          else if (event.type === 'error') s.fail(`Error: ${event.message || 'unknown'}`)
+          else if (event.type === 'done') s.finalize()
+        })
+        if (pendingReply && pendingReply.conversationId === requestConvId) {
+          pendingReply.shell.finalize()
+        }
+        refreshConversationList()
+      } catch (error) {
+        if (pendingReply && pendingReply.conversationId === requestConvId) {
+          pendingReply.shell.fail(`Error: ${error.message}`)
+        }
+      } finally {
+        if (pendingReply && pendingReply.conversationId === requestConvId) {
+          pendingReply = null
+        }
+        isLoading = false
+        sendBtn.disabled = false
+        welcomeSend.disabled = false
+        if (conversationId === requestConvId) inputBox.focus()
+      }
+    }
+
+    async function submitName() {
+      const name = nameInput.value.trim()
+      if (!name) {
+        nameError.textContent = 'Please enter your name.'
+        return
+      }
+
+      nameSubmit.disabled = true
+      nameError.textContent = ''
+
+      try {
+        await window.clippy.setName(name)
+        showView(chatView)
+        const active = await window.clippy.getCaptureStatus()
+        setCaptureUI(active)
+        setChatMode('welcome')
+        syncDrawerLayout()
+      } catch (error) {
+        nameError.textContent = `Could not save name: ${error.message}`
+      } finally {
+        nameSubmit.disabled = false
+      }
+    }
+
+    async function init() {
+      // Show loading screen immediately while preflight + API boot
+      showView(loadingView)
+      const loadingTitle = document.getElementById('loading-title')
+      const loadingSub = document.getElementById('loading-sub')
+
+      const LOADING_QUIPS = [
+        'Clippy is stretching… don’t watch, it’s weird.',
+        'Clippy is getting ready… no peeking.',
+        'Clipping into your system. This won\'t hurt (much).',
+        'Dusting off the models.',
+        'Fit-checking the GPU.',
+        'Almost clipped. Try not to blink.',
+        'Loading brains into RAM. Clip holding strong.',
+        'The paperclip has entered the chat.',
+        "Getting ready. Still faster than your ex texting back.",
+        'Sharpening the clip. Softening the paper.',
+        'Clippy\'s paying more attention than you did in that meeting',
+        'Unlocking third eye.',
+      ]
+
+      // Rotate witty lines while we wait (shuffle once, then cycle)
+      const quipOrder = LOADING_QUIPS
+        .map((text, i) => ({ text, i, r: Math.random() }))
+        .sort((a, b) => a.r - b.r)
+        .map((x) => x.text)
+      let quipIdx = 0
+      loadingTitle.textContent = quipOrder[0]
+
+      const quipTimer = setInterval(() => {
+        quipIdx = (quipIdx + 1) % quipOrder.length
+        loadingTitle.classList.add('is-fading')
+        setTimeout(() => {
+          loadingTitle.textContent = quipOrder[quipIdx]
+          loadingTitle.classList.remove('is-fading')
+        }, 350)
+      }, 2800)
+
+      // Factual status from main stays in the quieter subtitle
+      window.clippy.onLoadingStatus((data) => {
+        if (data?.sub) loadingSub.textContent = data.sub
+      })
+
+      // Wait for main process to tell us the API is healthy.
+      // Also try polling directly in case the app launched after the API was
+      // already up (e.g. user closed and re-opened the window quickly).
+      await new Promise((resolve) => {
+        // Direct poll — resolves immediately if server is already alive
+        const poll = () => {
+          window.clippy.checkHealth().then(ok => {
+            if (ok) resolve()
+            else setTimeout(poll, 1500)
+          }).catch(() => setTimeout(poll, 1500))
+        }
+        poll()
+
+        // Also listen for the IPC push from main (more reliable on fresh boot)
+        window.clippy.onApiReady(() => resolve())
+      })
+
+      clearInterval(quipTimer)
+      loadingTitle.classList.remove('is-fading')
+
+      // API is up — now do the normal name check
+      try {
+        const { name } = await window.clippy.getName()
+        if (name && name.trim()) {
+          showView(chatView)
+          const active = await window.clippy.getCaptureStatus()
+          setCaptureUI(active)
+          setChatMode('welcome')
+          syncDrawerLayout()
+        } else {
+          showView(nameView)
+          nameInput.focus()
+        }
+      } catch (error) {
+        showView(nameView)
+        nameError.textContent = `Could not load profile: ${error.message}`
+        nameInput.focus()
+      }
+    }
+
+    nameSubmit.addEventListener('click', submitName)
+    nameInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter') submitName()
+    })
+
+    drawerToggle.addEventListener('click', openDrawer)
+    drawerClose.addEventListener('click', closeDrawer)
+    drawerBackdrop.addEventListener('click', closeDrawer)
+
+    convSearch.addEventListener('input', scheduleConversationSearch)
+    convSearch.addEventListener('keydown', e => {
+      if (e.key === 'Escape') {
+        if (convSearch.value) {
+          convSearch.value = ''
+          scheduleConversationSearch()
+        } else if (!isWideLayout()) {
+          closeDrawer()
+        } else {
+          convSearch.blur()
+        }
+      }
+    })
+
+    if (wideLayoutMq.addEventListener) {
+      wideLayoutMq.addEventListener('change', syncDrawerLayout)
+    } else {
+      wideLayoutMq.addListener(syncDrawerLayout)
+    }
+
+    newChatBtn.addEventListener('click', resetConversation)
+    sendBtn.addEventListener('click', () => send(false))
+    inputBox.addEventListener('keydown', e => {
+      if (e.key === 'Enter') send(false)
+    })
+
+    welcomeSend.addEventListener('click', () => send(true))
+    welcomeInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault()
+        send(true)
+      }
+    })
+    welcomeInput.addEventListener('input', () => {
+      welcomeInput.style.height = 'auto'
+      welcomeInput.style.height = Math.min(welcomeInput.scrollHeight, 160) + 'px'
+      updateCharCount(welcomeInput, welcomeCharCount)
+    })
+    inputBox.addEventListener('input', () => {
+      updateCharCount(inputBox, inputCharCount)
+    })
+
+    function setCaptureUI(active) {
+      if (active) {
+        captureBtn.classList.add('active')
+        captureLabel.textContent = 'Stop Capture'
+      } else {
+        captureBtn.classList.remove('active')
+        captureLabel.textContent = 'Start Capture'
+      }
+    }
+
+    captureBtn.addEventListener('click', async () => {
+      captureBtn.disabled = true
+      try {
+        await window.clippy.toggleCapture()
+      } finally {
+        captureBtn.disabled = false
+      }
+    })
+
+    // keep button in sync when tray toggles capture
+    window.clippy.onCaptureStatusChanged((active) => {
+      setCaptureUI(active)
+    })
+
+    function setStatus(el, text, kind) {
+      el.textContent = text || ''
+      el.classList.remove('ok', 'error')
+      if (kind) el.classList.add(kind)
+    }
+
+    function renderIdentityFields() {
+      identityFields.innerHTML = ''
+      const keys = Object.keys(identityDraft).sort()
+      if (!keys.length) {
+        const empty = document.createElement('div')
+        empty.className = 'settings-hint'
+        empty.style.marginBottom = '0'
+        empty.textContent = 'Nothing stored yet — Clippy will fill this in as you chat, or add fields below.'
+        identityFields.appendChild(empty)
+        return
+      }
+      for (const key of keys) {
+        const row = document.createElement('div')
+        row.className = 'identity-row'
+        row.dataset.key = key
+
+        const keyInput = document.createElement('input')
+        keyInput.className = 'identity-key'
+        keyInput.type = 'text'
+        keyInput.value = key
+        keyInput.readOnly = true
+        keyInput.title = key
+
+        const valInput = document.createElement('input')
+        valInput.className = 'identity-val'
+        valInput.type = 'text'
+        valInput.value = identityDraft[key] || ''
+        valInput.addEventListener('input', () => {
+          identityDraft[key] = valInput.value
+        })
+
+        const removeBtn = document.createElement('button')
+        removeBtn.type = 'button'
+        removeBtn.className = 'identity-remove'
+        removeBtn.title = 'Clear this field'
+        removeBtn.textContent = '✕'
+        removeBtn.addEventListener('click', () => {
+          identityCleared.add(key)
+          delete identityDraft[key]
+          renderIdentityFields()
+        })
+
+        row.appendChild(keyInput)
+        row.appendChild(valInput)
+        row.appendChild(removeBtn)
+        identityFields.appendChild(row)
+      }
+    }
+
+    function addIdentityField() {
+      const key = identityNewKey.value.trim().toLowerCase().replace(/\s+/g, '_')
+      const val = identityNewVal.value.trim()
+      if (!key) {
+        setStatus(profileStatus, 'Enter a field name to add.', 'error')
+        return
+      }
+      identityDraft[key] = val
+      identityCleared.delete(key)
+      identityNewKey.value = ''
+      identityNewVal.value = ''
+      renderIdentityFields()
+      setStatus(profileStatus, '', null)
+    }
+
+    async function loadSettings() {
+      setStatus(profileStatus, 'Loading…', null)
+      try {
+        const profile = await window.clippy.getProfile()
+        settingsName.value = profile.name || ''
+        settingsIntro.value = profile.introduction || ''
+        identityDraft = { ...(profile.identity || {}) }
+        identityCleared = new Set()
+        renderIdentityFields()
+        setStatus(profileStatus, '', null)
+      } catch (error) {
+        setStatus(profileStatus, `Could not load profile: ${error.message}`, 'error')
+      }
+    }
+
+    async function saveProfile() {
+      const name = settingsName.value.trim()
+      if (!name) {
+        setStatus(profileStatus, 'Display name cannot be empty.', 'error')
+        return
+      }
+
+      profileSaveBtn.disabled = true
+      setStatus(profileStatus, 'Saving…', null)
+
+      // Include cleared fields as empty strings so the backend can override them away
+      const identityPayload = { ...identityDraft }
+      for (const key of identityCleared) {
+        if (!(key in identityPayload)) identityPayload[key] = ''
+      }
+
+      try {
+        const updated = await window.clippy.updateProfile({
+          name,
+          introduction: settingsIntro.value,
+          identity: identityPayload,
+        })
+        settingsName.value = updated.name || ''
+        settingsIntro.value = updated.introduction || ''
+        identityDraft = { ...(updated.identity || {}) }
+        identityCleared = new Set()
+        renderIdentityFields()
+        setStatus(profileStatus, 'Profile saved.', 'ok')
+        setTimeout(() => setStatus(profileStatus, '', null), 2000)
+      } catch (error) {
+        setStatus(profileStatus, `Could not save: ${error.message}`, 'error')
+      } finally {
+        profileSaveBtn.disabled = false
+      }
+    }
+
+    async function openSettings() {
+      closeDrawer()
+      showView(settingsView)
+      await loadSettings()
+    }
+
+    function closeSettings() {
+      showView(chatView)
+      if (chatMain.classList.contains('is-welcome')) welcomeInput.focus()
+      else inputBox.focus()
+    }
+
+    settingsBtn.addEventListener('click', openSettings)
+    settingsBack.addEventListener('click', closeSettings)
+    identityAddBtn.addEventListener('click', addIdentityField)
+    identityNewVal.addEventListener('keydown', e => {
+      if (e.key === 'Enter') addIdentityField()
+    })
+    identityNewKey.addEventListener('keydown', e => {
+      if (e.key === 'Enter') identityNewVal.focus()
+    })
+    profileSaveBtn.addEventListener('click', saveProfile)
+
+    init()
+  </script>
+
+</body>
+</html>

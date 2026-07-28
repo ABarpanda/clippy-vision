@@ -34,9 +34,9 @@ class Priority:
 
 
 class Job:
-    __slots__ = ("url", "payload", "timeout", "event", "result", "error", "enqueued_at")
+    __slots__ = ("url", "payload", "timeout", "event", "result", "error", "enqueued_at", "stream", "chunks")
 
-    def __init__(self, url: str, payload: dict, timeout: float):
+    def __init__(self, url: str, payload: dict, timeout: float, stream: bool = False):
         self.url = url
         self.payload = payload
         self.timeout = timeout
@@ -44,6 +44,8 @@ class Job:
         self.result = None
         self.error = None
         self.enqueued_at = time.monotonic()
+        self.stream = stream
+        self.chunks = queue.Queue() if stream else None
 
 
 class LLMGateway:
@@ -103,6 +105,31 @@ class LLMGateway:
         waited = time.monotonic() - job.enqueued_at
         print(f"[gateway] escape hatch triggered after {waited:.0f}s wait — running despite pressure")
 
+    def _run_stream_job(self, job: "Job") -> None:
+        try:
+            req = urllib.request.Request(
+                job.url,
+                data=json.dumps(job.payload).encode(),
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=job.timeout) as resp:
+                while True:
+                    line = resp.readline()
+                    if not line:
+                        break
+                    line = line.decode("utf-8", errors="replace").strip()
+                    if not line:
+                        continue
+                    try:
+                        job.chunks.put(json.loads(line))
+                    except json.JSONDecodeError:
+                        continue
+        except Exception as e:
+            job.error = e
+        finally:
+            job.chunks.put(None)  # sentinel — stream finished
+            job.event.set()
+
     def _worker_loop(self):
         while True:
             priority, seq, job = self.queue.get()
@@ -111,26 +138,28 @@ class LLMGateway:
             if priority > Priority.INTERACTIVE:
                 self._health_gate(job)
 
-            try:
-                req = urllib.request.Request(
-                    job.url,
-                    data=json.dumps(job.payload).encode(),
-                    headers={"Content-Type": "application/json"})
+            if job.stream:
+                self._run_stream_job(job)
+            else:
+                try:
+                    req = urllib.request.Request(
+                        job.url,
+                        data=json.dumps(job.payload).encode(),
+                        headers={"Content-Type": "application/json"})
 
-                with urllib.request.urlopen(req, timeout=job.timeout) as resp:
-                    job.result = json.loads(resp.read())
-            except Exception as e:
-                job.error = e
-            finally:
-                job.event.set()
-                self.queue.task_done()
+                    with urllib.request.urlopen(req, timeout=job.timeout) as resp:
+                        job.result = json.loads(resp.read())
+                except Exception as e:
+                    job.error = e
+                finally:
+                    job.event.set()
+
+            self.queue.task_done()
 
             # Give the CPU breathing room between consecutive background jobs.
             # This sleep is after event.set() so the caller is already unblocked.
             if priority >= Priority.BACKGROUND:
                 time.sleep(_BG_INTER_JOB_SLEEP)
-
-
 
     def chat(self, messages, model, *, priority=Priority.FOREGROUND, tools=None, format=None, options=None, think=None, timeout=180) -> dict | None:
         payload = {
@@ -154,6 +183,34 @@ class LLMGateway:
         if job.error:
             raise job.error
         return job.result
+
+    def chat_stream(self, messages, model, *, priority=Priority.FOREGROUND, tools=None, format=None, options=None, think=None, timeout=180):
+        """Yield Ollama NDJSON stream chunks for one chat call (thinking + content deltas)."""
+        payload = {
+            "model": model,
+            "messages": messages,
+            "stream": True,
+        }
+        if tools is not None:
+            payload["tools"] = tools
+        if format is not None:
+            payload["format"] = format
+        if options is not None:
+            payload["options"] = options
+        if think is not None:
+            payload["think"] = think
+
+        job = Job(OLLAMA_URL, payload, timeout, stream=True)
+        self.queue.put((priority, next(self._seq), job))
+
+        while True:
+            chunk = job.chunks.get()
+            if chunk is None:
+                break
+            yield chunk
+
+        if job.error:
+            raise job.error
 
     def embed(self, text, *, embed_model, priority=Priority.FOREGROUND, timeout=60):
         """Embed a string (or list of strings) through the same serialized queue.

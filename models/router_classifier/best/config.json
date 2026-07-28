@@ -3,11 +3,9 @@
   "categories": [
     "time_anchored",
     "topic_search",
-    "aggregation",
     "specific_recall",
     "memory_query",
-    "casual",
-    "follow_up_inherit"
+    "casual"
   ],
   "secondary_threshold": 0.2
 }

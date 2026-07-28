@@ -1,0 +1,180 @@
+﻿{"text": "what did I get done yesterday?", "primary": "time_anchored", "tag": "easy"}
+{"text": "walk me through my day today", "primary": "time_anchored", "tag": "paraphrase"}
+{"text": "what was I doing at around 3pm today?", "primary": "time_anchored", "tag": "easy"}
+{"text": "show me my activity from June 23", "primary": "time_anchored", "tag": "easy"}
+{"text": "what was I working on two days ago?", "primary": "time_anchored", "tag": "easy"}
+{"text": "did I get anything done this morning?", "primary": "time_anchored", "tag": "easy"}
+{"text": "what was I up to last Friday?", "primary": "time_anchored", "tag": "easy"}
+{"text": "tell me about my day", "primary": "time_anchored", "tag": "ood"}
+{"text": "what was I doing an hour ago?", "primary": "time_anchored", "tag": "easy"}
+{"text": "what did i doo yesturday", "primary": "time_anchored", "tag": "typo"}
+{"text": "waht was I working on this mroning", "primary": "time_anchored", "tag": "typo"}
+{"text": "what did I work on the day before yesterday?", "primary": "time_anchored", "tag": "easy"}
+{"text": "what was happening on my screen last night?", "primary": "time_anchored", "tag": "paraphrase"}
+{"text": "I need to fill my timesheet, what did I do this week?", "primary": "time_anchored", "tag": "ood"}
+{"text": "can you recall my activity from 2026-07-05?", "primary": "time_anchored", "tag": "ood"}
+{"text": "was I productive today?", "primary": "time_anchored", "tag": "paraphrase"}
+{"text": "what did I do earlier today?", "primary": "time_anchored", "tag": "easy"}
+{"text": "what happened on my computer this afternoon?", "primary": "time_anchored", "tag": "paraphrase"}
+{"text": "what tasks did I finish last month?", "primary": "time_anchored", "tag": "easy"}
+{"text": "do you remember what I did yesterday?", "primary": "time_anchored", "tag": "boundary"}
+{"text": "what was I doing just now?", "primary": "time_anchored", "tag": "easy"}
+{"text": "give me the details of what I did last Tuesday", "primary": "time_anchored", "tag": "easy"}
+{"text": "what did I work on over the last three days?", "primary": "time_anchored", "tag": "easy"}
+{"text": "how did I spend my Sunday?", "primary": "time_anchored", "tag": "boundary"}
+{"text": "list everything I did tonight", "primary": "time_anchored", "tag": "easy"}
+{"text": "what was I up to on the 4th of July?", "primary": "time_anchored", "tag": "ood"}
+{"text": "what did I spend my evening on yesterday?", "primary": "time_anchored", "tag": "paraphrase"}
+{"text": "anything interesting I did this weekend?", "primary": "time_anchored", "tag": "paraphrase"}
+{"text": "what meetings and tasks filled my Wednesday?", "primary": "time_anchored", "tag": "ood"}
+{"text": "wht was i dong last weke", "primary": "time_anchored", "tag": "typo"}
+{"text": "what have I been working on lately?", "primary": "topic_search", "tag": "boundary"}
+{"text": "what was I doing before sleeping?", "primary": "topic_search", "tag": "boundary"}
+{"text": "show me everything related to the Launchway project", "primary": "topic_search", "tag": "easy"}
+{"text": "what have I been doing with Docker?", "primary": "topic_search", "tag": "easy"}
+{"text": "what did I research about vector databases?", "primary": "topic_search", "tag": "easy"}
+{"text": "have I done anything with the landing page redesign?", "primary": "topic_search", "tag": "easy"}
+{"text": "what progress have I made on my thesis?", "primary": "topic_search", "tag": "easy"}
+{"text": "what was I working on the other day?", "primary": "topic_search", "tag": "boundary"}
+{"text": "what have I been reading recently?", "primary": "topic_search", "tag": "boundary"}
+{"text": "what do I usually work on in the mornings?", "primary": "topic_search", "tag": "boundary"}
+{"text": "whats going on with my portfolio site", "primary": "topic_search", "tag": "easy"}
+{"text": "what have I been up to these days?", "primary": "topic_search", "tag": "boundary"}
+{"text": "did I ever work on anything with GraphQL?", "primary": "topic_search", "tag": "easy"}
+{"text": "what was that project with the maps API?", "primary": "topic_search", "tag": "paraphrase"}
+{"text": "catch me up on the budget spreadsheet work", "primary": "topic_search", "tag": "ood"}
+{"text": "what have I done for the marketing campaign?", "primary": "topic_search", "tag": "easy"}
+{"text": "what was I doing before the meeting?", "primary": "topic_search", "tag": "boundary"}
+{"text": "any progress on the mobile app?", "primary": "topic_search", "tag": "paraphrase"}
+{"text": "what kind of python stuff have I been doing?", "primary": "topic_search", "tag": "easy"}
+{"text": "what have I been lerning about kubernetes", "primary": "topic_search", "tag": "typo"}
+{"text": "tell me about my work on the recipe blog", "primary": "topic_search", "tag": "easy"}
+{"text": "which is the best project I have worked on?", "primary": "topic_search", "tag": "boundary"}
+{"text": "I need to write a report on the project I was working on last week.", "primary": "topic_search", "secondary": ["time_anchored"], "tag": "boundary"}
+{"text": "did I do any work on the api integration?", "primary": "topic_search", "tag": "easy"}
+{"text": "what was I researching about home workouts?", "primary": "topic_search", "tag": "easy"}
+{"text": "how's my novel draft coming along?", "primary": "topic_search", "tag": "paraphrase"}
+{"text": "what tools have I been using for image editing?", "primary": "topic_search", "tag": "easy"}
+{"text": "whatever happened with that css animation experiment?", "primary": "topic_search", "tag": "ood"}
+{"text": "am I still working on the chess engine?", "primary": "topic_search", "tag": "paraphrase"}
+{"text": "wat hav I been doing with the resume", "primary": "topic_search", "tag": "typo"}
+{"text": "how many hours did I code this week?", "primary": "aggregation", "secondary": ["time_anchored"], "tag": "easy"}
+{"text": "how much time did I spend on YouTube yesterday?", "primary": "aggregation", "secondary": ["time_anchored"], "tag": "easy"}
+{"text": "which app did I use the most?", "primary": "aggregation", "tag": "easy"}
+{"text": "how often do I open Slack?", "primary": "aggregation", "tag": "easy"}
+{"text": "what's my total screen time today?", "primary": "aggregation", "secondary": ["time_anchored"], "tag": "easy"}
+{"text": "give me a breakdown of my app usage this week", "primary": "aggregation", "secondary": ["time_anchored"], "tag": "easy"}
+{"text": "how long was I in meetings on Monday?", "primary": "aggregation", "secondary": ["time_anchored"], "tag": "easy"}
+{"text": "how many times did I check twitter today?", "primary": "aggregation", "secondary": ["time_anchored"], "tag": "easy"}
+{"text": "whats the average time I spend coding per day?", "primary": "aggregation", "tag": "easy"}
+{"text": "give me a weekly summary", "primary": "aggregation", "tag": "boundary"}
+{"text": "how many hours do I usually spend coding?", "primary": "aggregation", "tag": "boundary"}
+{"text": "which project did I spend the most hours on?", "primary": "aggregation", "tag": "boundary"}
+{"text": "count how many websites I visited today", "primary": "aggregation", "secondary": ["time_anchored"], "tag": "easy"}
+{"text": "how mnay hours did i work yesterday", "primary": "aggregation", "secondary": ["time_anchored"], "tag": "typo"}
+{"text": "what fraction of my day goes to email?", "primary": "aggregation", "tag": "paraphrase"}
+{"text": "how long did that debugging session take?", "primary": "aggregation", "tag": "paraphrase"}
+{"text": "total time on figma this month?", "primary": "aggregation", "secondary": ["time_anchored"], "tag": "easy"}
+{"text": "how many days did I work on the essay?", "primary": "aggregation", "tag": "easy"}
+{"text": "what did I spend the least time on this week?", "primary": "aggregation", "secondary": ["time_anchored"], "tag": "easy"}
+{"text": "how much of my week went into the redesign?", "primary": "aggregation", "tag": "paraphrase"}
+{"text": "give me stats on my browser usage", "primary": "aggregation", "tag": "paraphrase"}
+{"text": "how many hours of gaming this weekend?", "primary": "aggregation", "secondary": ["time_anchored"], "tag": "easy"}
+{"text": "whats my longest coding session ever?", "primary": "aggregation", "tag": "easy"}
+{"text": "on average how many apps do I use per day?", "primary": "aggregation", "tag": "easy"}
+{"text": "how frequently do I switch between apps?", "primary": "aggregation", "tag": "easy"}
+{"text": "how long have I spent on the report so far?", "primary": "aggregation", "tag": "easy"}
+{"text": "breakdown of my time by project please", "primary": "aggregation", "tag": "paraphrase"}
+{"text": "did I spend more time coding or browsing this week?", "primary": "aggregation", "secondary": ["time_anchored"], "tag": "easy"}
+{"text": "how much time do I waste on social media per week?", "primary": "aggregation", "tag": "easy"}
+{"text": "hw many hrs did I spent on youtube", "primary": "aggregation", "tag": "typo"}
+{"text": "what was the link I copied about React?", "primary": "specific_recall", "tag": "easy"}
+{"text": "what was the error message I got when deploying?", "primary": "specific_recall", "tag": "easy"}
+{"text": "what url was I on an hour ago?", "primary": "specific_recall", "secondary": ["time_anchored"], "tag": "easy"}
+{"text": "what did I paste into the terminal?", "primary": "specific_recall", "tag": "easy"}
+{"text": "what was the name of that article about sleep?", "primary": "specific_recall", "tag": "easy"}
+{"text": "find the command I ran to set up the venv", "primary": "specific_recall", "tag": "easy"}
+{"text": "what was that stackoverflow link from yesterday?", "primary": "specific_recall", "secondary": ["time_anchored"], "tag": "easy"}
+{"text": "what file was I editing this morning?", "primary": "specific_recall", "secondary": ["time_anchored"], "tag": "easy"}
+{"text": "what was the exact wording of the message I sent to Sarah?", "primary": "specific_recall", "tag": "easy"}
+{"text": "whats the github repo I starred?", "primary": "specific_recall", "tag": "paraphrase"}
+{"text": "what was the recipe website I had open?", "primary": "specific_recall", "tag": "easy"}
+{"text": "remember when I was debugging that weird crash last week? what was the error message?", "primary": "specific_recall", "secondary": ["time_anchored"], "tag": "boundary"}
+{"text": "what was the tracking number I copied?", "primary": "specific_recall", "tag": "easy"}
+{"text": "what did I search for this week?", "primary": "specific_recall", "secondary": ["time_anchored"], "tag": "boundary"}
+{"text": "what was the title of the youtube video I watched about investing?", "primary": "specific_recall", "tag": "easy"}
+{"text": "what package did I install yesterday?", "primary": "specific_recall", "secondary": ["time_anchored"], "tag": "easy"}
+{"text": "what was the address I looked up on maps?", "primary": "specific_recall", "tag": "easy"}
+{"text": "pull up the quote I copied from that book", "primary": "specific_recall", "tag": "paraphrase"}
+{"text": "what was the flight number in the confirmation email?", "primary": "specific_recall", "tag": "ood"}
+{"text": "what wsa the link i coppied about tailwind", "primary": "specific_recall", "tag": "typo"}
+{"text": "what port was the dev server running on?", "primary": "specific_recall", "tag": "ood"}
+{"text": "what was the exact error in the console?", "primary": "specific_recall", "tag": "easy"}
+{"text": "which pdf did I have open last night?", "primary": "specific_recall", "secondary": ["time_anchored"], "tag": "easy"}
+{"text": "what was the price of the laptop I was looking at?", "primary": "specific_recall", "tag": "ood"}
+{"text": "what was the wifi password I copied?", "primary": "specific_recall", "tag": "easy"}
+{"text": "what did the popup on my screen say?", "primary": "specific_recall", "tag": "paraphrase"}
+{"text": "what was the name of the font I picked in figma?", "primary": "specific_recall", "tag": "ood"}
+{"text": "find the docs page I was reading about async", "primary": "specific_recall", "tag": "easy"}
+{"text": "what was the phone number on that invoice?", "primary": "specific_recall", "tag": "ood"}
+{"text": "what promo code did I copy at checkout?", "primary": "specific_recall", "tag": "ood"}
+{"text": "what do you know about me?", "primary": "memory_query", "tag": "easy"}
+{"text": "what are my skills?", "primary": "memory_query", "tag": "easy"}
+{"text": "where do I work?", "primary": "memory_query", "tag": "easy"}
+{"text": "what's my name?", "primary": "memory_query", "tag": "easy"}
+{"text": "do you remember my name?", "primary": "memory_query", "tag": "boundary"}
+{"text": "what are my goals?", "primary": "memory_query", "tag": "easy"}
+{"text": "what projects have I told you about?", "primary": "memory_query", "tag": "boundary"}
+{"text": "what languages do I know?", "primary": "memory_query", "tag": "boundary"}
+{"text": "what did I tell you about my diet?", "primary": "memory_query", "tag": "easy"}
+{"text": "what are my hobbies?", "primary": "memory_query", "tag": "easy"}
+{"text": "remind me what I said my top priority was", "primary": "memory_query", "tag": "paraphrase"}
+{"text": "what do you remember about my family?", "primary": "memory_query", "tag": "easy"}
+{"text": "whats my job title?", "primary": "memory_query", "tag": "easy"}
+{"text": "what preferences have I shared with you?", "primary": "memory_query", "tag": "easy"}
+{"text": "what did I say my favorite editor was?", "primary": "memory_query", "tag": "easy"}
+{"text": "do you know my birthday?", "primary": "memory_query", "tag": "easy"}
+{"text": "what did I tell you about my manager?", "primary": "memory_query", "tag": "easy"}
+{"text": "list the facts you have stored about me", "primary": "memory_query", "tag": "paraphrase"}
+{"text": "what are my dietary restrictions?", "primary": "memory_query", "tag": "easy"}
+{"text": "waht do you knwo about me", "primary": "memory_query", "tag": "typo"}
+{"text": "what did I say about my sleep schedule?", "primary": "memory_query", "tag": "easy"}
+{"text": "what team am I on at work?", "primary": "memory_query", "tag": "ood"}
+{"text": "have I told you about my fitness goals?", "primary": "memory_query", "tag": "easy"}
+{"text": "what's my dog's name?", "primary": "memory_query", "tag": "ood"}
+{"text": "which city did I say I live in?", "primary": "memory_query", "tag": "easy"}
+{"text": "what do you remember about my side projects?", "primary": "memory_query", "tag": "boundary"}
+{"text": "what did I mention about my allergies?", "primary": "memory_query", "tag": "easy"}
+{"text": "recall what I told you about my thesis topic", "primary": "memory_query", "tag": "paraphrase"}
+{"text": "what are the things I asked you to remember?", "primary": "memory_query", "tag": "easy"}
+{"text": "whats my usual work schedule according to what I told you?", "primary": "memory_query", "tag": "boundary"}
+{"text": "what is 2+2?", "primary": "casual", "tag": "easy"}
+{"text": "explain closures in javascript", "primary": "casual", "tag": "easy"}
+{"text": "write a haiku about autumn", "primary": "casual", "tag": "easy"}
+{"text": "whats the capital of Australia?", "primary": "casual", "tag": "easy"}
+{"text": "should I use REST or GraphQL for a small app?", "primary": "casual", "tag": "easy"}
+{"text": "tell me a joke", "primary": "casual", "tag": "easy"}
+{"text": "how do I center a div?", "primary": "casual", "tag": "easy"}
+{"text": "whats the difference between TCP and UDP?", "primary": "casual", "tag": "easy"}
+{"text": "give me a good pasta recipe", "primary": "casual", "tag": "easy"}
+{"text": "convert 100 fahrenheit to celsius", "primary": "casual", "tag": "easy"}
+{"text": "draft a polite email declining a meeting", "primary": "casual", "tag": "easy"}
+{"text": "why is the sky blue?", "primary": "casual", "tag": "easy"}
+{"text": "recommend some sci-fi books", "primary": "casual", "tag": "easy"}
+{"text": "how does photosynthesis work?", "primary": "casual", "tag": "easy"}
+{"text": "whats a good name for a coffee shop?", "primary": "casual", "tag": "easy"}
+{"text": "hows it going?", "primary": "casual", "tag": "easy"}
+{"text": "explain the difference between let and const", "primary": "casual", "tag": "easy"}
+{"text": "what year did world war 2 end?", "primary": "casual", "tag": "easy"}
+{"text": "help me brainstorm birthday gift ideas", "primary": "casual", "tag": "easy"}
+{"text": "wahts the fastest way to lern spanish", "primary": "casual", "tag": "typo"}
+{"text": "is it healthy to skip breakfast?", "primary": "casual", "tag": "easy"}
+{"text": "summarize the plot of hamlet", "primary": "casual", "tag": "easy"}
+{"text": "whats 15% of 240?", "primary": "casual", "tag": "easy"}
+{"text": "translate 'good morning' to japanese", "primary": "casual", "tag": "easy"}
+{"text": "write a regex to match email addresses", "primary": "casual", "tag": "easy"}
+{"text": "good morning!", "primary": "casual", "tag": "easy"}
+{"text": "can you explain big O notation?", "primary": "casual", "tag": "easy"}
+{"text": "how long does it take to boil an egg?", "primary": "casual", "tag": "boundary"}
+{"text": "how much water should I drink a day?", "primary": "casual", "tag": "boundary"}
+{"text": "whats the best way to learn piano?", "primary": "casual", "tag": "easy"}

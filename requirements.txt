@@ -9,3 +9,8 @@ mcp
 transformers>=4.40.0
 torch
 scikit-learn
+fastapi
+uvicorn[standard]
+scipy
+numpy
+httpx

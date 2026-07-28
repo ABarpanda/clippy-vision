@@ -4,7 +4,8 @@ from typing import Optional
 
 from core.memory_store import (
     get_identity, get_introduction, get_all_clusters,
-    get_active_facts, save_identity_field
+    get_active_facts, save_identity_field,
+    get_identity_for_semantic_profile, update_field_embedding,
 )
 
 from core.distil import save_note_to_memory
@@ -14,6 +15,11 @@ EMBED_MODEL      = "nomic-embed-text"
 MEMORY_TOP_K     = 8     # max facts to inject per turn
 MEMORY_MIN_SIM   = 0.55  # floor — below this a fact is unrelated (was 0.30; raised to reduce noise)
 MAX_MEMORY_CHARS = 2000  # token budget guard
+
+# Profile semantic slicing
+_PROFILE_ALWAYS_ON = {"name", "location"}  # injected regardless of query
+_PROFILE_TOP_K     = 5     # max additional fields after always-on
+_PROFILE_MIN_SIM   = 0.25  # lower than fact threshold — fields are shorter and more general
 
 
 def _cosine_sim(a: list, b: list) -> float:
@@ -75,7 +81,7 @@ def semantic_memory_context_from_vec(q_vec: list) -> str:
     chars = 0
     for c in clusters_ordered:
         header = f"[{c['label']}] {c['description']}"
-        lines  = [f"  - {text}  ({sim:.2f})" for sim, text in c["facts"]]
+        lines  = [f"  - {text}" for sim, text in c["facts"]]
         block  = header + "\n" + "\n".join(lines)
         if chars + len(block) > MAX_MEMORY_CHARS:
             break
@@ -84,18 +90,72 @@ def semantic_memory_context_from_vec(q_vec: list) -> str:
 
     return "\n\n".join(sections) if sections else ""
 
-def get_autobiographical_context() -> str:
-    """Formatted for injection into system prompt."""
-    identity = get_identity()
-    intro    = get_introduction()
-    if not identity and not intro:
+def get_autobiographical_context(q_vec: list | None = None) -> str:
+    """Formatted for injection into system prompt.
+
+    When q_vec is provided, identity fields are ranked by cosine similarity to the
+    current query. Always-on fields (name, location) are always included. Up to
+    _PROFILE_TOP_K additional fields are selected by relevance. Dirty fields
+    (newly written, no cached embedding) are re-embedded and cached on the fly.
+
+    When q_vec is None (no embedding available), all fields are returned as before.
+    """
+    intro = get_introduction()
+
+    # ── Fallback: no query vector → return everything ─────────────────────────
+    if q_vec is None:
+        identity = get_identity()
+        if not identity and not intro:
+            return "No profile data yet. Ask the user to share more about themselves."
+        lines = []
+        if intro:
+            lines.append(intro)
+        for field, value in identity.items():
+            lines.append(f"{field}: {value}")
+        return "\n".join(lines)
+
+    # ── Semantic slicing path ─────────────────────────────────────────────────
+    fields = get_identity_for_semantic_profile()
+    if not fields and not intro:
         return "No profile data yet. Ask the user to share more about themselves."
+
+    # Re-embed any dirty fields (newly written) and cache immediately
+    for f in fields:
+        if f["embedding"] is None:
+            try:
+                emb = gateway.embed(
+                    f"{f['field']}: {f['display']}",
+                    embed_model=EMBED_MODEL,
+                    priority=Priority.INTERACTIVE,
+                )
+                f["embedding"] = emb
+                update_field_embedding(f["field"], emb)
+            except Exception:
+                pass
+
+    always_on: list[dict] = []
+    scoreable: list[tuple[float, dict]] = []
+
+    for f in fields:
+        if f["field"] in _PROFILE_ALWAYS_ON:
+            always_on.append(f)
+        elif f["embedding"] is not None:
+            sim = _cosine_sim(q_vec, f["embedding"])
+            if sim >= _PROFILE_MIN_SIM:
+                scoreable.append((sim, f))
+
+    scoreable.sort(key=lambda x: x[0], reverse=True)
+    top_fields = [f for _, f in scoreable[:_PROFILE_TOP_K]]
+
     lines = []
     if intro:
         lines.append(intro)
-    for field, value in identity.items():
-        lines.append(f"{field}: {value}")
-    return "\n".join(lines)
+    for f in always_on:
+        lines.append(f"{f['field']}: {f['display']}")
+    for f in top_fields:
+        lines.append(f"{f['field']}: {f['display']}")
+
+    return "\n".join(lines) if lines else "No profile data yet. Ask the user to share more about themselves."
 
 def recall_memory() -> str:
     """List clusters for the recall_memory tool."""
@@ -118,7 +178,7 @@ def fetch_cluster(label: str) -> str:
         return f"Cluster '{label}' exists but has no active facts."
     return "\n".join(f"- {f}" for f in facts)
 
-def save_identity(field: str, value: str, op: str="set", items: Optional[list[str]]=None) -> str:
+def save_identity(field: str, value: str = "", op: str = "set", items: Optional[list[str]] = None) -> str:
     return save_identity_field(field, value=value, source="agent", op=op, items=items)
 
 def save_note(note: str) -> str:

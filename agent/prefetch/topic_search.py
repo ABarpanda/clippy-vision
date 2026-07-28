@@ -2,14 +2,14 @@ import re
 import sqlite3
 import time
 from typing import Optional
-from pathlib import Path
 import math
 import json
 
 from core.llm_gateway import gateway, Priority
 from agent.helpers.keywords import keywords_from_query, content_keywords
+from core.paths import get_db_path
 
-_DB_PATH = Path(__file__).parent.parent.parent / "core" / "data" / "events.db"
+_DB_PATH = get_db_path()
 _conn = sqlite3.connect(str(_DB_PATH), check_same_thread=False, timeout=30)
 _conn.execute("PRAGMA journal_mode=WAL")
 
@@ -44,10 +44,11 @@ def entity_boost(keywords: list[str], entities: list[str]) -> float:
     hits = sum(1 for kw in keywords if any(kw in e for e in ents))
     return min(hits * 0.05, 0.15)
 
-def topic_search(query: str, q_vec, temporal_range= None) -> str:
+def topic_search(query: str, q_vec: list | None, temporal_range=None) -> str:
 
     keywords = keywords_from_query(query)
-    q_vec = gateway.embed(query, priority=Priority.INTERACTIVE, embed_model=EMBED_MODEL)
+    if q_vec is None:
+        q_vec = gateway.embed(query, priority=Priority.INTERACTIVE, embed_model=EMBED_MODEL)
 
     date_filter_query = date_filter(temporal_range)
     sql = f"""

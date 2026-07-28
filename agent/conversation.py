@@ -15,6 +15,13 @@ RECENT_SUMMARIES   = 2    # summaries always injected (most recent first)
 DEEP_SUMMARIES     = 2    # additional summaries via semantic retrieval
 SUMMARY_MIN_SIM    = 0.35 # floor for deep summary retrieval
 
+# Conversation search ranking
+SEARCH_HALF_LIFE_DAYS = 14.0  # recency halves every 2 weeks
+SEARCH_SIM_WEIGHT     = 0.72  # semantic similarity share of final score
+SEARCH_RECENCY_WEIGHT = 0.28  # recency share — recent chats rise when sims are close
+SEARCH_MIN_SIM        = 0.22  # drop chats below this max turn similarity
+SEARCH_DEFAULT_LIMIT  = 20
+
 
 # ─────────────────────────────────────────────────────────────
 # Helpers
@@ -86,6 +93,146 @@ def get_recent_chats(conversation_id: str, limit: int = RECENT_TURNS_LIMIT) -> l
         rows = rows[:limit]
     rows.reverse()  # oldest-first for natural reading order
     return [{"role": r, "content": c} for r, c in rows]
+
+
+def _truncate_title(raw: str) -> str:
+    title = " ".join((raw or "").split())
+    if len(title) > 72:
+        title = title[:69].rstrip() + "…"
+    return title or "New conversation"
+
+
+def list_conversations() -> list[dict]:
+    """All conversations with a display title, most recently active first.
+
+    Title is the first user message (truncated). Falls back to the first
+    non-empty turn, then a generic label.
+    """
+    rows = conn.execute(
+        """SELECT
+             c.conversation_id,
+             MAX(c.timestamp) AS last_ts,
+             (
+               SELECT content FROM conversations c2
+               WHERE c2.conversation_id = c.conversation_id
+                 AND c2.is_summary_chat = 0
+                 AND c2.role = 'user'
+               ORDER BY c2.timestamp ASC LIMIT 1
+             ) AS first_user,
+             (
+               SELECT content FROM conversations c3
+               WHERE c3.conversation_id = c.conversation_id
+                 AND c3.is_summary_chat = 0
+               ORDER BY c3.timestamp ASC LIMIT 1
+             ) AS first_any
+           FROM conversations c
+           WHERE c.is_summary_chat = 0
+           GROUP BY c.conversation_id
+           ORDER BY last_ts DESC"""
+    ).fetchall()
+
+    return [
+        {
+            "conversation_id": cid,
+            "last_timestamp": last_ts,
+            "title": _truncate_title(first_user or first_any or ""),
+        }
+        for cid, last_ts, first_user, first_any in rows
+    ]
+
+
+def search_conversations(query: str, limit: int = 20) -> list[dict]:
+    """Semantic conversation search with a recency boost.
+
+    Uses existing per-turn / summary vector embeddings (built on save).
+    Score = SIM_WEIGHT * max_cosine_sim + RECENCY_WEIGHT * half_life_decay.
+    Keyword hits on content get a small similarity bump so exact phrases still surface.
+    """
+    q = (query or "").strip()
+    if not q:
+        return list_conversations()[:limit]
+
+    meta = {c["conversation_id"]: c for c in list_conversations()}
+    if not meta:
+        return []
+
+    q_lower = q.lower()
+    now = time.time()
+
+    try:
+        q_vec = gateway.embed(q, embed_model=EMBED_MODEL, priority=Priority.INTERACTIVE)
+    except Exception:
+        q_vec = None
+
+    best_sim: dict[str, float] = {cid: 0.0 for cid in meta}
+
+    if q_vec:
+        rows = conn.execute(
+            """SELECT conversation_id, content, vector_embedding
+               FROM conversations
+               WHERE vector_embedding IS NOT NULL"""
+        ).fetchall()
+        for cid, content, vec_json in rows:
+            if cid not in best_sim:
+                continue
+            try:
+                sim = _cosine_sim(q_vec, json.loads(vec_json))
+            except Exception:
+                continue
+            if content and q_lower in content.lower():
+                sim = min(1.0, sim + 0.08)
+            if sim > best_sim[cid]:
+                best_sim[cid] = sim
+    else:
+        # Embedder unavailable — fall back to keyword-only ranking.
+        rows = conn.execute(
+            """SELECT conversation_id, content FROM conversations
+               WHERE is_summary_chat = 0"""
+        ).fetchall()
+        for cid, content in rows:
+            if cid not in best_sim or not content:
+                continue
+            if q_lower in content.lower():
+                best_sim[cid] = max(best_sim[cid], 0.55)
+
+    # Title keyword fallback for chats that never got embeddings yet
+    for cid, info in meta.items():
+        if q_lower in (info.get("title") or "").lower():
+            best_sim[cid] = max(best_sim[cid], 0.6)
+
+    scored: list[tuple[float, dict]] = []
+    for cid, info in meta.items():
+        sim = best_sim.get(cid, 0.0)
+        if sim < SEARCH_MIN_SIM:
+            continue
+        age_days = max(0.0, (now - (info.get("last_timestamp") or now)) / 86400.0)
+        recency = math.exp(-math.log(2) * age_days / SEARCH_HALF_LIFE_DAYS)
+        score = SEARCH_SIM_WEIGHT * sim + SEARCH_RECENCY_WEIGHT * recency
+        scored.append((score, {
+            "conversation_id": cid,
+            "last_timestamp": info["last_timestamp"],
+            "title": info["title"],
+            "score": round(score, 4),
+            "similarity": round(sim, 4),
+            "recency": round(recency, 4),
+        }))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [item for _, item in scored[:limit]]
+
+
+def get_conversation_messages(conversation_id: str) -> list[dict]:
+    """All raw turns for a conversation, oldest-first (for UI reload)."""
+    rows = conn.execute(
+        """SELECT role, content, timestamp FROM conversations
+           WHERE conversation_id = ? AND is_summary_chat = 0
+           ORDER BY timestamp ASC""",
+        (conversation_id,),
+    ).fetchall()
+    return [
+        {"role": role, "content": content, "timestamp": ts}
+        for role, content, ts in rows
+    ]
 
 
 def get_recent_summaries(conversation_id: str, limit: int = RECENT_SUMMARIES) -> list[str]:

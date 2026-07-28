@@ -1,0 +1,82 @@
+{
+  "name": "clippy-vision",
+  "productName": "Clippy Vision",
+  "version": "1.0.0",
+  "description": "Local AI desktop companion with screen awareness",
+  "author": "Clippy Vision",
+  "license": "ISC",
+  "main": "electron/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win",
+    "dist:dir": "electron-builder --win --dir",
+    "pack": "electron-builder --win --dir"
+  },
+  "keywords": [],
+  "devDependencies": {
+    "@vitejs/plugin-react": "^6.0.3",
+    "electron": "^43.1.1",
+    "electron-builder": "^26.15.3",
+    "vite": "^8.1.5",
+    "vite-plugin-electron": "^1.1.0"
+  },
+  "dependencies": {
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
+  },
+  "build": {
+    "appId": "com.clippyvision.app",
+    "productName": "Clippy Vision",
+    "copyright": "Copyright © Clippy Vision",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "electron/**/*",
+      "src/**/*",
+      "assets/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "..",
+        "to": "clippy",
+        "filter": [
+          "api_server.py",
+          "requirements.txt",
+          "pyproject.toml",
+          "agent/**/*",
+          "core/**/*",
+          "classifier/**/*",
+          "models/router_classifier/best/**/*",
+          "!**/__pycache__/**",
+          "!**/*.pyc",
+          "!**/*.pyo",
+          "!core/data/**",
+          "!**/*.db",
+          "!**/*.db-wal",
+          "!**/*.db-shm"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "assets/icon.ico",
+      "artifactName": "ClippyVision-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Clippy Vision",
+      "uninstallDisplayName": "Clippy Vision"
+    },
+    "asar": true
+  }
+}

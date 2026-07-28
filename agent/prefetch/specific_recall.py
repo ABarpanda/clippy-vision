@@ -2,19 +2,26 @@ import json
 import re
 import sqlite3
 import time
-from pathlib import Path
+
+# Ensure events / events_fts tables exist before we touch the index
+import core.storage  # noqa: F401
 
 from agent.prefetch.topic_search import cosine_similarity
 from agent.helpers.time_resolver import resolve_temporal_range
 from agent.helpers.detect_recency import detect_recency_hint
 from agent.helpers.keywords import keywords_from_query, content_keywords, STOPWORDS
+from core.paths import get_db_path
 
-DB_PATH = Path(__file__).parent.parent.parent / "core" / "data" / "events.db"
+
+DB_PATH = get_db_path()
 conn = sqlite3.connect(str(DB_PATH), check_same_thread=False, timeout=30.0)
 
 conn.execute("PRAGMA journal_mode=WAL")
-conn.execute("INSERT INTO events_fts(events_fts) VALUES('rebuild')")
-conn.commit()
+try:
+    conn.execute("INSERT INTO events_fts(events_fts) VALUES('rebuild')")
+    conn.commit()
+except sqlite3.OperationalError as e:
+    print(f"[specific_recall] FTS rebuild skipped: {e}")
 
 MAX_RESULTS = 5
 DEFAULT_LOOKBACK_DAYS = 7
@@ -526,25 +533,17 @@ def _format_url_results(session_results, event_results) -> str:
         )
     return "\n\n---\n".join(parts)
     
-def specific_recall(query: str, temporal_range=None) -> str:
+def specific_recall(query: str, temporal_range=None, q_vec: list | None = None) -> str:
     from concurrent.futures import ThreadPoolExecutor
-    from core.llm_gateway import gateway, Priority
 
     artifact_type = detect_artifact_type(query)
     keywords      = keywords_from_query(query)
     recency_hint  = detect_recency_hint(query)
 
     if artifact_type == "url":
-        try:
-            query_vec = gateway.embed(
-                query, embed_model="nomic-embed-text", priority=Priority.INTERACTIVE
-            )
-        except Exception:
-            query_vec = None
-
         with ThreadPoolExecutor(max_workers=2) as executor:
             session_f = executor.submit(
-                search_sessions_for_url, query, query_vec, keywords, temporal_range, recency_hint
+                search_sessions_for_url, query, q_vec, keywords, temporal_range, recency_hint
             )
             event_f = executor.submit(
                 search_events_for_url, keywords, temporal_range, recency_hint

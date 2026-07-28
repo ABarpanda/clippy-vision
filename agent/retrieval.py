@@ -1,12 +1,13 @@
 import sqlite3
-from pathlib import Path
 import time
 import math
 from core.llm_gateway import gateway, Priority
 import re
 import json
 
-_DB_PATH = Path(__file__).parent.parent / "core" / "data" / "events.db"
+from core.paths import get_db_path
+
+_DB_PATH = get_db_path()
 
 conn = sqlite3.connect(str(_DB_PATH), check_same_thread=False, timeout=30)
 conn.execute("PRAGMA journal_mode=WAL")

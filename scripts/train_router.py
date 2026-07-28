@@ -51,11 +51,9 @@ OUTPUT_DIR     = ROOT / "models" / "router_classifier"
 CATEGORIES = [
     "time_anchored",
     "topic_search",
-    "aggregation",
     "specific_recall",
     "memory_query",
     "casual",
-    "follow_up_inherit",
 ]
 LABEL2ID = {c: i for i, c in enumerate(CATEGORIES)}
 ID2LABEL = {i: c for c, i in LABEL2ID.items()}

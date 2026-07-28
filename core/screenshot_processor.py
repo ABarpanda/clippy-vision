@@ -18,7 +18,9 @@ PHASH_THRESHOLD = 2              # bit distance: 0-2 = identical, 10+ = very dif
 NEAREST_EVENT_WINDOW_SECS = 10  # ±10s to find a nearby event
 RECENT_THRESHOLD_SECS = 60      # screenshots within this window are processed first
 
-_SCREENSHOT_DIR = Path(__file__).parent / "data" / "screenshots"
+from paths import get_screenshots_dir
+
+_SCREENSHOT_DIR = get_screenshots_dir()
 
 
 # ─────────────────────────────────────────────────────────────
@@ -231,7 +233,8 @@ def _process_group(group: list[Path]) -> bool:
         print(f"  [screenshot_processor] {verdict['verdict']} | {activity}")
     except Exception as e:
         print(f"  [screenshot_processor] Vision failed for {representative.name}: {e}")
-        return False  # do not mark any member processed — retry next cycle
+        _mark_as_processed(representative)
+        return False
 
     # Copy verdict to all other group members (different timestamps, same screen content)
     for path in group[:-1]:

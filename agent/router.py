@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 import sys
 import os
 import json
+import threading
 from pathlib import Path
 import torch
 
@@ -14,10 +15,12 @@ class RouterDecision:
     secondary: list[str]
     temporal_hint: str | None = None
     needs_memory_fetch: bool = False
+    # Label → softmax score for secondaries (used by should_prefetch thresholds)
+    secondary_scores: dict[str, float] = field(default_factory=dict)
 
 CATEGORIES = [
-    "time_anchored", "topic_search", "aggregation", "specific_recall",
-    "memory_query", "casual", "follow_up_inherit",
+    "time_anchored", "topic_search", "specific_recall",
+    "memory_query", "casual",
 ]
 ID2LABEL = {i: c for i, c in enumerate(CATEGORIES)}
 
@@ -28,16 +31,16 @@ SECONDARY_THRESHOLD = 0.20
 CLASSIFIER_PATH = Path(__file__).parent.parent / "models" / "router_classifier" / "best"
 
 _PREFETCH_THRESHOLDS: dict[str, float] = {
-    "aggregation":     0.60,
     "memory_query":    0.55,
     "time_anchored":   0.55,
     "specific_recall": 0.30,
     "topic_search":    0.25,
-    # Categories that are not listed here are not prefetched
+    # Categories not listed here are not prefetched
 }
 
 _classification_model = None
 _classification_tokenizer = None
+_classifier_lock = threading.Lock()
 
 class MiniLMClassifier(torch.nn.Module):
   def __init__(self, base_model:str, num_labels: int):
@@ -60,24 +63,25 @@ class MiniLMClassifier(torch.nn.Module):
 
 def load_classifier():
   global _classification_model, _classification_tokenizer
-  if _classification_model is not None:
-    return _classification_model, _classification_tokenizer
-  
-  if not CLASSIFIER_PATH.exists():
-    print(f"[router] Classifier model not found at {CLASSIFIER_PATH}")
-    return None, None
+  with _classifier_lock:
+    if _classification_model is not None:
+      return _classification_model, _classification_tokenizer
 
-  try:
-    from transformers import AutoTokenizer
-    _classification_tokenizer = AutoTokenizer.from_pretrained(CLASSIFIER_PATH)
-    _classification_model = MiniLMClassifier(MINILM_MODEL, num_labels=len(CATEGORIES))
-    _classification_model.load_state_dict(torch.load(CLASSIFIER_PATH / "model.pt", map_location="cpu"))
-    _classification_model.eval()
-    print(f"[router] Classifier loaded successfully from {CLASSIFIER_PATH}")
-    return _classification_model, _classification_tokenizer
-  except Exception as e:
-    print(f"[router] Failed to load classifier: {e}")
-    return None, None
+    if not CLASSIFIER_PATH.exists():
+      print(f"[router] Classifier model not found at {CLASSIFIER_PATH}")
+      return None, None
+
+    try:
+      from transformers import AutoTokenizer
+      _classification_tokenizer = AutoTokenizer.from_pretrained(CLASSIFIER_PATH)
+      _classification_model = MiniLMClassifier(MINILM_MODEL, num_labels=len(CATEGORIES))
+      _classification_model.load_state_dict(torch.load(CLASSIFIER_PATH / "model.pt", map_location="cpu"))
+      _classification_model.eval()
+      print(f"[router] Classifier loaded successfully from {CLASSIFIER_PATH}")
+      return _classification_model, _classification_tokenizer
+    except Exception as e:
+      print(f"[router] Failed to load classifier: {e}")
+      return None, None
   
 def classify_query(query: str) -> tuple[RouterDecision|None, float|None]:
   model, tokenizer = load_classifier()
@@ -100,20 +104,36 @@ def classify_query(query: str) -> tuple[RouterDecision|None, float|None]:
   primary_label = ID2LABEL[primary_idx]
   confidence = probs[primary_idx]
 
-  secondary_labels = [ID2LABEL[i] for i, p in enumerate(probs) if p >= SECONDARY_THRESHOLD and i != primary_idx]
+  secondary_scores = {
+      ID2LABEL[i]: p for i, p in enumerate(probs)
+      if p >= SECONDARY_THRESHOLD and i != primary_idx
+  }
+  secondary_labels = list(secondary_scores.keys())
 
   return RouterDecision(
     primary=primary_label,
     secondary=secondary_labels,
     temporal_hint=None,
     needs_memory_fetch=
-    (primary_label in ("memory_query", "topic_search") or "memory_query" in secondary_labels)
+    (primary_label in ("memory_query", "topic_search") or "memory_query" in secondary_labels),
+    secondary_scores=secondary_scores,
   ), confidence
 
 
 def should_prefetch(decision: RouterDecision, confidence: float) -> bool:
-  threshold = _PREFETCH_THRESHOLDS.get(decision.primary)
-  return threshold is not None and confidence >= threshold
+    # Generative / chat turns: never pull activity/memory context via secondaries.
+    if decision.primary == "casual":
+        return False
+
+    threshold = _PREFETCH_THRESHOLDS.get(decision.primary)
+    primary_ok = threshold is not None and confidence >= threshold
+    # Secondaries must clear that route's own prefetch threshold (not just 0.20).
+    secondary_ok = any(
+        s in _PREFETCH_THRESHOLDS
+        and decision.secondary_scores.get(s, 0.0) >= _PREFETCH_THRESHOLDS[s]
+        for s in decision.secondary
+    )
+    return primary_ok or secondary_ok
 
 
 """

@@ -3,11 +3,12 @@ import sqlite3
 import json
 import time
 from core.events import Event
+from core.paths import get_db_path
 
 TTL_RAW_DAYS = 7
 TTL_SUMMARY_DAYS = 90
 
-_DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "events.db")
+_DB_PATH = str(get_db_path())
 conn = sqlite3.connect(_DB_PATH, check_same_thread=False, timeout=30)
 conn.execute("PRAGMA journal_mode=WAL")
 conn.commit()
@@ -48,6 +49,25 @@ CREATE TABLE IF NOT EXISTS events (
 conn.commit()
 
 #-------------------------------------#
+#---------- EVENTS FTS5 INDEX --------#
+#-------------------------------------#
+
+conn.execute("""
+CREATE VIRTUAL TABLE IF NOT EXISTS events_fts
+    USING fts5(
+        event_id UNINDEXED,
+        current_window_title,
+        active_url,
+        summary,
+        payload,
+        vision_ocr_text,
+        content='events',
+        content_rowid='rowid'
+    )
+""")
+conn.commit()
+
+#-------------------------------------#
 #---------- SUMMARY TABLE ------------#
 #-------------------------------------#
 
@@ -66,6 +86,19 @@ CREATE TABLE IF NOT EXISTS sessions(
     vision_enriched   INTEGER DEFAULT 0,
     summary_embedding TEXT
 )
+""")
+conn.commit()
+
+conn.execute("""
+CREATE VIRTUAL TABLE IF NOT EXISTS sessions_fts
+    USING fts5(
+        summary_id UNINDEXED,
+        summary,
+        active_task,
+        entities,
+        content='sessions',
+        content_rowid='rowid'
+    )
 """)
 conn.commit()
 
@@ -149,6 +182,38 @@ CREATE TABLE IF NOT EXISTS conversations (
 )
 """)
 conn.commit()
+
+#-------------------------------------#
+#-------- USER PROFILE TABLE ---------#
+#-------------------------------------#
+
+conn.execute("""
+CREATE TABLE IF NOT EXISTS user_profile (
+    id   INTEGER PRIMARY KEY CHECK (id = 1),
+    name TEXT NOT NULL DEFAULT ''
+)
+""")
+conn.commit()
+conn.execute("INSERT OR IGNORE INTO user_profile (id, name) VALUES (1, '')")
+conn.commit()
+
+
+def get_user_name() -> str:
+    row = conn.execute("SELECT name FROM user_profile WHERE id = 1").fetchone()
+    return row[0] if row else ""
+
+
+def set_user_name(name: str) -> str:
+    name = name.strip()
+    conn.execute(
+        "INSERT INTO user_profile (id, name) VALUES (1, ?) "
+        "ON CONFLICT(id) DO UPDATE SET name = excluded.name",
+        (name,),
+    )
+    conn.commit()
+    return name
+
+
 ###########################################
 ####### HELPERS FOR STORING EVENTS ########
 ###########################################

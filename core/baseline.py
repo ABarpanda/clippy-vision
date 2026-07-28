@@ -1,7 +1,9 @@
 import json, math, os, time, threading
 from typing import Optional
 
-BASELINE_PATH = "data/baseline.json"
+from paths import get_baseline_path
+
+BASELINE_PATH = str(get_baseline_path())
 _baseline_lock = threading.Lock()
 
 #--------------------------------#

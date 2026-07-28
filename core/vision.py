@@ -1,13 +1,19 @@
 from pathlib import Path
 import io
 import mss
-from PIL import Image
+from PIL import Image, ImageDraw
 import threading
 import time
 from typing import Optional
 
-_SCREENSHORT_DIR = Path(__file__).parent / "data" / "screenshots"
-_SCREENSHORT_DIR.mkdir(parents=True, exist_ok=True)
+import win32api
+import win32gui
+import win32process
+import psutil
+
+from paths import get_screenshots_dir
+
+_SCREENSHORT_DIR = get_screenshots_dir()
 
 MIN_GAP_SECONDS = 8
 
@@ -16,18 +22,65 @@ SCREENSHOT_TTL_MS = 24 * 60 * 60 * 1000 # 24 hours
 JPEG_QUALITY = 75
 ACTIVITY_DELAYS_SECS = (0, 4, 8)
 
-
+# Redaction rules (Clippy window + user privacy toggles) live in privacy_settings.
+from privacy_settings import is_clippy_window, should_redact_window
 
 _lock = threading.Lock()
 global _last_capture_ms
 _last_capture_ms = 0
+
+
+def _redact_clippy_windows(img: Image.Image) -> None:
+    """Paint a black rectangle over windows that should be hidden.
+
+    Clippy Vision is only redacted when it is the foreground window — if it is
+    minimized or behind another app, its rect no longer matches on-screen
+    pixels, so we must not black that region out.
+    User privacy targets (WhatsApp, etc.) are still redacted whenever visible.
+    """
+    scale = img.width / (win32api.GetSystemMetrics(0) or img.width)
+    draw  = ImageDraw.Draw(img)
+    try:
+        foreground_hwnd = win32gui.GetForegroundWindow()
+    except Exception:
+        foreground_hwnd = 0
+
+    def _visit(hwnd, _):
+        if not win32gui.IsWindowVisible(hwnd) or win32gui.IsIconic(hwnd):
+            return
+        try:
+            _, pid = win32process.GetWindowThreadProcessId(hwnd)
+            name   = psutil.Process(pid).name().lower()
+            title  = win32gui.GetWindowText(hwnd) or ""
+        except Exception:
+            return
+
+        if is_clippy_window(name, title):
+            # Only obscure Clippy when the user is actually looking at it
+            if hwnd != foreground_hwnd:
+                return
+        elif not should_redact_window(name, title):
+            return
+
+        left, top, right, bottom = win32gui.GetWindowRect(hwnd)
+        x0 = max(0, int(left   * scale))
+        y0 = max(0, int(top    * scale))
+        x1 = min(img.width,  int(right  * scale))
+        y1 = min(img.height, int(bottom * scale))
+        if x1 > x0 and y1 > y0:
+            draw.rectangle([x0, y0, x1, y1], fill=(0, 0, 0))
+
+    win32gui.EnumWindows(_visit, None)
+
 
 def capture_screenshot(timestamp_ms: int) -> Optional[Path]:
     try:
         with mss.mss() as sct:
             screenshot = sct.grab(sct.monitors[1])
             img = Image.frombytes("RGB", screenshot.size, screenshot.rgb)
-        
+
+        _redact_clippy_windows(img)
+
         path = _SCREENSHORT_DIR / f"{timestamp_ms}.jpg"
         buf = io.BytesIO()
         img.save(buf, format="JPEG", quality=JPEG_QUALITY)
@@ -86,7 +139,6 @@ def get_screenshots_near(
             candidates.append((abs(offset), path))
     candidates.sort(key=lambda x: x[0])
     return [path for _, path in candidates[:max_count]]
-
     
 def start_background_capture() -> None:
     while True:

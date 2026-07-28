@@ -1,370 +1,225 @@
-﻿# Clippy Vision V1.0
+﻿# Clippy Vision
 
-> **A fully local AI assistant that watches your work 24/7 to eliminate the context problem. 100% private—no cloud, no data leakage.**
+> **A fully local AI assistant that watches your work to eliminate the context problem. 100% private — no cloud, no data leakage.**
 
----
-
-## 🚀 Quick Start
-
-**New to Clippy Vision?** Get up and running in 5 minutes:
-
-### Windows Installation
-
-```powershell
-git clone https://github.com/yourusername/clippy-vision.git
-cd clippy-vision
-.\setup.ps1
-```
-
-Then start using it:
-```powershell
-# Terminal 1: Start capturing
-python core\screen_capture.py
-
-# Terminal 2: Chat with Clippy
-python agent\react_agent.py
-```
-
-📖 **[Full installation guide & troubleshooting →](QUICKSTART.md)**
+![Platform](https://img.shields.io/badge/platform-Windows-blue)
+![License](https://img.shields.io/badge/license-AGPL--3.0-green)
+![Models](https://img.shields.io/badge/models-Ollama%20local-orange)
 
 ---
 
-## Motivation
+## What is Clippy Vision?
 
-When building projects, I don't just write code...I juggle between reading articles, studying similar products, diving into documentation, and figuring out how to debug issues. Every time I turn to an LLM like ChatGPT or Claude for help, I have to re-explain everything: my idea, what I've already researched, what I've already tried. This gets exhausting fast. And when a conversation thread grows too long and you start a new session, all that intermediate context is gone, and the model has no idea where you left off.
+Clippy Vision is a desktop AI companion that passively observes your work — active windows, clipboard, typing patterns, and screenshots — and builds a continuously updating memory of everything you do. When you open the chat, it already knows your context. No copy-pasting. No re-explaining.
 
-Even if these tools did manage to answer your questions, they will never be able to do it with full privacy. Your data is not truly private; companies openly acknowledge using it to improve their models, which makes sense: **MORE DATA = BETTER MODELS**. But some things need to stay private. When you share something deeply personal with an AI assistant, there's no guarantee that data isn't being captured, logged, or seen by other parties. That's a real privacy threat.
+Everything runs entirely on your machine. No API keys, no cloud, no data leaving your device.
 
-This is why I built Clippy Vision. It solves the context problem entirely. It watches your work passively, 24/7, so you always have an assistant that knows exactly what you've been doing. More importantly, the entire infrastructure (database, model gateway, and the LLM itself) runs locally. No cloud. No data leakage. It learns continuously from your interactions; the more you use it, the better it understands you. Think of it as going from a stranger to a close companion, except this one never forgets a single detail about you and answers every question without you needing to provide any context upfront.
+---
+
+## Download
+
+**→ [Download ClippyVision-Setup-1.0.0.exe](https://github.com/protocorn/clippy-vision/releases/latest)**
+
+The installer includes a setup wizard that handles Python, Ollama, and all required models automatically. No terminal required.
+
+**Requirements:**
+- Windows 10 / 11 (64-bit)
+- 8 GB RAM minimum (16 GB recommended)
+- ~10 GB disk space for models
+- Internet connection (first run only, for model downloads)
+
+---
+
+## Quick Start
+
+### Option A — Installer (recommended)
+
+1. Download and run `ClippyVision-Setup-1.0.0.exe`
+2. Follow the setup wizard (installs Python, Ollama, and AI models)
+3. Launch from Start Menu → Clippy Vision
+
+### Option B — Run from source
+
+```powershell
+git clone https://github.com/protocorn/clippy-vision.git
+cd clippy-vision\electron-ui
+npm install
+npm start
+```
+
+The app will open the setup wizard on first launch and walk you through dependencies.
+
+---
+
+## Features
+
+- **Passive screen awareness** — captures foreground windows, clipboard, typing bursts, and screenshots in the background
+- **Privacy-first redaction** — Clippy Vision's own window is blacked out in every screenshot before the AI ever sees it
+- **Three-tier event classification** — rule-based → feature-based → LLM fallback, so only meaningful events are stored
+- **Vision classification** — OCR and activity inference on screenshots using `qwen3-vl:4b`
+- **Hierarchical memory** — events → session summaries → distilled long-term facts; memory never resets
+- **Smart query router** — a fine-tuned MiniLM classifier routes every question to the right retrieval strategy before the LLM is even called
+- **ReAct agent** — structured reasoning with tools: SQL generation, memory recall, fact saving
+- **Conversation memory** — rolling summaries + semantic search over past conversations
+- **Privacy controls** — toggle redaction per app (WhatsApp, Telegram, incognito windows, etc.)
+- **Toggle capture** — start/stop data capture from the tray icon or the in-app button, with a desktop notification on change
+
+---
 
 ## Tech Stack
 
-1. **Ollama**: Used as the local model gateway between Clippy Vision and the LLMs.
-   - `qwen3:8b` - the main reasoning brain: handles classification, summarization, SQL generation, and question answering.
-   - `qwen3-vl:4b` - handles vision classification and OCR.
-   - `nomic-embed-text` - converts text into vector embeddings.
-
-2. **Pywin32**: Captures high-level on-screen signals on Windows - foreground window title, process name, clipboard contents, and more.
-
-3. **SQLite**: A lightweight, fully local database efficient enough to handle large volumes of data. Stores events, summaries, agent memories/facts, and conversation history.
-
-## Architecture of Clippy Vision
-
----
-
-## Segment 1: Data Capture
-
-This is the most critical segment of the entire architecture. It builds the foundation by capturing on-screen data and acts as the entry point for every downstream component.
-
-### What is Captured?
-
-In Version 1, the following data is captured:
-
-1. Active foreground window (title, process name, active URLs if any)
-2. Clipboard contents (copy and paste events)
-3. Context switches (foreground window changes)
-4. Keystroke dynamics with adaptive baseline (key bursts, deviation from baseline)
-5. Screenshots (description and OCR text are stored in the database; raw images are kept on disk)
-
-Planned for future versions:
-
-1. Mouse events (clicks and movement for idle detection)
-2. File watcher (actively monitors file modifications as the user works)
-3. On-demand continuous screen capture (screen sharing mode)
-4. On-demand audio capture
-
-### How is it Captured?
-
-- `core/screen_capture.py` starts the capture daemon, which detects and stores events.
-- Each detected event is assigned an **interest score** (0–10). A threshold determines whether the event is interesting enough to process further.
-- Every event passes through a **three-tier classification pipeline** before being stored in the database.
+| Layer | Technology |
+|-------|-----------|
+| Desktop UI | Electron |
+| Backend | Python / FastAPI / Uvicorn |
+| Local LLM runtime | [Ollama](https://ollama.com) |
+| Main reasoning model | `qwen3:8b` |
+| Vision / OCR model | `qwen3-vl:4b` |
+| Embedding model | `nomic-embed-text` |
+| Query classifier | Fine-tuned MiniLM-L3 |
+| Database | SQLite (WAL mode) |
+| Screen capture | `mss`, `pywin32`, `pynput` |
 
 ---
 
-### Tier 0: Rule-Based
+## Architecture
 
-Fast, deterministic rules that immediately flag high-confidence signals.
+### Segment 1 — Data Capture
 
-- **(a)** Typing burst has fewer than 2 words **OR** character-to-keypress ratio < 0.30 (mostly modifier/arrow keys) → **NOT INTERESTING** (score = 0)
-- **(b)** Window switches to a known background system process (e.g., `msiexec.exe`, `SearchHost.exe`) → **NOT INTERESTING** (score = 0)
-- **(c)** Duplicate context switch (title unchanged after tab switch) → **NOT INTERESTING** (score = 0)
-- **(d)** Pasted clipboard content is fewer than 3 words → **NOT INTERESTING** (score = 1)
-- **(e)** High deviation detected in typing from the established baseline → **INTERESTING** (score = 9)
+`core/screen_capture.py` runs as a background process and captures:
 
----
+- Active foreground window (title, process name, active URL)
+- Clipboard contents (copy and paste events)
+- Context switches (window focus changes)
+- Keystroke dynamics with per-app adaptive baseline
+- Screenshots (taken proactively on activity bursts)
 
-### Tier 1: Feature-Based
+Every captured event passes through a three-tier classification pipeline before being stored:
 
-Scoring starts at a neutral value of 5. Multiple features are evaluated and scores are added or subtracted. Two thresholds decide the final label:
-- `INTERESTING_THRESHOLD = 7` → score > 7 = **INTERESTING**
-- `NOT_INTERESTING_THRESHOLD = 4` → score < 4 = **NOT INTERESTING**
+**Tier 0 — Rule-based** (deterministic, instant)
+Fast rules that immediately flag obvious signals: too few keystrokes → not interesting; known background system process → not interesting; typing deviation from personal baseline → interesting (score 9).
 
-**Features and scoring:**
+**Tier 1 — Feature-based** (scoring)
+Scoring starts at 5. Multiple features add or subtract: typing deviation, context novelty (how many times this app was seen in 7 days), typing intensity z-score, clipboard content length. Events below 4 are dropped; above 7 are kept; 4–7 go to Tier 2.
 
-**(a) Typing deviation**
-- > 1.5 → score += 2
-- < 1.0 → score -= 3
+**Tier 2 — LLM fallback**
+The last 3 events + current event are sent to `qwen3:8b` for context-aware classification. Output: `INTERESTING`, `NOT_INTERESTING`, or `NEEDS_VISION`.
 
-**(b) Context novelty** (how many times this process was seen in the last 7 days)
-- Never seen → score += 2.5
-- Seen < 5 times → score += 1.5
-- Seen 5–49 times → score += 1.0
-- Seen ≥ 50 times → score += 0.5 (minor boost)
-
-**(c) Typing intensity** (compared against the per-app baseline)
-
-WPM z-score:
-```
-wpm_z = (current WPM − baseline mean WPM) / baseline WPM std dev
-```
-- wpm_z > 1.5 → score += 2 (unusually fast)
-- wpm_z < −1.5 → score += 1.5 (unusually slow)
-- No stable baseline, but WPM > 0 → score += 0.5 (minor boost)
-
-Revision z-score:
-```
-rev_z = (current revision ratio − baseline mean) / baseline std dev
-```
-- rev_z > 1.5 → score += 1.5 (unusually high revision)
-- Current revision ratio > 0.3 → score += 0.5 (minor boost)
-
-**(d) Clipboard/paste content length**
-- Word count > 50 → score += 2
-- Word count > 15 → score += 1
+**Tier 2.5 — Vision classification**
+Screenshots are pre-captured (3 exposures, exponentially delayed) on every activity burst. A background processor (`core/screenshot_processor.py`) groups visually identical screenshots using perceptual hashing (Union-Find, pHash bit distance ≤ 2), runs `qwen3-vl:4b` once per group, and propagates the verdict. Each screenshot is matched to the nearest database event (±10 s); if none exists, a `screenshot_analysis` event is created automatically.
 
 ---
 
-### Tier 2: LLM Classification Fallback
+### Segment 2 — Summarization
 
-Events that fall in the ambiguous range (score 4–7) cannot be reliably labeled by rules or features alone, typically because each event is classified in isolation, without surrounding context. Tier 2 resolves this by feeding the **last N=3 events** alongside the current event to the LLM, giving it enough context to make a confident decision.
+A background summarizer runs every 5 minutes and groups recent interesting events into session summaries using `qwen3:8b`. It runs in two passes per tick:
 
-The LLM always outputs one of three labels:
-- **INTERESTING**
-- **NOT INTERESTING**
-- **NEEDS_VISION** - the event is forwarded to the vision model for further analysis
+- **Pass 1:** Summarizes pending events immediately without waiting for vision
+- **Pass 2:** Re-summarizes sessions where vision has since completed, overwriting with richer data
 
 ---
 
-### Tier 2.5: Vision Classification
+### Segment 3 — Distiller
 
-Not every event can be classified by signals alone; sometimes you need to actually see the screen. This tier handles those cases.
+Runs every 5 sessions and extracts high-level behavioral facts from summaries. Each fact is:
+1. Vector-embedded
+2. Compared against existing cluster centroids (threshold: 0.75 cosine similarity)
+3. Routed to the closest cluster or a new one
+4. Processed with a second LLM call: **ADD / UPDATE / NOOP / CONFLICT**
 
-**The timing problem:** A screenshot cannot be taken at the moment Tier 2 routes an event to vision, because by then the screen has already moved on. Capturing a screenshot per event would also be prohibitively expensive in storage.
-
-**The solution:** Screenshots are pre-captured proactively, specifically when a typing burst is detected. Three screenshots are taken with exponential delay, capturing what happens right after. When the vision model needs to analyze an event, it matches the event timestamp to the nearest pre-captured screenshot and uses that for classification.
-
-> **Note:** The model used, `qwen3-vl:4b`, only supports one image per prompt, so multi-screenshot context is not possible with it. The architecture is designed to support multiple images, and models with that capability can be swapped in.
-
-**Screenshot processor (`core/screenshot_processor.py`):**
-
-A background daemon runs every 10 seconds to process accumulated screenshots. Rather than running the vision model on every screenshot individually, it first computes a **perceptual hash (pHash)** for each image and groups visually identical screenshots using Union-Find (bit distance ≤ 2 = same screen). Vision runs once on the most recent screenshot in each group (the representative), and its verdict is copied to all duplicates in the group — avoiding redundant LLM calls on screens that haven't changed.
-
-Each processed screenshot is matched to the nearest event in the database (within ±10 seconds). If no event exists at that timestamp, a new `screenshot_analysis` event is created automatically so no vision output is ever orphaned.
-
-The processor also prioritises recent screenshots (within the last 60 seconds) over older ones to keep classification latency low during active use, while still working through the backlog when idle.
+Conflicting facts are preserved in `memory_conflicts` and surfaced to the agent for user resolution. User-provided corrections via `save_identity` automatically close related conflicts.
 
 ---
 
-## Typing Dynamics
+### Segment 4 — Query Router
 
-Typing baselines are tracked **per application**, not as a single global average. This matters because people type very differently depending on what they're doing: coding is not the same as messaging a friend on WhatsApp.
+A fine-tuned **MiniLM-L3** classifier (`agent/router.py`) maps every incoming query to one of:
 
-Metrics tracked:
-- Typing speed (WPM)
-- Average dwell time
-- Average inter-key interval (IKI)
-- Revision ratio
-- Max pause duration
+| Category | What it covers |
+|----------|---------------|
+| `time_anchored` | "What was I doing yesterday at 3 PM?" |
+| `topic_search` | "What did I work on related to Clippy?" |
+| `specific_recall` | "What URL was I reading this morning?" |
+| `memory_query` | Questions about facts Clippy has memorized |
+| `casual` | General chat, no retrieval needed |
 
-The baseline updates continuously using an **exponential moving average** with `alpha = 0.05`, meaning each new typing sample nudges the baseline slightly without overwriting it. The baseline only activates after **30 samples**, a threshold found to be the sweet spot where deviation scores begin to stabilize.
-
-Deviation is calculated as:
-
-```
-overall_deviation = round(math.sqrt(sum(z**2 for z in z_scores.values()) / len(z_scores)), 2)
-```
-
-- `overall_deviation > 2.0` → flagged as an anomaly
-
-A **global personal baseline** is also planned for future versions, serving as a fallback when a per-app sample count hasn't yet reached the 30-sample threshold.
+Each category has a dedicated prefetch module. Context is retrieved in parallel before the LLM is called, so the agent already has relevant data in its prompt without needing to make tool calls reactively.
 
 ---
 
-## Segment 2: Summarization
+### Segment 5 — The Agent
 
-Thousands of raw events accumulate quickly for an average user working 5–6 hours a day. To keep this manageable, events are summarized every 5 minutes using `qwen3:8b`.
-
-To avoid wasted LLM calls, the summarizer only runs if there are **more than 3 interesting events** in the pipeline:
-- **A)** A 5-minute window with zero interesting events has nothing worth summarizing.
-- **B)** 1–2 events alone don't provide enough signal to justify a summary.
-
-The summarizer runs in **two passes per tick**:
-- **Pass 1:** Immediately summarizes all pending events without waiting for vision classification to complete.
-- **Pass 2:** Goes back and re-summarizes any sessions where vision has since finished, overwriting the earlier summary with richer, vision-informed data.
-
-**Why not wait for vision?**
-- The vision model takes 40–60+ seconds per image depending on the device, and waiting for it creates a growing backlog.
-- Tier 2 provides classification labels almost instantly, so the first pass is cheap and fast.
-- The two-pass approach gives the best of both worlds: immediate availability and eventual accuracy.
-
----
-
-## Segment 3: Distiller
-
-Summaries solve the raw event volume problem, but summaries themselves can pile up over time. The Distiller adds another level of abstraction, running every 5 sessions to extract high-level facts and behavioral patterns from recent summaries.
-
-**Session definition:**
-- (i) Consecutive summaries must be less than 30 minutes apart
-- (ii) A session cannot contain more than 20 summaries
-- (iii) *(Planned)* Sessions will eventually break based on detected shifts in user activity
-
-**How facts are stored:**
-
-Each extracted fact is vector-embedded and compared against existing cluster centroids. If similarity exceeds `CLUSTER_THRESHOLD = 0.75`, the fact is routed to the closest cluster; otherwise a new cluster is created.
-
-Routing alone isn't enough. Once a matching cluster is found, a second LLM call decides what to do with the fact:
-- **(i) ADD** - new information not yet captured
-- **(ii) UPDATE** - refines or replaces an existing fact
-- **(iii) NOOP** - fact is already present; no action needed
-- **(iv) CONFLICT** - new fact directly contradicts an existing one; both are preserved and flagged for resolution
-
-This keeps memory clean, non-redundant, and up to date.
-
-The Distiller also runs after the second pass of the summarizer (post-vision re-summarization), not only on the regular 5-session schedule.
-
-> **Conflict resolution:** When a newly extracted fact directly contradicts an existing one, the incoming fact is stored as a new active fact and a record is written to the `memory_conflicts` table (both sides are preserved — neither is silently dropped). Unresolved conflicts are surfaced to the agent at query time so the user can decide which version to keep. When the user explicitly corrects a fact via `save_identity` with `op=override`, all open conflicts involving that fact are automatically closed.
-
----
-
-## Segment 4: Query Router
-
-Before the agent takes any action, the query router classifies what kind of question is being asked and — for questions that can be answered from data — prefetches the most relevant context in parallel so the LLM receives it without needing to call a tool.
-
-### Classification
-
-A fine-tuned **MiniLM-L3** classifier (`agent/router.py`) maps every incoming query to one of seven categories:
-
-| Category | What it means |
-|---|---|
-| `time_anchored` | User asks about activity at a specific, calendar-resolvable time ("yesterday", "last week", "3 days ago") |
-| `topic_search` | User asks about activity related to a topic or project, with no explicit time anchor |
-| `specific_recall` | User wants a specific artifact: URL, clipboard content, pasted text, something seen on screen |
-| `aggregation` | User asks for a count, total, duration, or statistical breakdown *(prefetch not yet implemented)* |
-| `memory_query` | User asks about facts the assistant has memorized from past conversations *(prefetch not yet implemented)* |
-| `casual` | General chat or factual/general knowledge — no retrieval needed |
-| `follow_up_inherit` | Vague follow-up that inherits the retrieval strategy from the prior turn |
-
-The classifier outputs a **primary** category and a list of **secondary** categories for queries that require more than one retrieval strategy. Confidence thresholds per category (`_PREFETCH_THRESHOLDS`) gate whether prefetch actually runs — low-confidence classifications fall back to letting the agent use tools reactively.
-
----
-
-### Prefetch Modules
-
-Each implemented category has a dedicated prefetch module. All of them accept the resolved time range when relevant and return a formatted string injected directly into the agent's context.
-
----
-
-#### `agent/specific_recall.py`
-
-Handles artifact retrieval: URLs, clipboard copies, paste events, and screen content. Routes to one of four artifact types based on the query:
-
-- **url** — two-track search: session-level (up to 90 days, vector similarity) + event-level (last 7 days, FTS5)
-- **clipboard / paste** — FTS5 on the `payload` field; falls back to pure-recency scan when no keywords are present
-- **screen** — FTS5 on `vision_ocr_text`; falls back to recency
-- **generic** — broad FTS5 across all text fields
-
-Accepts an optional `temporal_range` to filter results to a specific time window. This covers the `specific_recall + [time_anchored]` routing shape — no separate time fetch is needed.
-
----
-
-#### `agent/topic_search.py`
-
-Handles topic and project-level queries against the `sessions` table. Embeds the query with `nomic-embed-text`, computes cosine similarity against stored `summary_embedding` vectors, and applies an entity boost for exact keyword matches. Accepts an optional `temporal_range` to narrow the search to a specific window.
-
----
-
-#### `agent/time_anchor.py`
-
-Handles pure time-anchored queries where the user is asking "what was I doing at time X" without a specific topic or artifact. Uses a three-tier system based on the resolved time window:
-
-| Tier | Condition | Data source |
-|---|---|---|
-| 0 — Raw events | Window ≤ 2 hours and within 7-day TTL | `events` table, `interesting = 1`, noise types filtered |
-| 1 — Sessions | Window within 90-day session TTL | `sessions` table with greedy dedup + density cap |
-| 2 — Distiller | Beyond 90 days | *(not yet implemented)* |
-
-**Session deduplication:** Sessions in the time window are greedy-clustered by cosine similarity. The threshold scales with window width — narrow windows (≤ 3 days) use 0.86 to preserve detail; broad windows use 0.78 for more compression. One representative per cluster is kept — the densest one by `event_count`, breaking ties by recency.
-
-**Density cap:** After dedup, if more than 15 sessions remain, the 15 densest are kept (by `event_count` then `window_start`), then re-sorted chronologically so the LLM sees a coherent narrative.
-
----
-
-#### `agent/time_resolver.py`
-
-Converts natural-language time expressions into absolute `[start, end)` epoch ranges. Used by `time_anchor.py`, `specific_recall.py`, and `topic_search.py` to filter queries to the right time window.
-
-Key behaviors:
-- Handles phrases parsedatetime can't: "last weekend", "last 3 days", "last N weeks/months"
-- Typo correction scoped to temporal vocabulary only (Damerau-Levenshtein, strict thresholds)
-- Tense/modal disambiguation: "what should I do this weekend?" vs "this weekend was exhausting" resolve differently
-- Returns `None` for future-intent expressions — callers know no data can exist rather than getting an empty result
-
----
-
-## Segment 5: The Agent
-
-The agent is the interface between the user and everything Clippy Vision has learned. It's built as a **ReAct agent with function calling**, giving it the ability to reason across raw events, summaries, and memory before answering.
-
-**Tools available to the model:**
+A **ReAct agent** (`agent/react_agent.py`) with function calling. Tools available:
 
 | Tool | Description |
-|---|---|
-| `search_sessions` | Generates and executes SQL queries on the summaries table |
-| `search_events` | Generates and executes SQL queries on the events table |
-| `recall_memory` | Lists all memory cluster labels and descriptions - a directory of what Clippy knows about you |
-| `fetch_cluster` | Fetches relevant memory facts from a cluster |
-| `save_identity` | Saves the user's autobiographical details |
-| `save_note` | Saves explicit information the user asks to remember |
+|------|-------------|
+| `search_sessions` | SQL queries against the sessions/summaries table |
+| `search_events` | SQL queries against the raw events table |
+| `recall_memory` | Lists all memory cluster labels |
+| `fetch_cluster` | Fetches facts from a specific cluster |
+| `save_identity` | Saves autobiographical details |
+| `save_note` | Saves explicit things the user wants remembered |
 
-**Prompt components:**
-
-**(1) Conversation history** - provided in two tiers:
-- **Tier 1 (always included):** Last 2 rolling summaries + last 8 turns (4 full exchanges). Every 5 saved messages, the conversation is summarized and its vector embedding is stored.
-- **Tier 2 (deep conversations):** Tier 1 + 2 most semantically relevant summaries retrieved via embedding search.
-
-**(2) User Profile** - autobiographical information about the user, injected directly into context.
-
-**(3) Memory Context** - the user query is embedded and the top 8 most relevant memory facts are retrieved using `MEMORY_MIN_SIM = 0.30` as the minimum similarity threshold.
-
-**(4) Tool/function calling** - the model is explicitly prompted to call tools when it needs more information. A correction loop handles failures: if SQL generation fails, the error is fed back and the model retries. If a tool returns `None` or irrelevant data, the model is prompted to call additional tools.
-
-The ReAct loop is capped at `MAX_STEPS = 10` to prevent hallucination or infinite loops.
-
-When the user chats with the agent, the conversation is also passed to the Distiller to extract new facts using the same clustering algorithm. If a fact from conversation conflicts with one extracted passively, **the agent's version always takes precedence**.
+Prompt components: conversation history (last 8 turns + rolling summaries), user profile, top-8 memory facts by semantic similarity, and prefetched context from the router.
 
 ---
 
-## Segment 6: SQLite Database
+### Segment 6 — Database
 
-All data accessible to the agent is stored locally in SQLite. See `core/storage.py` for full table schemas.
+All data lives in a local SQLite database (`core/data/events.db`):
 
-**Tables:**
-1. `events` - raw captured events (typing bursts, clipboard, window title, etc.)
-2. `sessions` - summaries of events
-3. `memory_clusters` - cluster metadata
-4. `memory_meta` - autobiographical memory and distiller metadata
-5. `memory_facts` - individual facts within clusters
-6. `memory_conflicts` - unresolved contradictions between facts (flagged for user resolution)
-7. `conversation` - full conversation history
+| Table | Contents | Retention |
+|-------|----------|-----------|
+| `events` | Raw captured events | 7 days |
+| `sessions` | Summaries of events | 90 days |
+| `memory_clusters` | Cluster metadata | Permanent |
+| `memory_facts` | Individual long-term facts | Permanent |
+| `memory_conflicts` | Unresolved fact contradictions | Permanent |
+| `memory_meta` | Settings and distiller state | Permanent |
+| `conversations` | Full conversation history | Permanent |
+| `user_profile` | User name | Permanent |
 
-Virtual tables for `events` and `sessions` support full-text search (planned for future versions).
+FTS5 virtual tables on `events` and `sessions` enable full-text search across all stored content.
 
-**Memory types:**
+---
 
-**1. Persistent memory** - never expires
-- `conversations`, `memory_clusters`, `memory_meta`, `memory_facts`
-- Data is never deleted, though it can be updated.
+## Privacy
 
-**2. Non-persistent memory** - each record has a TTL (time-to-live)
-- `events` expire after **7 days**
-- `sessions` expire after **90 days**
+- All processing is local. Nothing leaves your machine.
+- Clippy Vision's own window is blacked out in screenshots before any AI model sees them.
+- You can toggle data capture on/off at any time from the tray icon.
+- Per-app redaction: configure WhatsApp, Telegram, Signal, incognito browser windows, and others to be blacked out in screenshots.
+- Captured data has TTLs: raw events expire after 7 days, session summaries after 90 days.
+
+---
+
+## Building from Source
+
+```powershell
+# Python dependencies
+pip install -r requirements.txt
+
+# Run the desktop app
+cd electron-ui
+npm install
+npm start
+
+# Build the Windows installer
+npm run dist
+```
+
+The built installer appears at `electron-ui/dist/ClippyVision-Setup-{version}.exe`.
+
+---
+
+## License
+
+AGPL-3.0 — see [LICENSE](LICENSE) for details.
+
+You are free to use, study, and contribute to this project. Commercial redistribution requires separate permission.
+
+---
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
