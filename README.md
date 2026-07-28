@@ -16,6 +16,35 @@ Everything runs entirely on your machine. No API keys, no cloud, no data leaving
 
 ---
 
+## How Clippy Vision fits with Claude / ChatGPT
+
+Claude and ChatGPT are built for **reasoning, writing, and general knowledge**. They're excellent when you bring them context — a pasted error log, a document, a research question. They are not built to know what was on your screen yesterday, which paper you opened last Tuesday, or what bug you fixed two weeks ago without you telling them.
+
+Clippy Vision is built for the **context problem**. It passively watches your work, remembers it, and answers from that memory. It doesn't replace Claude or ChatGPT — it fills the gap they can't: your personal activity history.
+
+| | Claude / ChatGPT | Clippy Vision |
+|--|--|--|
+| Strength | Reasoning, writing, coding help, world knowledge | Personal memory of *your* work |
+| Needs you to paste context | Yes | No — already saw it |
+| Runs where | Cloud | 100% on your machine |
+| Best for | "Help me solve / write / explain this" | "What was I doing / reading / debugging?" |
+
+Use Clippy Vision when you need your own history back. Use Claude or ChatGPT when you need a powerful reasoning partner. Many people use both — Clippy to reconstruct context, then paste that into Claude to go deeper.
+
+<p align="center">
+  <img src="assets/demo-product.png" alt="Clippy Vision recalling research notes" width="720" />
+</p>
+
+<p align="center"><em>Runs locally · Sees what you do · Remembers it · Answers from it</em></p>
+
+<p align="center">
+  <img src="assets/demo-vs-claude-urls.png" alt="Clippy Vision vs Claude on the same question" width="720" />
+</p>
+
+<p align="center"><em>Same question asked to both. Clippy returns the exact paper URLs from browsing history. Claude has no record of them.</em></p>
+
+---
+
 ## Download
 
 **→ [Download ClippyVision-Setup-1.0.0.exe](https://github.com/protocorn/clippy-vision/releases/latest)**
