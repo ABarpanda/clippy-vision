@@ -26,6 +26,11 @@ const API_SCRIPT      = path.join(ROOT, 'api_server.py')
 const REQUIREMENTS    = path.join(ROOT, 'requirements.txt')
 const SETUP_FLAG      = path.join(USER_DATA, 'setup_complete.json')
 
+// Keep both text + vision models resident. Default Ollama allows only 1 loaded
+// model, which causes constant swap lag between qwen3:8b and qwen3-vl:4b.
+const OLLAMA_MAX_LOADED_MODELS = '2'
+const OLLAMA_NUM_PARALLEL = '1'
+
 function buildPythonEnv(extra = {}) {
     const parts = [ROOT]
     if (process.env.PYTHONPATH) parts.push(process.env.PYTHONPATH)
@@ -35,8 +40,29 @@ function buildPythonEnv(extra = {}) {
         PYTHONUTF8: '1',
         CLIPPY_DATA_DIR: DATA_DIR,
         PYTHONPATH: parts.join(path.delimiter),
+        OLLAMA_MAX_LOADED_MODELS,
+        OLLAMA_NUM_PARALLEL,
         ...extra,
     }
+}
+
+/** Apply Ollama parallel/loaded-model settings for this process and persist for future logins. */
+async function ensureOllamaParallelConfig({ persist = true, restart = false } = {}) {
+    process.env.OLLAMA_MAX_LOADED_MODELS = OLLAMA_MAX_LOADED_MODELS
+    process.env.OLLAMA_NUM_PARALLEL = OLLAMA_NUM_PARALLEL
+
+    if (persist) {
+        // setx writes HKCU env so future shells / Ollama launches inherit it
+        await runCommand('setx', ['OLLAMA_MAX_LOADED_MODELS', OLLAMA_MAX_LOADED_MODELS])
+        await runCommand('setx', ['OLLAMA_NUM_PARALLEL', OLLAMA_NUM_PARALLEL])
+    }
+
+    if (!restart) return
+
+    // Restart so a previously running Ollama process picks up the new limits
+    await runCommand('taskkill', ['/IM', 'ollama.exe', '/F'])
+    await new Promise((r) => setTimeout(r, 1500))
+    spawnHidden('ollama', ['serve'], { cwd: ROOT, detached: false })
 }
 
 // ─── state ────────────────────────────────────────────────────────────────────
@@ -202,27 +228,20 @@ async function stepCheckOllama() {
 }
 
 async function stepStartOllamaService() {
-    stepUpdate('ollama-service', 'running', 'Starting Ollama service...')
+    stepUpdate('ollama-service', 'running', 'Configuring & starting Ollama...')
     log('> ollama serve', 'dim')
 
-    // check if already running first
-    try {
-        await pollUntilAlive('http://localhost:11434', 500, 3)
-        log('Ollama service already running.', 'ok')
-        markDone('ollama-service', 'Ollama service running')
-        return
-    } catch (_) { /* not running yet — start it */ }
-
-    // start it hidden
-    spawnHidden('ollama', ['serve'], { cwd: ROOT, detached: false })
+    // Persist MAX_LOADED=2 so text + vision stay resident; restart so it applies now
+    log('Setting OLLAMA_MAX_LOADED_MODELS=2 (text + vision in parallel)...', 'info')
+    await ensureOllamaParallelConfig({ persist: true, restart: true })
 
     log('Waiting for Ollama service...', 'dim')
     stepProgress('ollama-service', -1)
 
     try {
         await pollUntilAlive('http://localhost:11434', 1000, 30)
-        log('Ollama service is ready.', 'ok')
-        markDone('ollama-service', 'Ollama service running')
+        log('Ollama ready — up to 2 models can stay loaded.', 'ok')
+        markDone('ollama-service', 'Ollama service running (2 models)')
     } catch (e) {
         stepUpdate('ollama-service', 'error', 'Ollama service did not start in time.')
         log(e.message, 'err')
@@ -403,6 +422,20 @@ async function stepWarmup() {
         log(`chat model warmup: ${e.message}`, 'info')
     }
 
+    // warm vision model into the second loaded-model slot
+    log('Loading qwen3-vl:4b into memory...', 'info')
+    stepUpdate('warmup', 'running', 'Loading qwen3-vl:4b into memory...')
+    try {
+        await httpPost('http://localhost:11434/api/generate', {
+            model: 'qwen3-vl:4b',
+            prompt: '',
+            keep_alive: '1h',
+        }, 120000)
+        log('qwen3-vl:4b ready.', 'ok')
+    } catch (e) {
+        log(`vision model warmup: ${e.message}`, 'info')
+    }
+
     // create writable data directories (packaged → %APPDATA%; dev → repo)
     const dirs = [
         DATA_DIR,
@@ -415,7 +448,7 @@ async function stepWarmup() {
 
     // write setup complete flag
     fs.writeFileSync(SETUP_FLAG, JSON.stringify({
-        version: '1.0.0',
+        version: '1.0.1',
         completedAt: new Date().toISOString(),
     }, null, 2))
 
@@ -487,6 +520,14 @@ async function runSetup(startFrom = 'python') {
 const REQUIRED_MODELS = ['qwen3:8b', 'qwen3-vl:4b', 'nomic-embed-text']
 
 async function runPreflightChecks() {
+    // Ensure text + vision can stay loaded together (process env + persisted)
+    const alreadyConfigured =
+        process.env.OLLAMA_MAX_LOADED_MODELS === OLLAMA_MAX_LOADED_MODELS
+    await ensureOllamaParallelConfig({
+        persist: !alreadyConfigured,
+        restart: false,
+    })
+
     // 1. Python
     const py = await runCommand('python', ['--version'])
     if (py.code !== 0) {
@@ -499,10 +540,16 @@ async function runPreflightChecks() {
         return { ok: false, step: 'ollama', reason: 'Ollama not found or not on PATH.' }
     }
 
-    // 3. Ollama service
+    // 3. Ollama service — if we just wrote the env vars for the first time,
+    //    restart so the running process picks up MAX_LOADED_MODELS=2
     const serviceAlive = await pollUntilAlive('http://localhost:11434', 500, 3).then(() => true).catch(() => false)
-    if (!serviceAlive) {
-        // try to start it
+    if (!alreadyConfigured) {
+        await ensureOllamaParallelConfig({ persist: false, restart: true })
+        const started = await pollUntilAlive('http://localhost:11434', 1000, 15).then(() => true).catch(() => false)
+        if (!started) {
+            return { ok: false, step: 'ollama-service', reason: 'Ollama service could not be started.' }
+        }
+    } else if (!serviceAlive) {
         spawnHidden('ollama', ['serve'], { cwd: ROOT, detached: false })
         const started = await pollUntilAlive('http://localhost:11434', 1000, 10).then(() => true).catch(() => false)
         if (!started) {
@@ -772,7 +819,7 @@ app.whenReady().then(async () => {
 
     if (setupDone) {
         // Show loading UI immediately while preflight runs (no blank wait)
-        createTray()
+    createTray()
         createMainWindow()
         await waitForMainWindowLoad()
         sendLoadingStatus(

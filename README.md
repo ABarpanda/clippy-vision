@@ -47,7 +47,7 @@ Use Clippy Vision when you need your own history back. Use Claude or ChatGPT whe
 
 ## Download
 
-**→ [Download ClippyVision-Setup-1.0.0.exe](https://github.com/protocorn/clippy-vision/releases/latest)**
+**→ [Download ClippyVision-Setup-1.0.1.exe](https://github.com/protocorn/clippy-vision/releases/latest)**
 
 The installer includes a setup wizard that handles Python, Ollama, and all required models automatically. No terminal required.
 
@@ -63,7 +63,7 @@ The installer includes a setup wizard that handles Python, Ollama, and all requi
 
 ### Option A — Installer (recommended)
 
-1. Download and run `ClippyVision-Setup-1.0.0.exe`
+1. Download and run `ClippyVision-Setup-1.0.1.exe`
 2. Follow the setup wizard (installs Python, Ollama, and AI models)
 3. Launch from Start Menu → Clippy Vision
 

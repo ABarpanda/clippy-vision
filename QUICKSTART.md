@@ -2,7 +2,7 @@
 
 ## Recommended: Use the Installer
 
-Download and run **[ClippyVision-Setup-1.0.0.exe](https://github.com/protocorn/clippy-vision/releases/latest)**.
+Download and run **[ClippyVision-Setup-1.0.1.exe](https://github.com/protocorn/clippy-vision/releases/latest)**.
 
 The installer's built-in setup wizard will:
 - Check for Python (install via winget if missing)
