@@ -3,7 +3,7 @@
 > **A fully local AI assistant that watches your work to eliminate the context problem. 100% private — no cloud, no data leakage.**
 
 ![Platform](https://img.shields.io/badge/platform-Windows-blue)
-![License](https://img.shields.io/badge/license-AGPL--3.0-green)
+![License](https://img.shields.io/badge/license-MIT-green)
 ![Models](https://img.shields.io/badge/models-Ollama%20local-orange)
 
 ---
@@ -243,9 +243,7 @@ The built installer appears at `electron-ui/dist/ClippyVision-Setup-{version}.ex
 
 ## License
 
-AGPL-3.0 — see [LICENSE](LICENSE) for details.
-
-You are free to use, study, and contribute to this project. Commercial redistribution requires separate permission.
+MIT — see [LICENSE](LICENSE) for details.
 
 ---
 
