@@ -10,12 +10,50 @@ Thanks for your interest in contributing! Clippy Vision is an open-source projec
 - **Documentation**: Help improve the docs, guides, or code comments
 - **Testing**: Test the software on different systems and report issues
 
+## Issue Format
+
+When opening an issue (especially bug reports or scoped tasks), please use this structure so contributors can quickly tell what's involved:
+
+**Title:** Short, specific, describes the outcome not the symptom
+
+**Labels:** e.g. `good first issue`, `help wanted`, `bug`, `electron-ui`, `documentation`
+
+**Context:** What exists today, what's broken or missing, and why it matters. Link relevant files/functions.
+
+**Task:** What needs to happen, in plain terms.
+
+**Hints:** (optional) Pointers on approach, gotchas, relevant API shapes, or patterns to follow elsewhere in the codebase.
+
+**Acceptance criteria:** A checklist. Someone should be able to look at this and know exactly when the issue is done.
+
+**How to test:** (optional, recommended for anything touching runtime behavior) Steps to verify the fix actually works.
+
+**Difficulty:** Rough skill/time estimate, e.g. "Easy, docs only" or "Easy-medium, ~1-2 hrs, no ML knowledge needed"
+
+This isn't mandatory for every issue, quick bug reports don't need the full template, but for anything tagged `good first issue`, please fill out Context, Task, and Acceptance criteria at minimum.
+
 ## Development Setup
 
+Clippy Vision is Windows-only today. The app lives in `electron-ui/` and starts the Python API for you.
+
 1. Fork the repository
-2. Clone your fork: `git clone https://github.com/yourusername/clippy-vision.git`
-3. Run setup: `.\setup.ps1`
+2. Clone your fork:
+   ```powershell
+   git clone https://github.com/yourusername/clippy-vision.git
+   cd clippy-vision
+   ```
+3. Install and run the Electron app:
+   ```powershell
+   cd electron-ui
+   npm install
+   npm start
+   ```
+   The setup wizard runs on first launch (Python, Ollama, models, `requirements.txt`).
 4. Create a branch: `git checkout -b feature/your-feature-name`
+
+For Python-only work outside the app, you can also install deps with `pip install -r requirements.txt` from the repo root.
+
+See [QUICKSTART.md](QUICKSTART.md) for installer and troubleshooting details.
 
 ## Code Style
 
@@ -49,10 +87,10 @@ Before submitting a PR:
 
 ### High Priority
 - [ ] Linux/Mac support (currently Windows-only)
-- [ ] Electron GUI for easier user interaction
+- [ ] Wire Settings → Access control UI to the existing privacy API (see open `good first issue`s)
 - [ ] Automated tests for classification pipeline
 - [ ] Performance optimization for vision processing
-- [ ] Better error handling and logging
+- [ ] Better error handling and logging (e.g. surface API `detail` in the UI)
 
 ### Medium Priority
 - [ ] Docker/containerization support
