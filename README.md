@@ -5,6 +5,7 @@
 ![Platform](https://img.shields.io/badge/platform-Windows-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Models](https://img.shields.io/badge/models-Ollama%20local-orange)
+[![Open Source Helpers](https://www.codetriage.com/protocorn/clippy-vision/badges/users.svg)](https://www.codetriage.com/protocorn/clippy-vision)
 
 ---
 
