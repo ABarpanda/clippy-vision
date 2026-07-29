@@ -4,7 +4,7 @@
   "version": "1.0.1",
   "description": "Local AI desktop companion with screen awareness",
   "author": "Clippy Vision",
-  "license": "ISC",
+  "license": "MIT",
   "main": "electron/main.js",
   "scripts": {
     "start": "electron .",
