@@ -52,13 +52,23 @@ Use Clippy Vision when you need your own history back. Use Claude or ChatGPT whe
 
 The installer includes a setup wizard that handles Python, Ollama, and all required models automatically. No terminal required.
 
-**Requirements:**
-- Windows 10 / 11 (64-bit)
-- 8 GB RAM minimum (16 GB recommended)
-- ~10 GB disk space for models
-- Internet connection (first run only, for model downloads)
+### System requirements
+
+Clippy Vision runs local AI models (text + vision) on your PC. Capture shares the GPU/RAM with Chrome, your IDE, and Windows — underpowered machines will feel lag when switching apps.
+
+| | Minimum | Recommended |
+|--|---------|-------------|
+| OS | Windows 10 / 11 (64-bit) | Windows 11 |
+| System RAM | 16 GB | 32 GB |
+| GPU VRAM | 6 GB dedicated | 8 GB+ dedicated |
+| Free disk | 12 GB | 15 GB+ |
+
+- **First run** also needs internet once (model downloads, ~8 GB).
+- The setup wizard **checks your PC** against these numbers before installing. Below minimum → setup is blocked. Between minimum and recommended → you can continue with a warning that capture may lag.
+- Integrated / shared GPU (0 GB dedicated VRAM) is treated as below minimum for full capture.
 
 ---
+
 
 ## Quick Start
 
