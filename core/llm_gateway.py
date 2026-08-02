@@ -6,6 +6,8 @@ import urllib.request
 import psutil
 from itertools import count
 
+from core.model_residency import keep_alive_for
+
 OLLAMA_URL = "http://localhost:11434/api/chat"
 EMBED_URL  = "http://localhost:11434/api/embed"
 EMBED_MODEL = "nomic-embed-text"
@@ -161,11 +163,12 @@ class LLMGateway:
             if priority >= Priority.BACKGROUND:
                 time.sleep(_BG_INTER_JOB_SLEEP)
 
-    def chat(self, messages, model, *, priority=Priority.FOREGROUND, tools=None, format=None, options=None, think=None, timeout=180) -> dict | None:
+    def chat(self, messages, model, *, priority=Priority.FOREGROUND, tools=None, format=None, options=None, think=None, timeout=180, keep_alive=None) -> dict | None:
         payload = {
             "model": model,
             "messages": messages,
             "stream": False,
+            "keep_alive": keep_alive_for(model) if keep_alive is None else keep_alive,
         }
         if tools is not None:
             payload["tools"] = tools
@@ -184,12 +187,13 @@ class LLMGateway:
             raise job.error
         return job.result
 
-    def chat_stream(self, messages, model, *, priority=Priority.FOREGROUND, tools=None, format=None, options=None, think=None, timeout=180):
+    def chat_stream(self, messages, model, *, priority=Priority.FOREGROUND, tools=None, format=None, options=None, think=None, timeout=180, keep_alive=None):
         """Yield Ollama NDJSON stream chunks for one chat call (thinking + content deltas)."""
         payload = {
             "model": model,
             "messages": messages,
             "stream": True,
+            "keep_alive": keep_alive_for(model) if keep_alive is None else keep_alive,
         }
         if tools is not None:
             payload["tools"] = tools
@@ -212,10 +216,14 @@ class LLMGateway:
         if job.error:
             raise job.error
 
-    def embed(self, text, *, embed_model, priority=Priority.FOREGROUND, timeout=60):
+    def embed(self, text, *, embed_model, priority=Priority.FOREGROUND, timeout=60, keep_alive=None):
         """Embed a string (or list of strings) through the same serialized queue.
         Returns a single vector for a string input, or a list of vectors for a list."""
-        payload = {"model": embed_model, "input": text}
+        payload = {
+            "model": embed_model,
+            "input": text,
+            "keep_alive": keep_alive_for(embed_model) if keep_alive is None else keep_alive,
+        }
         job = Job(EMBED_URL, payload, timeout)
         self.queue.put((priority, next(self._seq), job))
 

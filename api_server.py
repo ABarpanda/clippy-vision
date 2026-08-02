@@ -45,6 +45,7 @@ from core.privacy_settings import list_privacy_targets, set_privacy_enabled
 from agent.conversation import list_conversations, get_conversation_messages, search_conversations
 
 from agent.router import load_classifier
+from core.model_residency import warm_for_startup, on_capture_stop
 
 
 
@@ -54,6 +55,8 @@ async def lifespan(app: FastAPI):
     start_intro_rebuild_daemon()
     # Preload router classifier so the first chat does not pay the load cost
     threading.Thread(target=load_classifier, daemon=True, name="router-classifier-warmup").start()
+    # Model warm is triggered explicitly by Electron (setup / normal launch)
+    # via POST /residency/startup — avoids racing a background warm with setup UI.
     yield
 
 
@@ -294,6 +297,36 @@ def conversation_messages(conversation_id: str):
 def health():
 
     return {"status": "ok"}
+
+
+
+@app.post("/residency/startup")
+
+def residency_startup():
+
+    """Pin text + embed for app launch; vision stays idle until capture starts."""
+
+    return warm_for_startup()
+
+
+
+@app.get("/residency")
+
+def residency_status():
+
+    from core.model_residency import load_residency
+
+    return load_residency()
+
+
+
+@app.post("/residency/capture-stop")
+
+def residency_capture_stop():
+
+    """Unload vision when Electron stops screen capture (process may be force-killed)."""
+
+    return on_capture_stop()
 
 
 

@@ -31,6 +31,11 @@ contextBridge.exposeInMainWorld('setup', {
 
     // ── Invocations (renderer → main) ────────────────────────────────────
 
+    getHardwareCheck: () => ipcRenderer.invoke('get-hardware-check'),
+
+    // After user accepts the hardware gate — starts install steps
+    confirmHardwareAndStart: (opts) => ipcRenderer.invoke('confirm-hardware-and-start', opts || {}),
+
     // retry a step that errored: key = 'python' | 'ollama' | 'ollama-service' | 'packages' | 'models' | 'warmup'
     retryStep: (key) => ipcRenderer.invoke('retry-step', key),
 

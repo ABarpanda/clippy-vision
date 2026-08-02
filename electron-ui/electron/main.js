@@ -6,6 +6,7 @@ const { spawn }  = require('child_process')
 const path       = require('path')
 const fs         = require('fs')
 const http       = require('http')
+const os         = require('os')
 
 // ─── paths ────────────────────────────────────────────────────────────────────
 // Packaged: Python lives in resources/clippy; writable data in %APPDATA%/Clippy Vision
@@ -25,9 +26,10 @@ const CAPTURE_SCRIPT  = path.join(ROOT, 'core', 'screen_capture.py')
 const API_SCRIPT      = path.join(ROOT, 'api_server.py')
 const REQUIREMENTS    = path.join(ROOT, 'requirements.txt')
 const SETUP_FLAG      = path.join(USER_DATA, 'setup_complete.json')
+const RESIDENCY_FILE  = path.join(DATA_DIR, 'model_residency.json')
 
-// Keep both text + vision models resident. Default Ollama allows only 1 loaded
-// model, which causes constant swap lag between qwen3:8b and qwen3-vl:4b.
+// Keep a second slot free so text stays loaded when capture pins vision.
+// Vision itself is only warmed while screen capture is on (see model_residency.py).
 const OLLAMA_MAX_LOADED_MODELS = '2'
 const OLLAMA_NUM_PARALLEL = '1'
 
@@ -231,8 +233,8 @@ async function stepStartOllamaService() {
     stepUpdate('ollama-service', 'running', 'Configuring & starting Ollama...')
     log('> ollama serve', 'dim')
 
-    // Persist MAX_LOADED=2 so text + vision stay resident; restart so it applies now
-    log('Setting OLLAMA_MAX_LOADED_MODELS=2 (text + vision in parallel)...', 'info')
+    // Slot for text + vision when capture pins VL; vision is not warmed at launch.
+    log('Setting OLLAMA_MAX_LOADED_MODELS=2 (vision only while capturing)...', 'info')
     await ensureOllamaParallelConfig({ persist: true, restart: true })
 
     log('Waiting for Ollama service...', 'dim')
@@ -240,8 +242,8 @@ async function stepStartOllamaService() {
 
     try {
         await pollUntilAlive('http://localhost:11434', 1000, 30)
-        log('Ollama ready — up to 2 models can stay loaded.', 'ok')
-        markDone('ollama-service', 'Ollama service running (2 models)')
+        log('Ollama ready.', 'ok')
+        markDone('ollama-service', 'Ollama service running')
     } catch (e) {
         stepUpdate('ollama-service', 'error', 'Ollama service did not start in time.')
         log(e.message, 'err')
@@ -384,11 +386,9 @@ async function stepWarmup() {
     stepUpdate('warmup', 'running', 'Loading models into memory...')
     stepProgress('warmup', -1)
 
-    // start the API server so we can use the gateway for warmup
     log('Starting API server for warmup...', 'dim')
     startServer()
 
-    // wait for it to be alive
     try {
         await pollUntilAlive('http://localhost:8000/health', 1000, 90)
         log('API server ready.', 'ok')
@@ -396,47 +396,31 @@ async function stepWarmup() {
         log('API server slow to start — continuing anyway.', 'info')
     }
 
-    // warm nomic-embed-text via embed endpoint
-    log('Loading nomic-embed-text...', 'dim')
+    // Ensure Ollama is reachable before asking it to load weights
     try {
-        await httpPost('http://localhost:11434/api/embed', {
-            model: 'nomic-embed-text',
-            input: 'warmup',
-        })
-        log('nomic-embed-text ready.', 'ok')
-    } catch (e) {
-        log(`embed warmup: ${e.message}`, 'info')
+        await pollUntilAlive('http://localhost:11434', 1000, 30)
+    } catch (_) {
+        log('Ollama not responding — skipping model warm.', 'info')
     }
 
-    // warm qwen3:8b — keep_alive holds it in RAM
-    log('Loading qwen3:8b (this may take 30–60s)...', 'info')
-    stepUpdate('warmup', 'running', 'Loading qwen3:8b into memory...')
+    // Explicit warm call (text + embed only). Do not block setup forever if Ollama is slow.
+    log('Warming text + embed (vision loads when capture starts)...', 'info')
+    stepUpdate('warmup', 'running', 'Loading qwen3:8b + embed...')
     try {
-        await httpPost('http://localhost:11434/api/generate', {
-            model: 'qwen3:8b',
-            prompt: '',
-            keep_alive: '1h',
-        }, 120000)
-        log('qwen3:8b ready.', 'ok')
+        await httpPost('http://localhost:8000/residency/startup', {}, 120000)
+        log('Text model ready — vision idle until screen capture.', 'ok')
     } catch (e) {
-        log(`chat model warmup: ${e.message}`, 'info')
+        log(`Model warm skipped or timed out (${e.message}) — continuing.`, 'info')
+        // Guarantee setup can finish even if warm hung mid-flight
+        try {
+            fs.writeFileSync(RESIDENCY_FILE, JSON.stringify({
+                vision: 'idle',
+                reason: 'warmup_timeout',
+                updated_at: new Date().toISOString(),
+            }, null, 2))
+        } catch (_) { /* ignore */ }
     }
 
-    // warm vision model into the second loaded-model slot
-    log('Loading qwen3-vl:4b into memory...', 'info')
-    stepUpdate('warmup', 'running', 'Loading qwen3-vl:4b into memory...')
-    try {
-        await httpPost('http://localhost:11434/api/generate', {
-            model: 'qwen3-vl:4b',
-            prompt: '',
-            keep_alive: '1h',
-        }, 120000)
-        log('qwen3-vl:4b ready.', 'ok')
-    } catch (e) {
-        log(`vision model warmup: ${e.message}`, 'info')
-    }
-
-    // create writable data directories (packaged → %APPDATA%; dev → repo)
     const dirs = [
         DATA_DIR,
         path.join(DATA_DIR, 'screenshots'),
@@ -446,7 +430,6 @@ async function stepWarmup() {
         if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true })
     }
 
-    // write setup complete flag
     fs.writeFileSync(SETUP_FLAG, JSON.stringify({
         version: '1.0.1',
         completedAt: new Date().toISOString(),
@@ -520,7 +503,7 @@ async function runSetup(startFrom = 'python') {
 const REQUIRED_MODELS = ['qwen3:8b', 'qwen3-vl:4b', 'nomic-embed-text']
 
 async function runPreflightChecks() {
-    // Ensure text + vision can stay loaded together (process env + persisted)
+    // Ensure text can stay loaded when capture later pins vision
     const alreadyConfigured =
         process.env.OLLAMA_MAX_LOADED_MODELS === OLLAMA_MAX_LOADED_MODELS
     await ensureOllamaParallelConfig({
@@ -577,15 +560,106 @@ async function runPreflightChecks() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// hardware gate (shown before install steps)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const HW_MIN = { ramGb: 16, vramGb: 6, diskGb: 12 }
+const HW_REC = { ramGb: 32, vramGb: 8, diskGb: 15 }
+
+function gradeResource(value, min, rec) {
+    if (value < min) return 'fail'
+    if (value < rec) return 'warn'
+    return 'ok'
+}
+
+function detectWindowsLabel() {
+    if (process.platform !== 'win32') return process.platform
+    const build = parseInt(os.release().split('.')[2] || '0', 10)
+    return build >= 22000 ? 'windows11' : 'windows10'
+}
+
+async function getFreeDiskGb(dirPath) {
+    try {
+        if (typeof fs.promises.statfs === 'function') {
+            const s = await fs.promises.statfs(dirPath)
+            return (Number(s.bavail) * Number(s.bsize)) / (1024 ** 3)
+        }
+    } catch (_) { /* fall through */ }
+
+    try {
+        const root = path.parse(path.resolve(dirPath)).root
+        const letter = root.replace(/:\\?$/, '').replace('\\', '')
+        const r = await runCommand('powershell', [
+            '-NoProfile', '-Command',
+            `(Get-PSDrive -Name '${letter}').Free`,
+        ])
+        const bytes = parseFloat(String(r.stdout || '').trim())
+        if (!Number.isNaN(bytes) && bytes > 0) return bytes / (1024 ** 3)
+    } catch (_) { /* ignore */ }
+    return 0
+}
+
+async function getVramGb() {
+    const r = await runCommand('nvidia-smi', [
+        '--query-gpu=memory.total',
+        '--format=csv,noheader,nounits',
+    ])
+    if (r.code !== 0) return 0
+    const mb = parseFloat(String(r.stdout || '').trim().split(/\r?\n/)[0])
+    if (Number.isNaN(mb) || mb <= 0) return 0
+    return mb / 1024
+}
+
+async function getHardwareCheck() {
+    // Round RAM to nearest GB so marketed 16GB machines (~15.7 usable) aren't blocked
+    const ramGb = Math.round(os.totalmem() / (1024 ** 3))
+    const diskRaw = await getFreeDiskGb(USER_DATA)
+    const vramRaw = await getVramGb()
+    const diskGb = Math.round(diskRaw * 10) / 10
+    const vramGb = Math.round(vramRaw * 10) / 10
+    const osId = detectWindowsLabel()
+    const osOk = osId === 'windows10' || osId === 'windows11'
+
+    const grades = {
+        ram:  gradeResource(ramGb, HW_MIN.ramGb, HW_REC.ramGb),
+        vram: gradeResource(vramGb, HW_MIN.vramGb, HW_REC.vramGb),
+        disk: gradeResource(diskGb, HW_MIN.diskGb, HW_REC.diskGb),
+        os:   osOk ? 'ok' : 'fail',
+    }
+
+    let level = 'ready'
+    if (Object.values(grades).includes('fail')) level = 'block'
+    else if (Object.values(grades).includes('warn')) level = 'warn'
+
+    return {
+        level,
+        grades,
+        min: HW_MIN,
+        recommended: HW_REC,
+        yours: {
+            ramGb,
+            vramGb,
+            diskGb,
+            os: osId,
+            osLabel: osId === 'windows11' ? 'Windows 11'
+                : osId === 'windows10' ? 'Windows 10'
+                : osId,
+        },
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // windows
 // ─────────────────────────────────────────────────────────────────────────────
 
 let setupStartFrom = 'python'  // which step setup should resume from
+let setupInstallStarted = false
 
 function createSetupWindow() {
+    setupInstallStarted = false
     setupWindow = new BrowserWindow({
-        width: 620,
-        height: 620,
+        width: 640,
+        height: 720,
         resizable: false,
         maximizable: false,
         icon: ICON_ACTIVE,
@@ -600,11 +674,7 @@ function createSetupWindow() {
     setupWindow.setMenu(null)
 
     setupWindow.on('closed', () => { setupWindow = null })
-
-    // start setup once the page has loaded, resuming from the failed step
-    setupWindow.webContents.on('did-finish-load', () => {
-        runSetup(setupStartFrom)
-    })
+    // Install steps start only after the user passes the hardware gate (IPC).
 }
 
 function createMainWindow() {
@@ -691,6 +761,13 @@ function broadcastCaptureStatus() {
     }
 }
 
+function notifyVisionUnload() {
+    // Capture process is force-killed; ask the API to unload VL.
+    httpPost('http://localhost:8000/residency/capture-stop', {}, 10000).catch((e) => {
+        console.log('[Capture] vision unload notify failed:', e.message)
+    })
+}
+
 function startCapture() {
     if (isCapturing()) return
     captureProcess = spawnHidden('python', [CAPTURE_SCRIPT], { cwd: ROOT })
@@ -699,6 +776,7 @@ function startCapture() {
     captureProcess.on('exit', (code) => {
         console.log('[Capture] exited', code)
         captureProcess = null
+        notifyVisionUnload()
         updateTrayIcon()
         rebuildTrayMenu()
         broadcastCaptureStatus()
@@ -718,6 +796,8 @@ function stopCapture() {
     } else {
         proc.kill('SIGTERM')
     }
+    // exit handler also notifies; call here so unload starts immediately
+    notifyVisionUnload()
     updateTrayIcon()
     rebuildTrayMenu()
     broadcastCaptureStatus()
@@ -758,6 +838,26 @@ function createTray() {
 
 ipcMain.handle('toggle-capture',     () => { toggleCapture();  return isCapturing() })
 ipcMain.handle('get-capture-status', () => isCapturing())
+
+ipcMain.handle('get-hardware-check', async () => getHardwareCheck())
+
+ipcMain.handle('confirm-hardware-and-start', async (_event, { override } = {}) => {
+    const check = await getHardwareCheck()
+    if (check.level === 'block') {
+        return { ok: false, reason: 'below_minimum', check }
+    }
+    if (check.level === 'warn' && !override) {
+        return { ok: false, reason: 'override_required', check }
+    }
+    if (setupInstallStarted) {
+        return { ok: true, alreadyStarted: true }
+    }
+    setupInstallStarted = true
+    doneSoFar = 0
+    // Kick install after the renderer has switched views
+    setImmediate(() => runSetup(setupStartFrom))
+    return { ok: true, check }
+})
 
 ipcMain.handle('retry-step', (_event, key) => {
     doneSoFar = Math.max(0, doneSoFar - 1)
@@ -843,8 +943,15 @@ app.whenReady().then(async () => {
         )
         startServer()
         pollUntilAlive('http://localhost:8000/health', 1000, 90)
-            .then(() => {
-                console.log('[app] API server healthy — ready')
+            .then(async () => {
+                console.log('[app] API server healthy — warming text model...')
+                sendLoadingStatus(null, 'Loading text model…')
+                try {
+                    await httpPost('http://localhost:8000/residency/startup', {}, 120000)
+                    console.log('[app] residency startup warm done')
+                } catch (e) {
+                    console.log('[app] residency warm skipped:', e.message)
+                }
                 if (mainWindow && !mainWindow.isDestroyed()) {
                     mainWindow.webContents.send('api-ready')
                 }

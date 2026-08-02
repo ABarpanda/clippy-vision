@@ -1,3 +1,4 @@
+import atexit
 import win32api
 import win32gui
 from typing import TypedDict, Optional, List
@@ -29,6 +30,10 @@ import win32clipboard
 from summarizer import start_summarizer
 from distil import should_distil, distil
 from screenshot_processor import start_screenshot_processor
+try:
+    from core.model_residency import on_capture_start, on_capture_stop
+except ImportError:
+    from model_residency import on_capture_start, on_capture_stop
 
 #-----------------------------------------------------#
 # Currently launched only once at the start of -------#
@@ -36,6 +41,8 @@ from screenshot_processor import start_screenshot_processor
 # future. --------------------------------------------#
 #-----------------------------------------------------#
 
+on_capture_start()
+atexit.register(on_capture_stop)
 purge_expired()
 start_worker()
 start_vision_daemon()
