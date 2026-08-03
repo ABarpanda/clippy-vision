@@ -9,11 +9,8 @@
 [![Open Source Helpers](https://www.codetriage.com/protocorn/clippy-vision/badges/users.svg)](https://www.codetriage.com/protocorn/clippy-vision)
 
 <p align="center">
-  <a href="https://github.com/protocorn/clippy-vision/raw/main/assets/Clippy%20Vision%20Demo.mp4">
-    <img src="assets/demo-product.png" alt="Clippy Vision demo" width="720" />
-  </a>
+  <img src="assets/clippy-vision-demo.gif" alt="Clippy Vision demo" width="720" />
 </p>
-<p align="center"><strong>▶ <a href="https://github.com/protocorn/clippy-vision/raw/main/assets/Clippy%20Vision%20Demo.mp4">Watch the demo</a></strong></p>
 
 ---
 
