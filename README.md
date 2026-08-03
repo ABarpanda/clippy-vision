@@ -299,28 +299,6 @@ We follow the [All Contributors](https://allcontributors.org/) spec — code is 
 | 👀 | `review` | Thoughtful PR reviews |
 | 🚧 | `maintenance` | Deps, CI, repo hygiene |
 
-### Emoji grid
-
-<!-- ALL-CONTRIBUTORS-LIST:START - Do not remove or modify this section -->
-<!-- prettier-ignore-start -->
-<!-- markdownlint-disable -->
-<table>
-  <tbody>
-    <tr>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/protocorn"><img src="https://avatars.githubusercontent.com/u/53559317?v=4?s=80" width="80px;" alt="Sahil Chordia"/><br /><sub><b>Sahil Chordia</b></sub></a><br /><a href="https://github.com/protocorn/clippy-vision/commits?author=protocorn" title="Code">💻</a> <a href="https://github.com/protocorn/clippy-vision/commits?author=protocorn" title="Documentation">📖</a> <a href="#design-protocorn" title="Design">🎨</a> <a href="#ideas-protocorn" title="Ideas">🤔</a> <a href="#maintenance-protocorn" title="Maintenance">🚧</a></td>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/cyforkk"><img src="https://avatars.githubusercontent.com/u/165913369?v=4?s=80" width="80px;" alt="cyforkk"/><br /><sub><b>cyforkk</b></sub></a><br /><a href="https://github.com/protocorn/clippy-vision/commits?author=cyforkk" title="Code">💻</a></td>
-    </tr>
-  </tbody>
-</table>
-
-<!-- markdownlint-restore -->
-<!-- prettier-ignore-end -->
-<!-- ALL-CONTRIBUTORS-LIST:END -->
-
-<!-- ALL-CONTRIBUTORS-BADGE:START - Do not remove or modify this section -->
-[![All Contributors](https://img.shields.io/badge/all_contributors-2-orange.svg?style=flat-square)](#contributors)
-<!-- ALL-CONTRIBUTORS-BADGE:END -->
-
 **Want on this list?** Open a PR, fix a typo, file a good bug, or comment on an issue:
 
 ```text

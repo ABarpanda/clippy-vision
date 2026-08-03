@@ -3,9 +3,7 @@
   "projectOwner": "protocorn",
   "repoType": "github",
   "repoHost": "https://github.com",
-  "files": [
-    "README.md"
-  ],
+  "files": [],
   "imageSize": 80,
   "commit": false,
   "commitConvention": "angular",
