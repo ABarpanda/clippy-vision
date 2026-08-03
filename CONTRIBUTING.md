@@ -9,6 +9,21 @@ Thanks for your interest in contributing! Clippy Vision is an open-source projec
 - **Code Contributions**: Want to implement a feature or fix a bug? Submit a pull request
 - **Documentation**: Help improve the docs, guides, or code comments
 - **Testing**: Test the software on different systems and report issues
+- **Design / ideas / reviews**: UI polish, architecture notes, thoughtful PR reviews — all count
+
+Every merged contribution is credited on the README [Contributors](README.md#contributors) wall (avatar, profile, contribution types, and lines of code). We follow the [All Contributors](https://allcontributors.org/) spec so non-code work is celebrated too.
+
+### Getting credited
+
+After your PR merges (or you’ve helped in another way), ask for credit on the PR or any issue:
+
+```text
+@all-contributors please add @your-username for code
+```
+
+Valid types include `code`, `doc`, `bug`, `ideas`, `design`, `test`, `review`, `maintenance`, and more — see the [emoji key](https://allcontributors.org/docs/en/emoji-key).
+
+Maintainers: install the [All Contributors GitHub App](https://github.com/apps/allcontributors) on this repo so those comments open a credit PR automatically. Line-of-code stats refresh via `.github/workflows/update-contributors.yml`.
 
 ## Issue Format
 

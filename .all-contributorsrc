@@ -1,0 +1,41 @@
+{
+  "projectName": "clippy-vision",
+  "projectOwner": "protocorn",
+  "repoType": "github",
+  "repoHost": "https://github.com",
+  "files": [
+    "README.md"
+  ],
+  "imageSize": 80,
+  "commit": false,
+  "commitConvention": "angular",
+  "contributorsPerLine": 6,
+  "contributorsSortAlphabetically": false,
+  "badgeTemplate": "[![All Contributors](https://img.shields.io/github/all-contributors/<%= projectOwner %>/<%= projectName %>?color=ee8449&style=flat-square)](#contributors)",
+  "linkToUsage": true,
+  "skipCi": true,
+  "contributors": [
+    {
+      "login": "protocorn",
+      "name": "Sahil Chordia",
+      "avatar_url": "https://avatars.githubusercontent.com/u/53559317?v=4",
+      "profile": "https://github.com/protocorn",
+      "contributions": [
+        "code",
+        "doc",
+        "design",
+        "ideas",
+        "maintenance"
+      ]
+    },
+    {
+      "login": "cyforkk",
+      "name": "cyforkk",
+      "avatar_url": "https://avatars.githubusercontent.com/u/165913369?v=4",
+      "profile": "https://github.com/cyforkk",
+      "contributions": [
+        "code"
+      ]
+    }
+  ]
+}

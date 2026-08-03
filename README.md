@@ -5,7 +5,10 @@
 ![Platform](https://img.shields.io/badge/platform-Windows-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Models](https://img.shields.io/badge/models-Ollama%20local-orange)
+[![All Contributors](https://img.shields.io/github/all-contributors/protocorn/clippy-vision?color=ee8449&style=flat-square)](#contributors)
 [![Open Source Helpers](https://www.codetriage.com/protocorn/clippy-vision/badges/users.svg)](https://www.codetriage.com/protocorn/clippy-vision)
+
+![Clippy Vision Demo](assets/Clippy%20Vision%20Demo.mp4)
 
 ---
 
@@ -255,6 +258,74 @@ The built installer appears at `electron-ui/dist/ClippyVision-Setup-{version}.ex
 ## License
 
 MIT — see [LICENSE](LICENSE) for details.
+
+---
+
+## Contributors
+
+Clippy Vision exists because people showed up — with code, docs, bug reports, design taste, and wild ideas. **Your name belongs on this wall.** First PR? First issue? First typo fix? That counts.
+
+[![All Contributors](https://img.shields.io/github/all-contributors/protocorn/clippy-vision?color=ee8449&style=flat-square)](#contributors)
+[![Contributors](https://img.shields.io/github/contributors/protocorn/clippy-vision?style=flat-square)](https://github.com/protocorn/clippy-vision/graphs/contributors)
+
+### Hall of fame
+
+Profiles, contribution types, and lines of code — refreshed automatically by GitHub Actions whenever `main` moves.
+
+<!-- CONTRIBUTORS-STATS:START -->
+
+| | Contributor | Types | Commits | Lines added | Lines removed |
+| :---: | :--- | :--- | ---: | ---: | ---: |
+| <a href="https://github.com/protocorn"><img src="https://avatars.githubusercontent.com/u/53559317?v=4" width="64" height="64" alt="protocorn"/></a> | <a href="https://github.com/protocorn"><b>@protocorn</b></a> | 💻&nbsp;<sub>code</sub><br/>📖&nbsp;<sub>doc</sub><br/>🎨&nbsp;<sub>design</sub><br/>🤔&nbsp;<sub>ideas</sub><br/>🚧&nbsp;<sub>maintenance</sub> | 39 | +85,031 | −1,502 |
+| <a href="https://github.com/cyforkk"><img src="https://avatars.githubusercontent.com/u/165913369?v=4" width="64" height="64" alt="cyforkk"/></a> | <a href="https://github.com/cyforkk"><b>@cyforkk</b></a> | 💻&nbsp;<sub>code</sub> | 1 | +32 | −11 |
+
+<sub>Stats are regenerated automatically from git history by <code>scripts/update_contributors.py</code>.</sub>
+<!-- CONTRIBUTORS-STATS:END -->
+
+### Contribution types we celebrate
+
+We follow the [All Contributors](https://allcontributors.org/) spec — code is only one way to help.
+
+| | Type | Examples |
+| :---: | :--- | :--- |
+| 💻 | `code` | Features, bugfixes, refactors |
+| 📖 | `doc` | README, guides, comments that teach |
+| 🐛 | `bug` | Repro steps, crash reports |
+| 🤔 | `ideas` | Feature proposals, architecture feedback |
+| 🎨 | `design` | UI polish, icons, UX |
+| ⚠️ | `test` | Tests, QA passes |
+| 👀 | `review` | Thoughtful PR reviews |
+| 🚧 | `maintenance` | Deps, CI, repo hygiene |
+
+### Emoji grid
+
+<!-- ALL-CONTRIBUTORS-LIST:START - Do not remove or modify this section -->
+<!-- prettier-ignore-start -->
+<!-- markdownlint-disable -->
+<table>
+  <tbody>
+    <tr>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/protocorn"><img src="https://avatars.githubusercontent.com/u/53559317?v=4?s=80" width="80px;" alt="Sahil Chordia"/><br /><sub><b>Sahil Chordia</b></sub></a><br /><a href="https://github.com/protocorn/clippy-vision/commits?author=protocorn" title="Code">💻</a> <a href="https://github.com/protocorn/clippy-vision/commits?author=protocorn" title="Documentation">📖</a> <a href="#design-protocorn" title="Design">🎨</a> <a href="#ideas-protocorn" title="Ideas">🤔</a> <a href="#maintenance-protocorn" title="Maintenance">🚧</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/cyforkk"><img src="https://avatars.githubusercontent.com/u/165913369?v=4?s=80" width="80px;" alt="cyforkk"/><br /><sub><b>cyforkk</b></sub></a><br /><a href="https://github.com/protocorn/clippy-vision/commits?author=cyforkk" title="Code">💻</a></td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- markdownlint-restore -->
+<!-- prettier-ignore-end -->
+<!-- ALL-CONTRIBUTORS-LIST:END -->
+
+<!-- ALL-CONTRIBUTORS-BADGE:START - Do not remove or modify this section -->
+[![All Contributors](https://img.shields.io/badge/all_contributors-2-orange.svg?style=flat-square)](#contributors)
+<!-- ALL-CONTRIBUTORS-BADGE:END -->
+
+**Want on this list?** Open a PR, fix a typo, file a good bug, or comment on an issue:
+
+```text
+@all-contributors please add @your-username for code, doc
+```
+
+Newcomers welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for setup and good first issues.
 
 ---
 
