@@ -278,7 +278,7 @@ Profiles, contribution types, and lines of code — refreshed automatically by G
 
 | | Contributor | Types | Commits | Lines added | Lines removed |
 | :---: | :--- | :--- | ---: | ---: | ---: |
-| <a href="https://github.com/protocorn"><img src="https://avatars.githubusercontent.com/u/53559317?v=4" width="64" height="64" alt="protocorn"/></a> | <a href="https://github.com/protocorn"><b>@protocorn</b></a> | 💻&nbsp;<sub>code</sub><br/>📖&nbsp;<sub>doc</sub><br/>🎨&nbsp;<sub>design</sub><br/>🤔&nbsp;<sub>ideas</sub><br/>🚧&nbsp;<sub>maintenance</sub> | 42 | +85,532 | −1,503 |
+| <a href="https://github.com/protocorn"><img src="https://avatars.githubusercontent.com/u/53559317?v=4" width="64" height="64" alt="protocorn"/></a> | <a href="https://github.com/protocorn"><b>@protocorn</b></a> | 💻&nbsp;<sub>code</sub><br/>📖&nbsp;<sub>doc</sub><br/>🎨&nbsp;<sub>design</sub><br/>🤔&nbsp;<sub>ideas</sub><br/>🚧&nbsp;<sub>maintenance</sub> | 43 | +85,533 | −1,507 |
 | <a href="https://github.com/cyforkk"><img src="https://avatars.githubusercontent.com/u/165913369?v=4" width="64" height="64" alt="cyforkk"/></a> | <a href="https://github.com/cyforkk"><b>@cyforkk</b></a> | 💻&nbsp;<sub>code</sub> | 1 | +32 | −11 |
 
 <sub>Stats are regenerated automatically from git history by <code>scripts/update_contributors.py</code>.</sub>
