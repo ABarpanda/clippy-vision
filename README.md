@@ -8,7 +8,12 @@
 [![All Contributors](https://img.shields.io/github/all-contributors/protocorn/clippy-vision?color=ee8449&style=flat-square)](#contributors)
 [![Open Source Helpers](https://www.codetriage.com/protocorn/clippy-vision/badges/users.svg)](https://www.codetriage.com/protocorn/clippy-vision)
 
-![Clippy Vision Demo](assets/Clippy%20Vision%20Demo.mp4)
+<p align="center">
+  <a href="https://github.com/protocorn/clippy-vision/raw/main/assets/Clippy%20Vision%20Demo.mp4">
+    <img src="assets/demo-product.png" alt="Clippy Vision demo" width="720" />
+  </a>
+</p>
+<p align="center"><strong>▶ <a href="https://github.com/protocorn/clippy-vision/raw/main/assets/Clippy%20Vision%20Demo.mp4">Watch the demo</a></strong></p>
 
 ---
 
