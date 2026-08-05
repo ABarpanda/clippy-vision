@@ -1,5 +1,5 @@
-pywin32>=306
-uiautomation
+pywin32>=306; platform_system == "Windows"
+uiautomation; platform_system == "Windows"
 mss
 Pillow
 pynput

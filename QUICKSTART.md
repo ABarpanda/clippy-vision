@@ -2,7 +2,7 @@
 
 ## Recommended: Use the Installer
 
-Download and run **[ClippyVision-Setup-1.0.1.exe](https://github.com/protocorn/clippy-vision/releases/latest)**.
+Download the Windows installer or matching Apple Silicon / Intel macOS DMG from the [latest release](https://github.com/rusetiq/clippy-vision/releases/latest).
 
 The installer's built-in setup wizard will:
 - Check for Python (install via winget if missing)
@@ -14,7 +14,9 @@ The installer's built-in setup wizard will:
 
 After setup completes, click **Launch**. Clippy Vision will start automatically on future reboots via the system tray.
 
-**Requirements:** Windows 10/11 (64-bit); **16 GB RAM / 6 GB VRAM / 12 GB free disk** minimum; **32 GB RAM / 8 GB+ VRAM** recommended. Setup wizard checks this before install. Internet needed on first run (~8 GB model download).
+**Requirements:** Windows 10/11 (64-bit) or macOS 12+; **16 GB RAM / 6 GB VRAM or unified memory / 12 GB free disk** minimum. Internet is needed on first run for model downloads.
+
+On macOS, grant Clippy Vision Screen Recording and Accessibility permission in System Settings → Privacy & Security.
 
 ---
 

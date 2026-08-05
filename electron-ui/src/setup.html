@@ -87,8 +87,8 @@
       flex: 1;
       display: none;
       flex-direction: column;
-      padding: 24px 28px 20px;
-      gap: 16px;
+      padding: 22px 26px 18px;
+      gap: 12px;
       min-height: 0;
       overflow-y: auto;
     }
@@ -103,7 +103,7 @@
       margin-top: -4px;
     }
 
-    /* ── Hardware gate ── */
+
     .verdict {
       border-radius: 12px;
       border: 1px solid var(--border);
@@ -160,6 +160,20 @@
       opacity: 0.75;
       border-bottom: 1px solid var(--border);
     }
+
+    .system-details > summary {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: pointer;
+      list-style: none;
+    }
+
+    .system-details > summary::-webkit-details-marker { display: none; }
+    .system-details > summary::after { content: '+'; font-size: 16px; font-weight: 400; }
+    .system-details[open] > summary::after { content: '−'; }
+    .system-details .summary-status { color: var(--muted); font-size: 11px; font-weight: 500; letter-spacing: 0; text-transform: none; }
+    .system-details-body { overflow-x: auto; }
 
     table.req {
       width: 100%;
@@ -218,6 +232,16 @@
       color: var(--muted);
       line-height: 1.5;
     }
+
+    .provider-card { padding-bottom: 14px; }
+    .provider-card-body { padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+    .provider-card label { display: grid; gap: 5px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; font-weight: 650; }
+    .provider-card input, .provider-card select { width: 100%; padding: 8px 9px; border: 1px solid var(--border); border-radius: 7px; background: var(--inset); color: var(--text); font: inherit; font-size: 12px; }
+    .provider-card input:focus, .provider-card select:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
+    .provider-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .provider-help { color: var(--muted); font-size: 11px; line-height: 1.4; }
+    .provider-details { display: flex; flex-direction: column; gap: 10px; }
+    .provider-details[hidden] { display: none; }
 
     .override {
       display: none;
@@ -280,7 +304,7 @@
       padding: 24px 0;
     }
 
-    /* ── Install steps ── */
+
     .steps {
       display: flex;
       flex-direction: column;
@@ -390,7 +414,6 @@
     .retry-btn:hover { background: var(--danger-bg); }
 
     .log-wrap {
-      flex: 1;
       min-height: 60px;
       max-height: 160px;
       background: var(--inset);
@@ -400,6 +423,22 @@
       display: flex;
       flex-direction: column;
     }
+
+    .log-details { flex-shrink: 0; }
+    .log-details > summary {
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 12px;
+      padding: 9px 12px;
+      list-style: none;
+      border: 1px solid var(--border);
+      border-radius: 9px;
+    }
+    .log-details > summary::-webkit-details-marker { display: none; }
+    .log-details > summary::after { content: ' +'; color: var(--accent); }
+    .log-details[open] > summary { border-radius: 9px 9px 0 0; border-bottom-color: transparent; }
+    .log-details[open] > summary::after { content: ' −'; }
+    .log-details[open] .log-wrap { border-radius: 0 0 9px 9px; }
 
     .log-header {
       padding: 8px 14px;
@@ -481,21 +520,16 @@
 <body>
 
   <header>
-    <span class="header-title">Clippy Vision — Setup</span>
-    <span class="header-version">v1.0</span>
+    <span class="header-title">Clippy Vision setup</span>
+    <span class="header-version">One-time setup</span>
   </header>
 
-  <!-- ── Screen 1: hardware gate ── -->
   <div class="screen active" id="screen-hardware">
-    <p class="tagline">
-      Clippy Vision runs AI models on your PC for screen awareness.
-      Capture works best when your machine has enough memory for the models
-      and your everyday apps.
-    </p>
+    <p class="tagline">Choose where Clippy should run AI. You can change this later in Settings.</p>
 
     <div id="hw-loading" class="hw-loading">Checking your system…</div>
 
-    <div id="hw-content" style="display:none; flex-direction:column; gap:16px; flex:1; min-height:0;">
+    <div id="hw-content" style="display:none; flex-direction:column; gap:12px; flex:1; min-height:0;">
       <div id="verdict" class="verdict ready" role="status">
         <div class="verdict-icon" id="verdict-icon">✓</div>
         <div>
@@ -504,9 +538,29 @@
         </div>
       </div>
 
-      <div class="card">
-        <div class="card-head">System check</div>
-        <table class="req">
+      <div class="card provider-card">
+        <div class="card-head">AI connection</div>
+        <div class="provider-card-body">
+          <label>Provider<select id="llm-provider"><option value="ollama">Ollama · local chat and vision</option></select></label>
+          <div class="provider-details" id="provider-details">
+            <label id="llm-base-url-field">Base URL<input id="llm-base-url" placeholder="http://127.0.0.1:1234/v1" /></label>
+            <div class="provider-fields">
+              <label>Chat model<input id="llm-chat-model" placeholder="local-chat" /></label>
+              <label>Vision model<input id="llm-vision-model" placeholder="local-vision" /></label>
+            </div>
+            <label id="llm-cli-command-field" hidden>CLI command/path<input id="llm-cli-command" placeholder="Detected from PATH" /></label>
+            <div class="provider-help">Embeddings use nomic-embed-text through local Ollama.</div>
+            <label id="llm-api-key-field">API key <span style="font-weight:400;text-transform:none;letter-spacing:normal">optional</span><input id="llm-api-key" type="password" placeholder="Leave blank if your local server needs no key" autocomplete="off" /></label>
+            <button type="button" class="secondary" id="llm-connect-btn" hidden>Connect account in Terminal</button>
+          </div>
+          <div class="provider-help" id="provider-help">Ollama will download and manage the chat, vision, and embedding models during setup.</div>
+        </div>
+      </div>
+
+      <details class="card system-details" id="system-details">
+        <summary class="card-head"><span>System check</span><span class="summary-status" id="hardware-summary">Checking…</span></summary>
+        <div class="system-details-body">
+          <table class="req">
           <thead>
             <tr>
               <th>Resource</th>
@@ -525,7 +579,7 @@
               <td><span class="pill ok" id="pill-ram"><span class="dot"></span><span>OK</span></span></td>
             </tr>
             <tr>
-              <th>GPU VRAM</th>
+              <th id="memory-label">GPU VRAM</th>
               <td id="min-vram">—</td>
               <td id="rec-vram">—</td>
               <td class="col-yours" id="you-vram">—</td>
@@ -540,17 +594,17 @@
             </tr>
             <tr>
               <th>OS</th>
-              <td colspan="2">Windows 10/11</td>
+              <td colspan="2" id="os-requirement">Windows 10/11 or macOS</td>
               <td class="col-yours" id="you-os">—</td>
               <td><span class="pill ok" id="pill-os"><span class="dot"></span><span>OK</span></span></td>
             </tr>
           </tbody>
-        </table>
-      </div>
+          </table>
+        </div>
+      </details>
 
-      <p class="note">
-        Models use roughly 8 GB on disk (qwen3:8b, qwen3-vl:4b, embed).
-        During capture, leave headroom for Chrome, your IDE, and the Windows compositor.
+      <p class="note" id="hardware-note">
+        Ollama downloads the chat, vision, and embedding models locally.
       </p>
 
       <label class="override" id="override-row">
@@ -564,9 +618,8 @@
     </div>
   </div>
 
-  <!-- ── Screen 2: install steps ── -->
   <div class="screen" id="screen-install">
-    <p class="tagline">Setting up your personal AI assistant. This only happens once.</p>
+    <p class="tagline">Preparing Clippy. This only happens once.</p>
 
     <div class="steps" id="steps-list">
       <div class="step pending" id="step-python" data-key="python">
@@ -609,7 +662,7 @@
         <div class="step-icon">○</div>
         <div class="step-body">
           <div class="step-label">AI Models</div>
-          <div class="step-sub">Downloading qwen3:8b, qwen3-vl:4b, nomic-embed-text (~8 GB)</div>
+          <div class="step-sub">Downloading nomic-embed-text, qwen3:8b, and qwen3-vl:4b</div>
           <div class="step-bar-wrap"><div class="step-bar" id="bar-models"></div></div>
         </div>
       </div>
@@ -624,10 +677,10 @@
       </div>
     </div>
 
-    <div class="log-wrap">
-      <div class="log-header">Install Log</div>
-      <div id="log"></div>
-    </div>
+    <details class="log-details">
+      <summary>Install log</summary>
+      <div class="log-wrap"><div id="log"></div></div>
+    </details>
 
     <div class="bottom">
       <div id="bottom-left">
@@ -651,6 +704,8 @@
     const overallText = $('overall-text')
 
     let hwCheck = null
+    let activeSteps = new Set(STEPS)
+    const completedSteps = new Set()
 
     function setPill(el, grade) {
       el.className = 'pill ' + grade
@@ -667,6 +722,7 @@
       hwCheck = check
       $('hw-loading').style.display = 'none'
       $('hw-content').style.display = 'flex'
+      configureSetupMode(check.mode)
 
       $('min-ram').textContent = gb(check.min.ramGb)
       $('rec-ram').textContent = gb(check.recommended.ramGb)
@@ -677,6 +733,7 @@
       $('rec-vram').textContent = gb(check.recommended.vramGb)
       $('you-vram').textContent = check.yours.vramGb <= 0 ? 'None / shared' : gb(check.yours.vramGb)
       setPill($('pill-vram'), check.grades.vram)
+      $('memory-label').textContent = check.yours.memoryLabel || 'GPU VRAM'
 
       $('min-disk').textContent = gb(check.min.diskGb)
       $('rec-disk').textContent = gb(check.recommended.diskGb)
@@ -685,6 +742,21 @@
 
       $('you-os').textContent = check.yours.osLabel
       setPill($('pill-os'), check.grades.os)
+      $('os-requirement').textContent = check.yours.os.indexOf('macos-') === 0
+        ? 'macOS 12+'
+        : 'Windows 10/11'
+
+      const external = check.mode === 'external'
+      const subscription = check.mode === 'subscription'
+      $('hardware-summary').textContent = external
+        ? 'Local API'
+        : subscription ? 'Subscription CLI'
+        : check.level === 'ready' ? 'Ready' : check.level === 'warn' ? 'Review' : 'Blocked'
+      $('hardware-note').textContent = external
+        ? 'Local API mode keeps chat and vision weights on your configured server. Clippy stores activity and settings locally.'
+        : subscription
+        ? 'Subscription mode uses the official CLI already signed in on this computer. Clippy stores activity and settings locally.'
+        : 'Models use roughly 8 GB on disk. During capture, leave headroom for your browser, IDE, and the desktop compositor.'
 
       const verdict = $('verdict')
       const continueBtn = $('btn-continue')
@@ -695,9 +767,15 @@
 
       if (check.level === 'ready') {
         $('verdict-icon').textContent = '✓'
-        $('verdict-title').textContent = 'Ready for full capture'
+        $('verdict-title').textContent = external
+          ? 'Ready to connect to your local API'
+          : subscription ? 'Ready to use your subscription' : 'Ready for full capture'
         $('verdict-body').textContent =
-          'Your PC meets the recommended specs. You can install and use screen capture comfortably alongside everyday apps.'
+          external
+            ? 'Clippy will not download Ollama or chat/vision model weights. Make sure the selected local API exposes chat completions and vision before you launch; embeddings are handled locally.'
+            : subscription
+            ? 'Clippy will use the official CLI session on this computer. Sign in from the terminal button if needed; embeddings are handled locally.'
+            : 'Your machine meets the recommended specs. You can install and use screen capture comfortably alongside everyday apps.'
         overrideRow.classList.remove('visible')
         override.checked = false
         continueBtn.disabled = false
@@ -706,7 +784,7 @@
         $('verdict-icon').textContent = '!'
         $('verdict-title').textContent = 'May run, but expect lag'
         $('verdict-body').textContent =
-          'Your PC is above the minimum but below recommended. Capture can work with fewer apps open, but you may see freezes when switching windows or playing video.'
+          'Your machine is above the minimum but below recommended. Capture can work with fewer apps open, but you may see freezes when switching windows or playing video.'
         overrideRow.classList.add('visible')
         continueBtn.disabled = !override.checked
         continueBtn.textContent = 'Continue anyway'
@@ -714,7 +792,7 @@
         $('verdict-icon').textContent = '✕'
         $('verdict-title').textContent = 'Not enough resources'
         $('verdict-body').textContent =
-          'This PC is below Clippy Vision’s minimum for local AI capture. Setup is blocked so we don’t leave you with a desktop that freezes under load. Free disk space or upgrade RAM/GPU, then try again.'
+          'This machine is below Clippy Vision’s minimum for local AI capture. Setup is blocked so we don’t leave you with a desktop that freezes under load. Free disk space or add memory, then try again.'
         overrideRow.classList.remove('visible')
         override.checked = false
         continueBtn.disabled = true
@@ -733,12 +811,94 @@
         return
       }
       try {
+        const config = await window.setup.getLLMConfig()
+        renderLLMConfig(config)
         const check = await window.setup.getHardwareCheck()
         renderHardware(check)
       } catch (e) {
         $('hw-loading').textContent = 'Could not read system specs: ' + (e.message || e)
       }
     }
+
+    function renderLLMConfig(config) {
+      const providers = new Set(['ollama', 'openai_compatible', 'gemini_api', 'codex_cli', 'claude_cli'])
+      const provider = providers.has(config?.provider) ? config.provider : 'ollama'
+      const subscription = provider.endsWith('_cli')
+      const apiProvider = provider === 'openai_compatible' || provider === 'gemini_api'
+      $('llm-provider').value = provider
+      $('provider-details').hidden = provider === 'ollama'
+      $('llm-base-url-field').hidden = !apiProvider
+      $('llm-api-key-field').hidden = !apiProvider
+      $('llm-cli-command-field').hidden = !subscription
+      $('llm-connect-btn').hidden = !subscription
+      $('llm-base-url').value = config.base_url || (provider === 'ollama' ? 'http://127.0.0.1:11434' : provider === 'gemini_api' ? 'https://generativelanguage.googleapis.com/v1beta/openai' : provider === 'openai_compatible' ? 'http://127.0.0.1:1234/v1' : 'cli://local')
+      $('llm-chat-model').value = config.chat_model || (provider === 'codex_cli' ? 'default' : provider === 'claude_cli' ? 'sonnet' : provider === 'gemini_api' ? 'gemini-2.5-flash' : 'qwen3:8b')
+      $('llm-vision-model').value = config.vision_model || $('llm-chat-model').value
+      $('llm-cli-command').value = config.cli_command || ''
+      $('llm-api-key').value = ''
+      $('llm-api-key').placeholder = config.api_key_set ? 'Saved key is set · leave blank to keep it' : 'Leave blank if your local server needs no key'
+      $('provider-help').textContent = provider === 'gemini_api'
+        ? 'Use a Gemini API key from Google AI Studio. Gemini CLI account sign-in is not supported for third-party apps. Embeddings remain local.'
+        : provider === 'openai_compatible'
+        ? 'Clippy uses this server for chat and vision.'
+        : subscription
+        ? 'Clippy uses your authenticated CLI subscription for chat and vision. The CLI handles sign-in and account credentials.'
+        : 'Ollama will download and manage the chat, vision, and embedding models during setup.'
+    }
+
+    function selectedLLMConfig() {
+      const values = {
+        provider: $('llm-provider').value,
+        base_url: $('llm-base-url').value.trim(),
+        cli_command: $('llm-cli-command').value.trim(),
+        chat_model: $('llm-chat-model').value.trim(),
+        vision_model: $('llm-vision-model').value.trim(),
+      }
+      const apiKey = $('llm-api-key').value.trim()
+      if (apiKey) values.api_key = apiKey
+      return values
+    }
+
+    async function saveSelectedLLMConfig() {
+      const config = await window.setup.saveLLMConfig(selectedLLMConfig())
+      renderLLMConfig(config)
+      return config
+    }
+
+    $('llm-provider').addEventListener('change', async () => {
+      const provider = $('llm-provider').value
+      const external = provider === 'openai_compatible' || provider === 'gemini_api'
+      const subscription = provider.endsWith('_cli')
+      $('llm-base-url').value = provider === 'gemini_api' ? 'https://generativelanguage.googleapis.com/v1beta/openai' : external ? 'http://127.0.0.1:1234/v1' : subscription ? 'cli://local' : 'http://127.0.0.1:11434'
+      $('llm-chat-model').value = provider === 'codex_cli' ? 'default' : provider === 'claude_cli' ? 'sonnet' : provider === 'gemini_api' ? 'gemini-2.5-flash' : external ? 'local-chat' : 'qwen3:8b'
+      $('llm-vision-model').value = provider === 'codex_cli' ? 'default' : provider === 'claude_cli' ? 'sonnet' : provider === 'gemini_api' ? 'gemini-2.5-flash' : external ? 'local-vision' : 'qwen3-vl:4b'
+      $('provider-help').textContent = provider === 'gemini_api'
+        ? 'Use a Gemini API key from Google AI Studio. Gemini CLI account sign-in is not supported for third-party apps. Embeddings remain local.'
+        : external
+        ? 'Clippy uses this server for chat and vision.'
+        : subscription
+        ? 'Clippy uses your authenticated CLI subscription for chat and vision. The CLI handles sign-in and account credentials.'
+        : 'Ollama will download and manage the chat, vision, and embedding models during setup.'
+      try {
+        await saveSelectedLLMConfig()
+        await loadHardware()
+      } catch (error) {
+        $('provider-help').textContent = `Could not save provider settings: ${error.message || error}`
+      }
+    })
+
+    $('llm-connect-btn').addEventListener('click', async () => {
+      $('llm-connect-btn').disabled = true
+      try {
+        await saveSelectedLLMConfig()
+        const result = await window.setup.openProviderAuth($('llm-provider').value)
+        $('provider-help').textContent = result?.message || 'A terminal was opened for sign-in.'
+      } catch (error) {
+        $('provider-help').textContent = `Could not open sign-in terminal: ${error.message || error}`
+      } finally {
+        $('llm-connect-btn').disabled = false
+      }
+    })
 
     $('override-check').addEventListener('change', () => {
       if (hwCheck) renderHardware(hwCheck)
@@ -751,6 +911,7 @@
       btn.textContent = 'Starting…'
       const override = $('override-check').checked
       try {
+        await saveSelectedLLMConfig()
         const res = await window.setup.confirmHardwareAndStart({ override })
         if (!res || !res.ok) {
           if (res && res.check) renderHardware(res.check)
@@ -765,7 +926,16 @@
       }
     })
 
-    // ── Install step UI (unchanged behavior) ──
+    function configureSetupMode(mode) {
+      const external = mode !== 'ollama'
+      activeSteps = new Set(external ? ['python', 'packages', 'warmup'] : STEPS)
+      completedSteps.clear()
+      for (const key of STEPS) {
+        const el = getStepEl(key)
+        if (el) el.style.display = activeSteps.has(key) ? 'flex' : 'none'
+      }
+      setOverall(0, 'Ready to start')
+    }
 
     function getStepEl(key) {
       return document.getElementById(`step-${key}`)
@@ -780,6 +950,9 @@
       const subEl  = el.querySelector('.step-sub')
 
       if (subText) subEl.textContent = subText
+
+      if (state === 'done') completedSteps.add(key)
+      if (state === 'error') completedSteps.delete(key)
 
       if (state === 'pending') {
         iconEl.innerHTML = '○'
@@ -800,6 +973,8 @@
           el.querySelector('.step-body').appendChild(btn)
         }
       }
+
+      setOverall(completedSteps.size, state === 'running' ? subText : undefined)
     }
 
     function setStepBar(key, percent) {
@@ -816,9 +991,10 @@
     }
 
     function setOverall(doneCount, statusText) {
-      const pct = Math.round((doneCount / STEP_TOTAL) * 100)
+      const total = activeSteps.size || STEP_TOTAL
+      const pct = Math.round((Math.min(doneCount, total) / total) * 100)
       overallFill.style.width = `${pct}%`
-      overallText.textContent = statusText || `${doneCount} / ${STEP_TOTAL} steps`
+      overallText.textContent = statusText || `${Math.min(doneCount, total)} / ${total} steps`
     }
 
     function appendLog(line, cls) {
@@ -872,7 +1048,9 @@
       })
 
       window.setup.onOverall(({ done, text }) => {
-        setOverall(done, text)
+        const total = activeSteps.size || STEP_TOTAL
+        const visibleDone = [...completedSteps].filter(key => activeSteps.has(key)).length
+        setOverall(visibleDone, total === STEP_TOTAL ? text : undefined)
       })
 
       window.setup.onComplete(() => {
@@ -891,7 +1069,7 @@
         window.setup.launch()
       }
     })
-  </script>
+</script>
 
 </body>
 </html>
