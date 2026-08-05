@@ -43,4 +43,4 @@ Core stays free and open source for individuals, always, latest version, no dela
 The ultimate plan for monetizing Clippy Vision is an enterprise version, where an employee could hand off their work context to another employee, using what Clippy already captured, instead of calling and disturbing someone on vacation. There are other use cases beyond this one too. Individual versions stay completely free, regardless of what the enterprise version looks like.
 
 # Contributing
-Want to help build this? See CONTRIBUTING.md for setup, and join the Discord server for ongoing discussion, skills architecture, and what's currently being worked on.
+Want to help build this? See [CONTRIBUTING.md](https://github.com/protocorn/clippy-vision?tab=contributing-ov-file) for setup, and join the Discord server for ongoing discussion, skills architecture, and what's currently being worked on.
