@@ -33,8 +33,8 @@ No fixed timeline, ordered by priority rather than by date.
 
 **Version 1.3.0 (Next in pipeline)**
 - Skills layer, making the agent proactive instead of purely reactive
-- First skills in progress: a reading/watching mode that quizzes you on material afterward, and a timed study mode that builds a quiz/test plus analytics once a session ends (in collaboration with contributor Sohan_Ananthula)
-- General pattern: "when you see XYZ, do ABC"
+- Planned skill 1: A reading/watching mode that quizzes you on material afterward, and a timed study mode that builds a quiz/test plus analytics once a session ends
+- Planned skill 2: "when you see XYZ, do ABC"
 
 # Licensing
 Core stays free and open source for individuals, always, latest version, no delay, source is visible for every version we release. Leaning toward AGPL (or similar) for the core, with a separate commercial license for companies that want to use it without AGPL's obligations. Still being finalized.
