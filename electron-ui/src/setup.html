@@ -746,17 +746,10 @@
         ? 'macOS 12+'
         : 'Windows 10/11'
 
-      const external = check.mode === 'external'
-      const subscription = check.mode === 'subscription'
-      $('hardware-summary').textContent = external
-        ? 'Local API'
-        : subscription ? 'Subscription CLI'
-        : check.level === 'ready' ? 'Ready' : check.level === 'warn' ? 'Review' : 'Blocked'
-      $('hardware-note').textContent = external
-        ? 'Local API mode keeps chat and vision weights on your configured server. Clippy stores activity and settings locally.'
-        : subscription
-        ? 'Subscription mode uses the official CLI already signed in on this computer. Clippy stores activity and settings locally.'
-        : 'Models use roughly 8 GB on disk. During capture, leave headroom for your browser, IDE, and the desktop compositor.'
+      // The onboarding gate describes the local Ollama runtime. Hosted and
+      // subscription modes remain a comment-only future extension.
+      $('hardware-summary').textContent = check.level === 'ready' ? 'Ready' : check.level === 'warn' ? 'Review' : 'Blocked'
+      $('hardware-note').textContent = 'Models use roughly 8 GB on disk. During capture, leave headroom for your browser, IDE, and the desktop compositor.'
 
       const verdict = $('verdict')
       const continueBtn = $('btn-continue')
@@ -767,15 +760,8 @@
 
       if (check.level === 'ready') {
         $('verdict-icon').textContent = '✓'
-        $('verdict-title').textContent = external
-          ? 'Ready to connect to your local API'
-          : subscription ? 'Ready to use your subscription' : 'Ready for full capture'
-        $('verdict-body').textContent =
-          external
-            ? 'Clippy will not download Ollama or chat/vision model weights. Make sure the selected local API exposes chat completions and vision before you launch; embeddings are handled locally.'
-            : subscription
-            ? 'Clippy will use the official CLI session on this computer. Sign in from the terminal button if needed; embeddings are handled locally.'
-            : 'Your machine meets the recommended specs. You can install and use screen capture comfortably alongside everyday apps.'
+        $('verdict-title').textContent = 'Ready for full capture'
+        $('verdict-body').textContent = 'Your machine meets the recommended specs. You can install and use screen capture comfortably alongside everyday apps.'
         overrideRow.classList.remove('visible')
         override.checked = false
         continueBtn.disabled = false
@@ -821,29 +807,22 @@
     }
 
     function renderLLMConfig(config) {
-      const providers = new Set(['ollama', 'openai_compatible', 'gemini_api', 'codex_cli', 'claude_cli'])
-      const provider = providers.has(config?.provider) ? config.provider : 'ollama'
-      const subscription = provider.endsWith('_cli')
-      const apiProvider = provider === 'openai_compatible' || provider === 'gemini_api'
+      // Keep the model fields ready for local model selection, while leaving
+      // hosted-provider controls out of onboarding until that work is approved.
+      const provider = 'ollama'
       $('llm-provider').value = provider
-      $('provider-details').hidden = provider === 'ollama'
-      $('llm-base-url-field').hidden = !apiProvider
-      $('llm-api-key-field').hidden = !apiProvider
-      $('llm-cli-command-field').hidden = !subscription
-      $('llm-connect-btn').hidden = !subscription
-      $('llm-base-url').value = config.base_url || (provider === 'ollama' ? 'http://127.0.0.1:11434' : provider === 'gemini_api' ? 'https://generativelanguage.googleapis.com/v1beta/openai' : provider === 'openai_compatible' ? 'http://127.0.0.1:1234/v1' : 'cli://local')
-      $('llm-chat-model').value = config.chat_model || (provider === 'codex_cli' ? 'default' : provider === 'claude_cli' ? 'sonnet' : provider === 'gemini_api' ? 'gemini-2.5-flash' : 'qwen3:8b')
+      $('provider-details').hidden = true
+      $('llm-base-url-field').hidden = true
+      $('llm-api-key-field').hidden = true
+      $('llm-cli-command-field').hidden = true
+      $('llm-connect-btn').hidden = true
+      $('llm-base-url').value = config.base_url || 'http://127.0.0.1:11434'
+      $('llm-chat-model').value = config.chat_model || 'qwen3:8b'
       $('llm-vision-model').value = config.vision_model || $('llm-chat-model').value
       $('llm-cli-command').value = config.cli_command || ''
       $('llm-api-key').value = ''
       $('llm-api-key').placeholder = config.api_key_set ? 'Saved key is set · leave blank to keep it' : 'Leave blank if your local server needs no key'
-      $('provider-help').textContent = provider === 'gemini_api'
-        ? 'Use a Gemini API key from Google AI Studio. Gemini CLI account sign-in is not supported for third-party apps. Embeddings remain local.'
-        : provider === 'openai_compatible'
-        ? 'Clippy uses this server for chat and vision.'
-        : subscription
-        ? 'Clippy uses your authenticated CLI subscription for chat and vision. The CLI handles sign-in and account credentials.'
-        : 'Ollama will download and manage the chat, vision, and embedding models during setup.'
+      $('provider-help').textContent = 'Ollama will download and manage the chat, vision, and embedding models during setup.'
     }
 
     function selectedLLMConfig() {
@@ -866,19 +845,13 @@
     }
 
     $('llm-provider').addEventListener('change', async () => {
-      const provider = $('llm-provider').value
-      const external = provider === 'openai_compatible' || provider === 'gemini_api'
-      const subscription = provider.endsWith('_cli')
-      $('llm-base-url').value = provider === 'gemini_api' ? 'https://generativelanguage.googleapis.com/v1beta/openai' : external ? 'http://127.0.0.1:1234/v1' : subscription ? 'cli://local' : 'http://127.0.0.1:11434'
-      $('llm-chat-model').value = provider === 'codex_cli' ? 'default' : provider === 'claude_cli' ? 'sonnet' : provider === 'gemini_api' ? 'gemini-2.5-flash' : external ? 'local-chat' : 'qwen3:8b'
-      $('llm-vision-model').value = provider === 'codex_cli' ? 'default' : provider === 'claude_cli' ? 'sonnet' : provider === 'gemini_api' ? 'gemini-2.5-flash' : external ? 'local-vision' : 'qwen3-vl:4b'
-      $('provider-help').textContent = provider === 'gemini_api'
-        ? 'Use a Gemini API key from Google AI Studio. Gemini CLI account sign-in is not supported for third-party apps. Embeddings remain local.'
-        : external
-        ? 'Clippy uses this server for chat and vision.'
-        : subscription
-        ? 'Clippy uses your authenticated CLI subscription for chat and vision. The CLI handles sign-in and account credentials.'
-        : 'Ollama will download and manage the chat, vision, and embedding models during setup.'
+      // The select currently contains only Ollama; keep this handler so adding
+      // another local runtime later has one clear configuration entry point.
+      $('llm-provider').value = 'ollama'
+      $('llm-base-url').value = 'http://127.0.0.1:11434'
+      $('llm-chat-model').value = 'qwen3:8b'
+      $('llm-vision-model').value = 'qwen3-vl:4b'
+      $('provider-help').textContent = 'Ollama will download and manage the chat, vision, and embedding models during setup.'
       try {
         await saveSelectedLLMConfig()
         await loadHardware()

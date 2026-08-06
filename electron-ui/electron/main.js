@@ -9,14 +9,14 @@ const http       = require('http')
 const https      = require('https')
 const os         = require('os')
 
+// Keep one desktop process alive so a second launch focuses the existing tray app.
 if (!app.requestSingleInstanceLock()) {
     app.quit()
     process.exit(0)
 }
-
-
-
-
+// Packaged builds keep mutable state in Electron's user-data directory. During
+// development the repository data directory is used so local runs behave the
+// same way without copying state into an installation folder.
 const IS_PACKAGED     = app.isPackaged
 const ROOT            = IS_PACKAGED
     ? path.join(process.resourcesPath, 'clippy')
@@ -35,6 +35,8 @@ const SETUP_FLAG      = path.join(USER_DATA, 'setup_complete.json')
 const RESIDENCY_FILE  = path.join(DATA_DIR, 'model_residency.json')
 const CAPTURE_STATE_FILE = path.join(DATA_DIR, 'capture_status.json')
 const LLM_CONFIG_FILE = path.join(DATA_DIR, 'llm_config.json')
+// Electron does not always inherit the interactive shell PATH. These common
+// macOS locations cover Homebrew, npm/pnpm, Volta, and nvm installations.
 const PATH_HINTS = process.platform === 'darwin'
     ? [
         '/opt/homebrew/bin',
@@ -48,6 +50,8 @@ const PATH_HINTS = process.platform === 'darwin'
     : []
 
 function commandFromKnownPaths(name, fallback) {
+    // Prefer an explicitly discoverable executable before falling back to the
+    // shell name, which lets spawn() still resolve system installations.
     const candidate = PATH_HINTS.map((dir) => path.join(dir, name)).find((file) => fs.existsSync(file))
     return candidate || fallback
 }
@@ -59,18 +63,13 @@ const PYTHON_COMMAND = process.env.CLIPPY_PYTHON || commandFromKnownPaths(
 const OLLAMA_COMMAND = process.env.CLIPPY_OLLAMA || commandFromKnownPaths('ollama', 'ollama')
 const API_BASE_URL = 'http://127.0.0.1:8000'
 const OLLAMA_BASE_URL = 'http://127.0.0.1:11434'
-const GEMINI_API_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/openai'
-const GEMINI_DEFAULT_MODEL = 'gemini-2.5-flash'
 const RELEASE_REPOSITORY = 'rusetiq/clippy-vision'
 const LOCAL_EMBEDDING_MODEL = 'nomic-embed-text'
-const SUBSCRIPTION_PROVIDERS = new Set(['codex_cli', 'claude_cli'])
-const CLI_DEFAULTS = {
-    codex_cli: { command: 'codex', login_args: ['--login'], chat_model: 'default', vision_model: 'default' },
-    claude_cli: { command: 'claude', login_args: [], chat_model: 'sonnet', vision_model: 'sonnet' },
-}
 
-
-
+// Hosted and subscription providers are deliberately not active in this
+// release. Keep the names here as a documented extension seam until the
+// project is ready to define their privacy and authentication guarantees.
+// Future provider IDs: gemini_api, codex_cli, claude_cli.
 const OLLAMA_MAX_LOADED_MODELS = '2'
 const OLLAMA_NUM_PARALLEL = '1'
 
@@ -86,55 +85,25 @@ const DEFAULT_LLM_CONFIG = {
 
 function normalizeLLMConfig(values = {}) {
     const merged = { ...DEFAULT_LLM_CONFIG, ...values }
-    const provider = String(merged.provider || 'ollama').toLowerCase()
-    const aliases = {
-        openai: 'openai_compatible',
-        'openai-compatible': 'openai_compatible',
-        openai_compatible: 'openai_compatible',
-        local: 'openai_compatible',
-        'local-api': 'openai_compatible',
-        local_api: 'openai_compatible',
-        codex: 'codex_cli',
-        'codex-cli': 'codex_cli',
-        claude: 'claude_cli',
-        'claude-code': 'claude_cli',
-        gemini: 'gemini_api',
-        'gemini-api': 'gemini_api',
-        gemini_api: 'gemini_api',
-        'gemini-cli': 'gemini_api',
-        gemini_cli: 'gemini_api',
-    }
-    merged.provider = aliases[provider] || (
-        provider === 'ollama'
-            ? 'ollama'
-            : SUBSCRIPTION_PROVIDERS.has(provider) || provider === 'gemini_api' ? provider : 'ollama'
-    )
-    if (!values.base_url || (merged.provider === 'gemini_api' && merged.base_url === 'cli://local')) {
-        merged.base_url = SUBSCRIPTION_PROVIDERS.has(merged.provider)
-            ? 'cli://local'
-            : merged.provider === 'gemini_api'
-            ? GEMINI_API_BASE_URL
-            : merged.provider === 'openai_compatible'
-            ? 'http://127.0.0.1:1234/v1'
-            : OLLAMA_BASE_URL
+    const requestedProvider = String(merged.provider || 'ollama').toLowerCase()
+    const supportedProvider = requestedProvider === 'ollama'
+
+    // An old hosted-provider setting must never leave its remote URL behind
+    // after being normalized to the local Ollama default.
+    merged.provider = 'ollama'
+    if (!values.base_url || !supportedProvider) {
+        merged.base_url = OLLAMA_BASE_URL
     }
     merged.base_url = String(merged.base_url || '').trim().replace(/\/+$/, '')
-    merged.api_key = String(merged.api_key || '').trim()
-    merged.cli_command = String(merged.cli_command || '').trim()
+    // Do not retain hosted credentials in a local-only build. Ollama's local
+    // endpoint does not require an API key.
+    merged.api_key = ''
+    merged.cli_command = ''
     for (const field of ['chat_model', 'vision_model']) {
         merged[field] = String(merged[field] || DEFAULT_LLM_CONFIG[field]).trim()
     }
-    if (SUBSCRIPTION_PROVIDERS.has(merged.provider)) {
-        const defaults = CLI_DEFAULTS[merged.provider]
-        if (!values.chat_model || ['qwen3:8b', ''].includes(merged.chat_model)) merged.chat_model = defaults.chat_model
-        if (!values.vision_model || ['qwen3-vl:4b', ''].includes(merged.vision_model)) merged.vision_model = defaults.vision_model
-        if (!merged.cli_command) merged.cli_command = defaults.command
-    }
-    if (merged.provider === 'gemini_api') {
-        if (!values.chat_model || ['qwen3:8b', 'auto', ''].includes(merged.chat_model)) merged.chat_model = GEMINI_DEFAULT_MODEL
-        if (!values.vision_model || ['qwen3-vl:4b', 'auto', ''].includes(merged.vision_model)) merged.vision_model = GEMINI_DEFAULT_MODEL
-        merged.cli_command = ''
-    }
+    // Embeddings remain a local Ollama responsibility and cannot be redirected
+    // to a hosted service through the desktop settings.
     merged.embedding_model = LOCAL_EMBEDDING_MODEL
     return merged
 }
@@ -145,11 +114,8 @@ function validateLLMConfig(values = {}) {
             throw new Error(`${field} cannot be empty.`)
         }
     }
-    if (!SUBSCRIPTION_PROVIDERS.has(values.provider) && !/^https?:\/\/[^\s]+$/i.test(values.base_url)) {
+    if (values.provider !== 'ollama' || !/^https?:\/\/[^\s]+$/i.test(values.base_url)) {
         throw new Error('Base URL must be a valid HTTP or HTTPS URL.')
-    }
-    if (SUBSCRIPTION_PROVIDERS.has(values.provider) && values.cli_command.length > 240) {
-        throw new Error('CLI command is too long.')
     }
     for (const field of ['chat_model', 'vision_model']) {
         if (values[field].length > 240) throw new Error(`${field} is too long.`)
@@ -188,7 +154,7 @@ function publicLLMConfig() {
 function saveLLMConfig(values = {}) {
     if (Object.prototype.hasOwnProperty.call(values, 'provider')) {
         const provider = String(values.provider || '').trim().toLowerCase()
-        const validProviders = new Set(['ollama', 'openai', 'openai-compatible', 'openai_compatible', 'local', 'local-api', 'local_api', 'gemini', 'gemini-api', 'gemini_api', 'gemini-cli', 'gemini_cli', ...SUBSCRIPTION_PROVIDERS])
+        const validProviders = new Set(['ollama'])
         if (!validProviders.has(provider)) throw new Error('Unsupported AI provider.')
     }
     const current = readLLMConfig()
@@ -199,95 +165,22 @@ function saveLLMConfig(values = {}) {
         targetProvider !== current.provider
     const nextValues = { ...current, ...values }
     if (providerChanged && !Object.prototype.hasOwnProperty.call(values, 'base_url')) {
-        nextValues.base_url = SUBSCRIPTION_PROVIDERS.has(targetProvider)
-            ? 'cli://local'
-            : targetProvider === 'gemini_api'
-            ? GEMINI_API_BASE_URL
-            : targetProvider === 'ollama'
-            ? OLLAMA_BASE_URL
-            : 'http://127.0.0.1:1234/v1'
+        nextValues.base_url = OLLAMA_BASE_URL
     }
     const next = normalizeLLMConfig(nextValues)
 
-    if (!String(values.api_key || '').trim() && current.api_key) next.api_key = current.api_key
     validateLLMConfig(next)
     fs.mkdirSync(DATA_DIR, { recursive: true })
     fs.writeFileSync(LLM_CONFIG_FILE, JSON.stringify(next, null, 2) + '\n')
     return publicLLMConfig()
 }
 
-function isExternalProvider() {
-    return readLLMConfig().provider !== 'ollama'
-}
-
-function isSubscriptionProvider(provider = readLLMConfig().provider) {
-    return SUBSCRIPTION_PROVIDERS.has(provider)
-}
-
-function providerDisplayName(provider = readLLMConfig().provider) {
+function openProviderAuth() {
+    // Hosted and subscription sign-in is intentionally a no-op while Clippy
+    // Vision's product boundary is 100% local.
     return {
-        codex_cli: 'Codex subscription',
-        claude_cli: 'Claude subscription',
-        gemini_api: 'Google Gemini API',
-        openai_compatible: 'OpenAI-compatible local API',
-        ollama: 'Ollama',
-    }[provider] || provider
-}
-
-function shellQuote(value) {
-    return `'${String(value).replace(/'/g, "'\\''")}'`
-}
-
-function windowsQuote(value) {
-    const text = String(value)
-    return /[\s"]/.test(text) ? `"${text.replace(/(["\\])/g, '\\$1')}"` : text
-}
-
-function openProviderAuth(provider) {
-    if (!isSubscriptionProvider(provider)) {
-        return { ok: false, error: 'Choose a subscription CLI provider first.' }
-    }
-    const metadata = CLI_DEFAULTS[provider]
-    const config = readLLMConfig()
-    const executable = String(config.cli_command || metadata.command).trim()
-    const loginArgs = metadata.login_args || []
-    if (!executable) return { ok: false, error: 'No CLI command is configured.' }
-
-    let commandLine
-    if (process.platform === 'win32') {
-        const pathPrefix = PATH_HINTS.length
-            ? `set PATH=${PATH_HINTS.map(windowsQuote).join(';')};%PATH%&& `
-            : ''
-        commandLine = `${pathPrefix}${windowsQuote(executable)}${loginArgs.length ? ` ${loginArgs.map(windowsQuote).join(' ')}` : ''}`
-        const terminal = spawn(process.env.ComSpec || 'cmd.exe', ['/d', '/k', commandLine], {
-            detached: true,
-            stdio: 'ignore',
-            windowsHide: false,
-        })
-        terminal.unref()
-    } else {
-        const pathPrefix = process.platform === 'darwin' && PATH_HINTS.length
-            ? `export PATH=${shellQuote(PATH_HINTS.join(path.delimiter))}:$PATH; `
-            : ''
-        commandLine = `${pathPrefix}${shellQuote(executable)}${loginArgs.length ? ` ${loginArgs.map(shellQuote).join(' ')}` : ''}`
-        if (process.platform === 'darwin') {
-            const script = `tell application "Terminal" to do script ${JSON.stringify(commandLine)}`
-            const terminal = spawn('osascript', ['-e', script], { detached: true, stdio: 'ignore' })
-            terminal.unref()
-        } else {
-            const terminalCommand = process.env.TERMINAL || 'x-terminal-emulator'
-            const terminal = spawn(terminalCommand, ['-e', 'sh', '-lc', commandLine], {
-                detached: true,
-                stdio: 'ignore',
-            })
-            terminal.unref()
-        }
-    }
-
-    return {
-        ok: true,
-        provider,
-        message: `Opened a terminal for ${providerDisplayName(provider)} sign-in. Complete sign-in there, then return to Clippy.`,
+        ok: false,
+        error: 'Hosted and subscription providers are disabled. Clippy Vision uses local Ollama.',
     }
 }
 
@@ -297,6 +190,8 @@ function configuredOllamaBaseURL() {
 }
 
 function buildPythonEnv(extra = {}) {
+    // Every child process receives the same data directory, import path, and
+    // tool-manager hints so packaged and development launches are consistent.
     const parts = [ROOT]
     if (process.env.PYTHONPATH) parts.push(process.env.PYTHONPATH)
     return {
@@ -314,6 +209,8 @@ function buildPythonEnv(extra = {}) {
 
 
 async function ensureOllamaParallelConfig({ persist = true, restart = false } = {}) {
+    // Keep text and vision residency predictable on machines with limited RAM.
+    // Windows needs setx because Ollama may be started outside Electron.
     process.env.OLLAMA_MAX_LOADED_MODELS = OLLAMA_MAX_LOADED_MODELS
     process.env.OLLAMA_NUM_PARALLEL = OLLAMA_NUM_PARALLEL
 
@@ -356,6 +253,8 @@ app.on('second-instance', () => {
 
 
 
+// Child processes inherit this environment so Python and Ollama resolve the
+// same paths whether Electron was launched from Finder, a shell, or a DMG.
 function spawnHidden(cmd, args, opts = {}) {
     const { env: envExtra, ...rest } = opts
     return spawn(cmd, args, {
@@ -388,6 +287,8 @@ function stepProgress(key, percent) {
 let doneSoFar = 0
 const STEP_TOTAL = 6
 function markDone(key, sub) {
+    // The renderer owns the visual step state; Electron only sends monotonic
+    // completion updates after each asynchronous installer step finishes.
     doneSoFar++
     stepUpdate(key, 'done', sub)
     sendSetup('setup-overall', { done: doneSoFar, text: `${doneSoFar} / ${STEP_TOTAL} steps` })
@@ -395,6 +296,8 @@ function markDone(key, sub) {
 
 
 function pollUntilAlive(url, intervalMs, maxTries) {
+    // Setup and preflight use short HTTP probes instead of fixed sleeps so a
+    // fast local service finishes immediately while slower Macs still work.
     return new Promise((resolve, reject) => {
         let tries = 0
         const check = () => {
@@ -415,6 +318,8 @@ function pollUntilAlive(url, intervalMs, maxTries) {
 
 
 function runCommand(cmd, args, opts = {}) {
+    // Resolve every command through the shared child-process environment and
+    // return a structured result so setup can show actionable errors in the UI.
     return new Promise((resolve) => {
         const proc = spawnHidden(cmd, args, { cwd: ROOT, ...opts })
         let out = '', err = ''
@@ -439,6 +344,8 @@ function ollamaListHasModel(output, required) {
 
 
 async function stepCheckPython() {
+    // macOS and Linux require a user-managed Python installation. Windows can
+    // offer the same setup flow through winget when Python is missing.
     stepUpdate('python', 'running', 'Checking for Python 3.9+...')
     log('> python --version', 'dim')
 
@@ -487,12 +394,8 @@ async function stepCheckPython() {
 }
 
 async function stepCheckOllama() {
-    if (isExternalProvider()) {
-        stepUpdate('ollama', 'running', `${providerDisplayName()} selected`)
-        log(`Skipping Ollama — using ${providerDisplayName()}.`, 'info')
-        markDone('ollama', `Skipped · ${providerDisplayName()}`)
-        return
-    }
+    // Ollama is the only active provider in this release, so setup always
+    // verifies the local runtime before downloading any model weights.
     stepUpdate('ollama', 'running', 'Checking for Ollama...')
     log('> ollama --version', 'dim')
 
@@ -540,12 +443,8 @@ async function stepCheckOllama() {
 }
 
 async function stepStartOllamaService() {
-    if (isExternalProvider()) {
-        stepUpdate('ollama-service', 'running', `Using ${providerDisplayName()}`)
-        log(`No Ollama service needed; Clippy will call ${providerDisplayName()}.`, 'info')
-        markDone('ollama-service', `Skipped · ${providerDisplayName()}`)
-        return
-    }
+    // Start the service only after its concurrency limits are persisted; this
+    // prevents a vision request from evicting the text model unexpectedly.
     stepUpdate('ollama-service', 'running', 'Configuring & starting Ollama...')
     log('> ollama serve', 'dim')
 
@@ -572,6 +471,7 @@ async function stepStartOllamaService() {
     stepProgress('ollama-service', -1)
 
     try {
+        // Ensure Ollama is reachable before asking the API to load weights.
         await pollUntilAlive(configuredOllamaBaseURL(), 1000, 30)
         log('Ollama ready.', 'ok')
         markDone('ollama-service', 'Ollama service running')
@@ -583,6 +483,8 @@ async function stepStartOllamaService() {
 }
 
 async function stepInstallPackages() {
+    // pip output is streamed to the onboarding log while the renderer receives
+    // an approximate progress value for long installs.
     stepUpdate('packages', 'running', 'Installing Python packages...')
     log('> pip install -r requirements.txt', 'dim')
     stepProgress('packages', -1)
@@ -637,12 +539,8 @@ async function stepInstallPackages() {
 }
 
 async function stepPullModels() {
-    if (isExternalProvider()) {
-        stepUpdate('models', 'running', `${providerDisplayName()} supplies chat and vision`)
-        log(`Skipping model downloads — ${providerDisplayName()} supplies chat and vision.`, 'info')
-        markDone('models', `Skipped · ${providerDisplayName()}`)
-        return
-    }
+    // Pull the embedding, text, and vision slots independently so an existing
+    // model is reused and interrupted setup can resume without redownloading.
     const models = [
         { name: 'nomic-embed-text', label: 'nomic-embed-text (~274 MB)' },
         { name: 'qwen3:8b',         label: 'qwen3:8b (~4.7 GB)' },
@@ -684,6 +582,8 @@ async function stepPullModels() {
                 for (const line of lines) {
                     log(line, 'dim')
 
+                    // Ollama emits human-readable GB or MB progress lines; the
+                    // two parsers keep the progress bar useful for both sizes.
                     const match = line.match(/(\d+(?:\.\d+)?)\s*GB\s*\/\s*(\d+(?:\.\d+)?)\s*GB/)
                     if (match) {
                         const pct = Math.round((parseFloat(match[1]) / parseFloat(match[2])) * 100)
@@ -721,6 +621,8 @@ async function stepPullModels() {
 }
 
 async function stepWarmup() {
+    // Warm text during onboarding for a fast first chat. Vision is deliberately
+    // loaded on demand when capture begins to keep idle memory lower.
     stepUpdate('warmup', 'running', 'Loading models into memory...')
     stepProgress('warmup', -1)
 
@@ -734,37 +636,7 @@ async function stepWarmup() {
         log('API server slow to start — continuing anyway.', 'info')
     }
 
-    if (isExternalProvider()) {
-        log(`${providerDisplayName()} selected — no Ollama models will be downloaded or warmed by Clippy.`, 'ok')
-        if (isSubscriptionProvider()) {
-            const status = await httpPost(API_BASE_URL + '/settings/provider/test', {}, 10000)
-            if (!status || !status.ok) {
-                const detail = status?.error || `Install the ${providerDisplayName()} CLI and make sure it is on PATH.`
-                log(detail, 'err')
-                stepUpdate('warmup', 'error', detail)
-                throw new Error('subscription-cli-not-found')
-            }
-            log(status.message || `${providerDisplayName()} CLI detected.`, 'ok')
-        }
-        const dirs = [
-            DATA_DIR,
-            path.join(DATA_DIR, 'screenshots'),
-            path.join(USER_DATA, 'logs'),
-        ]
-        for (const d of dirs) {
-            if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true })
-        }
-        fs.writeFileSync(SETUP_FLAG, JSON.stringify({
-            version: '1.0.1',
-            completedAt: new Date().toISOString(),
-            provider: readLLMConfig().provider,
-        }, null, 2))
-        log(`Setup complete — ${providerDisplayName()} is ready for chat and vision.`, 'ok')
-        markDone('warmup', `Ready · ${providerDisplayName()}`)
-        return
-    }
-
-
+    // Ensure Ollama is reachable before asking the API to load weights.
     try {
         await pollUntilAlive(configuredOllamaBaseURL(), 1000, 30)
     } catch (_) {
@@ -772,6 +644,7 @@ async function stepWarmup() {
     }
 
 
+    // Explicitly warm text and embeddings; vision stays idle until capture.
     log('Warming text (vision loads when capture starts)...', 'info')
     stepUpdate('warmup', 'running', 'Loading qwen3:8b...')
     try {
@@ -780,6 +653,7 @@ async function stepWarmup() {
     } catch (e) {
         log(`Model warm skipped or timed out (${e.message}) — continuing.`, 'info')
 
+        // Leave an explicit idle marker so a later capture can retry the warm.
         try {
             fs.writeFileSync(RESIDENCY_FILE, JSON.stringify({
                 vision: 'idle',
@@ -809,6 +683,8 @@ async function stepWarmup() {
 
 
 function httpPost(url, body, timeoutMs = 30000) {
+    // Keep the desktop bridge dependency-free; this helper only talks to the
+    // local API server and returns JSON when the endpoint provides it.
     return new Promise((resolve, reject) => {
         const data    = JSON.stringify(body)
         const parsed  = new URL(url)
@@ -855,6 +731,8 @@ const stepFns = {
 }
 
 async function runSetup(startFrom = 'python') {
+    // Retry starts at the failed step, while a fresh install runs the complete
+    // ordered chain from Python discovery through model warmup.
     const order = ['python', 'ollama', 'ollama-service', 'packages', 'models', 'warmup']
     const startIdx = order.indexOf(startFrom)
 
@@ -865,13 +743,14 @@ async function runSetup(startFrom = 'python') {
         } catch (err) {
             console.error(`[setup] step "${key}" failed:`, err.message)
             stepUpdate(key, 'error', err.message)
-
+            // Stop here so the user can retry the failed step from onboarding.
             return
         }
     }
 
 
 
+    // Give the renderer time to paint the final step before switching screens.
     setTimeout(() => sendSetup('setup-complete'), 800)
 }
 
@@ -882,59 +761,53 @@ async function runSetup(startFrom = 'python') {
 const REQUIRED_MODELS = ['nomic-embed-text', 'qwen3:8b', 'qwen3-vl:4b']
 
 async function runPreflightChecks() {
-    const externalProvider = isExternalProvider()
-    let alreadyConfigured = true
-    if (!externalProvider) {
-
-        alreadyConfigured = process.env.OLLAMA_MAX_LOADED_MODELS === OLLAMA_MAX_LOADED_MODELS
-        await ensureOllamaParallelConfig({
-            persist: !alreadyConfigured,
-            restart: false,
-        })
-    }
-
+    // Every normal launch verifies the local runtime before starting the API,
+    // which turns missing models or permissions into a recoverable setup step.
+    // Ensure text can stay loaded when capture later pins vision.
+    const alreadyConfigured = process.env.OLLAMA_MAX_LOADED_MODELS === OLLAMA_MAX_LOADED_MODELS
+    await ensureOllamaParallelConfig({
+        persist: !alreadyConfigured,
+        restart: false,
+    })
 
     const py = await runCommand(PYTHON_COMMAND, ['--version'])
     if (py.code !== 0) {
         return { ok: false, step: 'python', reason: 'Python not found or not on PATH.' }
     }
 
-    if (!externalProvider) {
+    const ol = await runCommand(OLLAMA_COMMAND, ['--version'])
+    if (ol.code !== 0) {
+        return { ok: false, step: 'ollama', reason: 'Ollama not found or not on PATH.' }
+    }
 
-        const ol = await runCommand(OLLAMA_COMMAND, ['--version'])
-        if (ol.code !== 0) {
-            return { ok: false, step: 'ollama', reason: 'Ollama not found or not on PATH.' }
-        }
-
-
-
-        const serviceAlive = await pollUntilAlive(configuredOllamaBaseURL(), 500, 3).then(() => true).catch(() => false)
-        if (!alreadyConfigured) {
-            await ensureOllamaParallelConfig({ persist: false, restart: process.platform === 'win32' })
-            if (!serviceAlive && process.platform !== 'win32') {
-                spawnHidden(OLLAMA_COMMAND, ['serve'], { cwd: ROOT, detached: false })
-            }
-            const started = await pollUntilAlive(configuredOllamaBaseURL(), 1000, 15).then(() => true).catch(() => false)
-            if (!started) {
-                return { ok: false, step: 'ollama-service', reason: 'Ollama service could not be started.' }
-            }
-        } else if (!serviceAlive) {
+    // If the environment changed, restart Ollama so the running service picks
+    // up the persisted residency limits before checking required models.
+    const serviceAlive = await pollUntilAlive(configuredOllamaBaseURL(), 500, 3).then(() => true).catch(() => false)
+    if (!alreadyConfigured) {
+        await ensureOllamaParallelConfig({ persist: false, restart: process.platform === 'win32' })
+        if (!serviceAlive && process.platform !== 'win32') {
             spawnHidden(OLLAMA_COMMAND, ['serve'], { cwd: ROOT, detached: false })
-            const started = await pollUntilAlive(configuredOllamaBaseURL(), 1000, 10).then(() => true).catch(() => false)
-            if (!started) {
-                return { ok: false, step: 'ollama-service', reason: 'Ollama service could not be started.' }
-            }
         }
-
-
-        const list = await runCommand(OLLAMA_COMMAND, ['list'])
-        const missing = REQUIRED_MODELS.filter((name) => !ollamaListHasModel(list.stdout, name))
-        if (missing.length > 0) {
-            return { ok: false, step: 'models', reason: `Missing models: ${missing.join(', ')}` }
+        const started = await pollUntilAlive(configuredOllamaBaseURL(), 1000, 15).then(() => true).catch(() => false)
+        if (!started) {
+            return { ok: false, step: 'ollama-service', reason: 'Ollama service could not be started.' }
+        }
+    } else if (!serviceAlive) {
+        spawnHidden(OLLAMA_COMMAND, ['serve'], { cwd: ROOT, detached: false })
+        const started = await pollUntilAlive(configuredOllamaBaseURL(), 1000, 10).then(() => true).catch(() => false)
+        if (!started) {
+            return { ok: false, step: 'ollama-service', reason: 'Ollama service could not be started.' }
         }
     }
 
+    const list = await runCommand(OLLAMA_COMMAND, ['list'])
+    const missing = REQUIRED_MODELS.filter((name) => !ollamaListHasModel(list.stdout, name))
+    if (missing.length > 0) {
+        return { ok: false, step: 'models', reason: `Missing models: ${missing.join(', ')}` }
+    }
 
+
+    // Import checks are a cheap proxy for the full capture dependency set.
     const pkgCheck = await runCommand(PYTHON_COMMAND, [
         '-c',
         'import fastapi, uvicorn, pynput, mss, PIL, psutil, imagehash, transformers, torch, sklearn',
@@ -954,8 +827,6 @@ const HW_MIN = { ramGb: 16, vramGb: 6, diskGb: 12 }
 const HW_REC = { ramGb: 32, vramGb: 8, diskGb: 15 }
 const HW_MIN_MAC = { ramGb: 16, vramGb: 16, diskGb: 12 }
 const HW_REC_MAC = { ramGb: 32, vramGb: 32, diskGb: 15 }
-const HW_MIN_EXTERNAL = { ramGb: 4, vramGb: 0, diskGb: 2 }
-const HW_REC_EXTERNAL = { ramGb: 8, vramGb: 0, diskGb: 4 }
 
 function gradeResource(value, min, rec) {
     if (value < min) return 'fail'
@@ -973,6 +844,8 @@ function detectOsLabel() {
 }
 
 async function getFreeDiskGb(dirPath) {
+    // statfs is available on modern Node; the command fallback covers older
+    // Electron runtimes and keeps the check working on both Windows and macOS.
     try {
         if (typeof fs.promises.statfs === 'function') {
             const s = await fs.promises.statfs(dirPath)
@@ -1001,6 +874,8 @@ async function getFreeDiskGb(dirPath) {
 }
 
 async function getVramGb() {
+    // Apple Silicon shares memory with the GPU and has no nvidia-smi value;
+    // getHardwareCheck maps that case to unified system memory.
     if (process.platform === 'darwin') return 0
     const r = await runCommand('nvidia-smi', [
         '--query-gpu=memory.total',
@@ -1013,24 +888,18 @@ async function getVramGb() {
 }
 
 async function getHardwareCheck() {
-
+    // Apple Silicon reports shared unified memory rather than discrete VRAM;
+    // use total memory for the GPU grade so capable Macs are not blocked.
+    // Round RAM to the nearest GB so marketed 16 GB machines are not blocked
+    // by a small amount of reserved memory.
     const ramGb = Math.round(os.totalmem() / (1024 ** 3))
     const diskRaw = await getFreeDiskGb(USER_DATA)
     const vramRaw = await getVramGb()
     const diskGb = Math.round(diskRaw * 10) / 10
     const osId = detectOsLabel()
-    const externalProvider = isExternalProvider()
-    const requirements = externalProvider
-        ? HW_MIN_EXTERNAL
-        : process.platform === 'darwin' ? HW_MIN_MAC : HW_MIN
-    const recommended = externalProvider
-        ? HW_REC_EXTERNAL
-        : process.platform === 'darwin' ? HW_REC_MAC : HW_REC
-
-
-    const vramGb = externalProvider
-        ? 0
-        : process.platform === 'darwin'
+    const requirements = process.platform === 'darwin' ? HW_MIN_MAC : HW_MIN
+    const recommended = process.platform === 'darwin' ? HW_REC_MAC : HW_REC
+    const vramGb = process.platform === 'darwin'
         ? ramGb
         : Math.round(vramRaw * 10) / 10
     const osOk = process.platform === 'win32' || process.platform === 'darwin'
@@ -1056,16 +925,14 @@ async function getHardwareCheck() {
             vramGb,
             diskGb,
             os: osId,
-            memoryLabel: externalProvider
-                ? (isSubscriptionProvider() ? 'Provider-hosted' : 'Local API mode')
-                : process.platform === 'darwin' ? 'Unified memory' : 'GPU VRAM',
+            memoryLabel: process.platform === 'darwin' ? 'Unified memory' : 'GPU VRAM',
             osLabel: osId === 'windows11' ? 'Windows 11'
                 : osId === 'windows10' ? 'Windows 10'
                 : osId === 'macos-apple-silicon' ? 'macOS · Apple Silicon'
                 : osId === 'macos-intel' ? 'macOS · Intel'
                 : osId,
         },
-        mode: externalProvider ? (isSubscriptionProvider() ? 'subscription' : 'external') : 'ollama',
+        mode: 'ollama',
     }
 }
 
@@ -1077,6 +944,8 @@ let setupStartFrom = 'python'
 let setupInstallStarted = false
 
 function createSetupWindow() {
+    // Setup is a separate, isolated window so install logs and the hardware
+    // gate never compete with the main chat renderer.
     setupInstallStarted = false
     setupWindow = new BrowserWindow({
         width: 640,
@@ -1138,6 +1007,8 @@ function fetchLatestRelease() {
 }
 
 async function checkForLatestRelease() {
+    // Release checks are throttled and best-effort so a network outage never
+    // blocks a local app launch.
     if (!mainWindow || mainWindow.isDestroyed()) return
     try {
         const previous = JSON.parse(fs.readFileSync(RELEASE_CHECK_FILE, 'utf8'))
@@ -1160,6 +1031,8 @@ async function checkForLatestRelease() {
 }
 
 function createMainWindow() {
+    // Closing the chat hides it to the tray; the process must stay alive for
+    // capture and background processing until the user explicitly quits.
     mainWindow = new BrowserWindow({
         minWidth: 400,
         width: 800,
@@ -1201,6 +1074,8 @@ function showMainWindow() {
 
 
 function startServer() {
+    // The API stays as a local child process so chat, memory, and capture data
+    // never need a hosted relay.
     if (apiProcess) return
     apiProcess = spawnHidden(PYTHON_COMMAND, [API_SCRIPT], { cwd: ROOT })
     apiProcess.stdout.on('data', d => console.log('[API]', d.toString().trim()))
@@ -1262,6 +1137,8 @@ function notifyVisionUnload() {
 }
 
 function startCapture() {
+    // Capture is a separate Python process because keyboard hooks and image
+    // processing must not block Electron's renderer or tray event loop.
     if (isCapturing()) return
     const proc = spawnHidden(PYTHON_COMMAND, [CAPTURE_SCRIPT], { cwd: ROOT })
     captureProcess = proc
@@ -1285,6 +1162,8 @@ function startCapture() {
 }
 
 function stopCapture() {
+    // Windows needs a tree kill for child processes; POSIX systems can use the
+    // normal termination signal and let the Python shutdown hook clean up.
     if (!captureProcess) return
     const proc = captureProcess
     captureProcess = null
@@ -1312,6 +1191,7 @@ function toggleCapture() {
 
 
 function rebuildTrayMenu() {
+    // Rebuild after every capture transition so the menu label mirrors state.
     if (!tray) return
     tray.setContextMenu(Menu.buildFromTemplate([
         { label: isCapturing() ? 'Stop Capture' : 'Start Capture', click: toggleCapture },
@@ -1323,6 +1203,8 @@ function rebuildTrayMenu() {
 }
 
 function createTray() {
+    // The tray is the persistent control surface while the main window is
+    // hidden, which keeps screen capture available without a large window.
     tray = new Tray(getTrayIcon(false))
     tray.setToolTip('Clippy Vision — Idle')
     rebuildTrayMenu()
@@ -1334,6 +1216,7 @@ function createTray() {
 
 
 
+// Expose only narrow, validated desktop actions to the isolated renderer.
 ipcMain.handle('toggle-capture',     () => { toggleCapture();  return isCapturing() })
 ipcMain.handle('get-capture-status', () => isCapturing())
 ipcMain.handle('get-login-item', () => app.getLoginItemSettings().openAtLogin)
@@ -1445,7 +1328,7 @@ function waitForMainWindowLoad() {
 
 
 app.whenReady().then(async () => {
-
+    // Register the global shortcut once Electron owns the application session.
     globalShortcut.register('CommandOrControl+Shift+Space', () => toggleCapture())
 
     for (const d of [DATA_DIR, path.join(DATA_DIR, 'screenshots'), path.join(USER_DATA, 'logs')]) {
@@ -1478,27 +1361,17 @@ app.whenReady().then(async () => {
         }
 
         console.log('[preflight] All checks passed — starting API')
-        sendLoadingStatus(
-            null,
-            isExternalProvider()
-                ? `Starting Clippy and connecting to ${providerDisplayName()}…`
-                : 'Starting AI server and loading models…'
-        )
+        sendLoadingStatus(null, 'Starting AI server and loading models…')
         startServer()
         pollUntilAlive(API_BASE_URL + '/health', 1000, 90)
             .then(async () => {
-                if (isExternalProvider()) {
-                    console.log(`[app] API server healthy — ${providerDisplayName()} selected`)
-                    sendLoadingStatus(null, `${providerDisplayName()} ready`)
-                } else {
-                    console.log('[app] API server healthy — warming text model...')
-                    sendLoadingStatus(null, 'Loading text model…')
-                    try {
-                        await httpPost(API_BASE_URL + '/residency/startup', {}, 120000)
-                        console.log('[app] residency startup warm done')
-                    } catch (e) {
-                        console.log('[app] residency warm skipped:', e.message)
-                    }
+                console.log('[app] API server healthy — warming text model...')
+                sendLoadingStatus(null, 'Loading text model…')
+                try {
+                    await httpPost(API_BASE_URL + '/residency/startup', {}, 120000)
+                    console.log('[app] residency startup warm done')
+                } catch (e) {
+                    console.log('[app] residency warm skipped:', e.message)
                 }
                 if (mainWindow && !mainWindow.isDestroyed()) {
                     mainWindow.webContents.send('api-ready')
