@@ -5,6 +5,16 @@ const { contextBridge, ipcRenderer } = require('electron')
  * FastAPI returns errors as JSON with a "detail" field (string or array).
  * Falls back to "HTTP {status}" if the body isn't JSON or has no detail.
  */
+/**
+ * The API binds a free loopback port chosen by the main process at launch, so
+ * the base URL is resolved once over IPC and reused for every later request.
+ */
+let apiBasePromise = null
+async function apiUrl(pathname) {
+    if (!apiBasePromise) apiBasePromise = ipcRenderer.invoke('get-api-base')
+    return `${await apiBasePromise}${pathname}`
+}
+
 async function getErrorMessage(response) {
     try {
         const data = await response.json()
@@ -24,7 +34,7 @@ async function getErrorMessage(response) {
 contextBridge.exposeInMainWorld('clippy', {
 
     chat: async (message, conversationId) => {
-        const response = await fetch('http://localhost:8000/chat', {
+        const response = await fetch(await apiUrl('/chat'), {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -40,7 +50,7 @@ contextBridge.exposeInMainWorld('clippy', {
     },
 
     chatStream: async (message, conversationId, onEvent) => {
-        const response = await fetch('http://localhost:8000/chat/stream', {
+        const response = await fetch(await apiUrl('/chat/stream'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -73,13 +83,13 @@ contextBridge.exposeInMainWorld('clippy', {
     },
 
     getName: async () => {
-        const response = await fetch('http://localhost:8000/user/name')
+        const response = await fetch(await apiUrl('/user/name'))
         if (!response.ok) throw new Error(await getErrorMessage(response))
         return response.json()
     },
 
     setName: async (name) => {
-        const response = await fetch('http://localhost:8000/user/name', {
+        const response = await fetch(await apiUrl('/user/name'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ name }),
@@ -89,13 +99,13 @@ contextBridge.exposeInMainWorld('clippy', {
     },
 
     getProfile: async () => {
-        const response = await fetch('http://localhost:8000/user/profile')
+        const response = await fetch(await apiUrl('/user/profile'))
         if (!response.ok) throw new Error(await getErrorMessage(response))
         return response.json()
     },
 
     updateProfile: async (payload) => {
-        const response = await fetch('http://localhost:8000/user/profile', {
+        const response = await fetch(await apiUrl('/user/profile'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
@@ -105,13 +115,13 @@ contextBridge.exposeInMainWorld('clippy', {
     },
 
     getPrivacySettings: async () => {
-        const response = await fetch('http://localhost:8000/settings/privacy')
+        const response = await fetch(await apiUrl('/settings/privacy'))
         if (!response.ok) throw new Error(await getErrorMessage(response))
         return response.json()
     },
 
     updatePrivacySettings: async (enabled) => {
-        const response = await fetch('http://localhost:8000/settings/privacy', {
+        const response = await fetch(await apiUrl('/settings/privacy'), {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ enabled }),
@@ -121,30 +131,43 @@ contextBridge.exposeInMainWorld('clippy', {
     },
 
     listConversations: async () => {
-        const response = await fetch('http://localhost:8000/conversations')
+        const response = await fetch(await apiUrl('/conversations'))
         if (!response.ok) throw new Error(await getErrorMessage(response))
         return response.json()
     },
 
     searchConversations: async (query, limit = 20) => {
         const params = new URLSearchParams({ q: query || '', limit: String(limit) })
-        const response = await fetch(`http://localhost:8000/conversations/search?${params}`)
+        const response = await fetch(await apiUrl(`/conversations/search?${params}`))
         if (!response.ok) throw new Error(await getErrorMessage(response))
         return response.json()
     },
 
     getConversation: async (conversationId) => {
         const response = await fetch(
-            `http://localhost:8000/conversations/${encodeURIComponent(conversationId)}`
+            await apiUrl(`/conversations/${encodeURIComponent(conversationId)}`)
+        )
+        if (!response.ok) throw new Error(await getErrorMessage(response))
+        return response.json()
+    },
+
+    deleteConversation: async (conversationId) => {
+        const response = await fetch(
+            await apiUrl(`/conversations/${encodeURIComponent(conversationId)}`),
+            { method: 'DELETE' }
         )
         if (!response.ok) throw new Error(await getErrorMessage(response))
         return response.json()
     },
 
     checkHealth: async () => {
-        const response = await fetch('http://localhost:8000/health')
+        const response = await fetch(await apiUrl('/health'))
         return response.ok
     },
+
+    getUpdateCheckEnabled: () => ipcRenderer.invoke('get-update-check'),
+
+    setUpdateCheckEnabled: (enabled) => ipcRenderer.invoke('set-update-check', Boolean(enabled)),
 
     toggleCapture: () => ipcRenderer.invoke('toggle-capture'),
 

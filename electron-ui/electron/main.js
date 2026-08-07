@@ -7,6 +7,7 @@ const path       = require('path')
 const fs         = require('fs')
 const http       = require('http')
 const https      = require('https')
+const net        = require('net')
 const os         = require('os')
 
 // Keep one desktop process alive so a second launch focuses the existing tray app.
@@ -35,6 +36,8 @@ const SETUP_FLAG      = path.join(USER_DATA, 'setup_complete.json')
 const RESIDENCY_FILE  = path.join(DATA_DIR, 'model_residency.json')
 const CAPTURE_STATE_FILE = path.join(DATA_DIR, 'capture_status.json')
 const LLM_CONFIG_FILE = path.join(DATA_DIR, 'llm_config.json')
+const API_STATE_FILE  = path.join(USER_DATA, 'api_process.json')
+const DESKTOP_SETTINGS_FILE = path.join(USER_DATA, 'desktop_settings.json')
 // Electron does not always inherit the interactive shell PATH. These common
 // macOS locations cover Homebrew, npm/pnpm, Volta, and nvm installations.
 const PATH_HINTS = process.platform === 'darwin'
@@ -61,7 +64,10 @@ const PYTHON_COMMAND = process.env.CLIPPY_PYTHON || commandFromKnownPaths(
     process.platform === 'win32' ? 'python' : 'python3',
 )
 const OLLAMA_COMMAND = process.env.CLIPPY_OLLAMA || commandFromKnownPaths('ollama', 'ollama')
-const API_BASE_URL = 'http://127.0.0.1:8000'
+// 8000 collides with the dev servers Clippy's own audience tends to run, so the
+// API claims a free loopback port at launch and every caller resolves it here.
+const DEFAULT_API_PORT = 8000
+let apiPort = Number(process.env.CLIPPY_API_PORT) || 0
 const OLLAMA_BASE_URL = 'http://127.0.0.1:11434'
 const RELEASE_REPOSITORY = 'protocorn/clippy-vision'
 const LOCAL_EMBEDDING_MODEL = 'nomic-embed-text'
@@ -187,6 +193,36 @@ function openProviderAuth() {
 function configuredOllamaBaseURL() {
     const config = readLLMConfig()
     return config.provider === 'ollama' ? config.base_url : OLLAMA_BASE_URL
+}
+
+function apiUrl(pathname = '') {
+    return `http://127.0.0.1:${apiPort || DEFAULT_API_PORT}${pathname}`
+}
+
+function findFreePort() {
+    // Binding port 0 lets the OS hand back a port it knows is unused, which is
+    // far more reliable than probing a fixed candidate list.
+    return new Promise((resolve, reject) => {
+        const probe = net.createServer()
+        probe.unref()
+        probe.on('error', reject)
+        probe.listen({ host: '127.0.0.1', port: 0 }, () => {
+            const address = probe.address()
+            probe.close(() => resolve(address.port))
+        })
+    })
+}
+
+async function ensureApiPort() {
+    // Reserved before any window exists so the renderer never has to guess.
+    if (apiPort) return apiPort
+    try {
+        apiPort = await findFreePort()
+    } catch (error) {
+        console.log('[API] free port lookup failed, using default:', error.message)
+        apiPort = DEFAULT_API_PORT
+    }
+    return apiPort
 }
 
 function buildPythonEnv(extra = {}) {
@@ -627,10 +663,10 @@ async function stepWarmup() {
     stepProgress('warmup', -1)
 
     log('Starting API server for warmup...', 'dim')
-    startServer()
+    await startServer()
 
     try {
-        await pollUntilAlive(API_BASE_URL + '/health', 1000, 90)
+        await pollUntilAlive(apiUrl('/health'), 1000, 90)
         log('API server ready.', 'ok')
     } catch (_) {
         log('API server slow to start — continuing anyway.', 'info')
@@ -648,7 +684,7 @@ async function stepWarmup() {
     log('Warming text (vision loads when capture starts)...', 'info')
     stepUpdate('warmup', 'running', 'Loading qwen3:8b...')
     try {
-        await httpPost(API_BASE_URL + '/residency/startup', {}, 120000)
+        await httpPost(apiUrl('/residency/startup'), {}, 120000)
         log('Text model ready — vision idle until screen capture.', 'ok')
     } catch (e) {
         log(`Model warm skipped or timed out (${e.message}) — continuing.`, 'info')
@@ -967,6 +1003,25 @@ function createSetupWindow() {
 const RELEASE_CHECK_FILE = path.join(USER_DATA, 'release_check.json')
 const RELEASE_CHECK_INTERVAL_MS = 12 * 60 * 60 * 1000
 
+function readDesktopSettings() {
+    let saved = {}
+    try { saved = JSON.parse(fs.readFileSync(DESKTOP_SETTINGS_FILE, 'utf8')) || {} } catch (_) {                 }
+    return { updateCheckEnabled: saved.updateCheckEnabled !== false }
+}
+
+function setUpdateCheckEnabled(enabled) {
+    // The version lookup is the only outbound request Clippy makes, so it gets
+    // an explicit switch rather than being buried in the update code path.
+    const settings = { ...readDesktopSettings(), updateCheckEnabled: Boolean(enabled) }
+    try {
+        fs.mkdirSync(USER_DATA, { recursive: true })
+        fs.writeFileSync(DESKTOP_SETTINGS_FILE, JSON.stringify(settings, null, 2) + '\n')
+    } catch (error) {
+        console.log('[updates] could not persist preference:', error.message)
+    }
+    return settings.updateCheckEnabled
+}
+
 function releaseVersionParts(value) {
     return String(value || '').replace(/^v/i, '').split(/[+-]/)[0].split('.').map((part) => {
         const number = parseInt(part, 10)
@@ -1007,6 +1062,7 @@ async function checkForLatestRelease() {
     // Release checks are throttled and best-effort so a network outage never
     // blocks a local app launch.
     if (!mainWindow || mainWindow.isDestroyed()) return
+    if (!readDesktopSettings().updateCheckEnabled) return
     try {
         const previous = JSON.parse(fs.readFileSync(RELEASE_CHECK_FILE, 'utf8'))
         if (Date.now() - Number(previous.checkedAt || 0) < RELEASE_CHECK_INTERVAL_MS) return
@@ -1044,6 +1100,18 @@ function createMainWindow() {
 
     mainWindow.loadFile(path.join(__dirname, '../src/index.html'))
     mainWindow.setMenu(null)
+    mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+        try {
+            const parsed = new URL(url)
+            if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
+                shell.openExternal(url)
+            }
+        } catch (_) { /* ignore invalid URLs */ }
+        return { action: 'deny' }
+    })
+    mainWindow.webContents.on('will-navigate', (event, url) => {
+        if (url !== mainWindow.webContents.getURL()) event.preventDefault()
+    })
     mainWindow.webContents.once('did-finish-load', () => checkForLatestRelease())
 
 
@@ -1070,16 +1138,65 @@ function showMainWindow() {
 
 
 
-function startServer() {
+function writeApiState(pid) {
+    try {
+        fs.mkdirSync(USER_DATA, { recursive: true })
+        fs.writeFileSync(API_STATE_FILE, JSON.stringify({ pid, port: apiPort }, null, 2))
+    } catch (_) {                          }
+}
+
+function clearApiState() {
+    try { fs.unlinkSync(API_STATE_FILE) } catch (_) {                          }
+}
+
+async function clearStaleApiProcess() {
+    // A crash or force quit skips before-quit, leaving the Python API alive and
+    // still holding the SQLite database. Only terminate the recorded PID when a
+    // Clippy API actually answers on its recorded port, so a reused PID that now
+    // belongs to an unrelated process is never targeted.
+    let previous = null
+    try { previous = JSON.parse(fs.readFileSync(API_STATE_FILE, 'utf8')) } catch (_) { return }
+    const pid = Number(previous && previous.pid)
+    const port = Number(previous && previous.port)
+    if (!pid || !port || pid === process.pid) return clearApiState()
+
+    try {
+        await pollUntilAlive(`http://127.0.0.1:${port}/health`, 200, 1)
+    } catch (_) {
+        return clearApiState()
+    }
+
+    try {
+        if (process.platform === 'win32') {
+            spawnHidden('taskkill', ['/pid', String(pid), '/T', '/F'])
+        } else {
+            process.kill(pid, 'SIGTERM')
+        }
+        console.log('[API] terminated orphaned server pid=', pid)
+    } catch (error) {
+        console.log('[API] could not terminate orphaned server:', error.message)
+    }
+    clearApiState()
+}
+
+async function startServer() {
     // The API stays as a local child process so chat, memory, and capture data
     // never need a hosted relay.
     if (apiProcess) return
-    apiProcess = spawnHidden(PYTHON_COMMAND, [API_SCRIPT], { cwd: ROOT })
-    apiProcess.stdout.on('data', d => console.log('[API]', d.toString().trim()))
-    apiProcess.stderr.on('data', d => console.error('[API ERR]', d.toString().trim()))
-    apiProcess.on('exit', (code) => {
+    await ensureApiPort()
+    const proc = spawnHidden(PYTHON_COMMAND, [API_SCRIPT], {
+        cwd: ROOT,
+        env: { CLIPPY_API_PORT: String(apiPort) },
+    })
+    apiProcess = proc
+    writeApiState(proc.pid)
+    proc.stdout.on('data', d => console.log('[API]', d.toString().trim()))
+    proc.stderr.on('data', d => console.error('[API ERR]', d.toString().trim()))
+    proc.on('exit', (code) => {
         console.log('[API] exited', code)
+        if (apiProcess !== proc) return
         apiProcess = null
+        clearApiState()
     })
 }
 
@@ -1128,7 +1245,7 @@ function broadcastCaptureStatus() {
 
 function notifyVisionUnload() {
 
-    httpPost(API_BASE_URL + '/residency/capture-stop', {}, 10000).catch((e) => {
+    httpPost(apiUrl('/residency/capture-stop'), {}, 10000).catch((e) => {
         console.log('[Capture] vision unload notify failed:', e.message)
     })
 }
@@ -1202,6 +1319,9 @@ function rebuildTrayMenu() {
 function createTray() {
     // The tray is the persistent control surface while the main window is
     // hidden, which keeps screen capture available without a large window.
+    // Both the normal launch path and the setup "Launch" handler reach here, so
+    // reuse the existing tray instead of leaving a second icon behind.
+    if (tray && !tray.isDestroyed()) return
     tray = new Tray(getTrayIcon(false))
     tray.setToolTip('Clippy Vision — Idle')
     rebuildTrayMenu()
@@ -1254,6 +1374,10 @@ ipcMain.handle('open-external', (_event, url) => {
         !(parsed.pathname === expectedPath || parsed.pathname.startsWith(`${expectedPath}/`))) return false
     return shell.openExternal(value)
 })
+
+ipcMain.handle('get-api-base', async () => apiUrl())
+ipcMain.handle('get-update-check', () => readDesktopSettings().updateCheckEnabled)
+ipcMain.handle('set-update-check', (_event, enabled) => setUpdateCheckEnabled(enabled))
 
 ipcMain.handle('get-hardware-check', async () => getHardwareCheck())
 ipcMain.handle('get-llm-config', () => publicLLMConfig())
@@ -1355,12 +1479,19 @@ function waitForMainWindowLoad() {
 
 
 app.whenReady().then(async () => {
+    // Windows groups the taskbar entry, tray icon, and notifications by this id.
+    if (process.platform === 'win32') app.setAppUserModelId('com.clippyvision.app')
+
     // Register the global shortcut once Electron owns the application session.
     globalShortcut.register('CommandOrControl+Shift+Space', () => toggleCapture())
 
     for (const d of [DATA_DIR, path.join(DATA_DIR, 'screenshots'), path.join(USER_DATA, 'logs')]) {
         if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true })
     }
+
+    await clearStaleApiProcess()
+    await ensureApiPort()
+    console.log(`[api] port=${apiPort}`)
     console.log(`[paths] packaged=${IS_PACKAGED}`)
     console.log(`[paths] ROOT=${ROOT}`)
     console.log(`[paths] USER_DATA=${USER_DATA}`)
@@ -1390,13 +1521,13 @@ app.whenReady().then(async () => {
 
         console.log('[preflight] All checks passed — starting API')
         sendLoadingStatus(null, 'Starting AI server and loading models…')
-        startServer()
-        pollUntilAlive(API_BASE_URL + '/health', 1000, 90)
+        await startServer()
+        pollUntilAlive(apiUrl('/health'), 1000, 90)
             .then(async () => {
                 console.log('[app] API server healthy — warming text model...')
                 sendLoadingStatus(null, 'Loading text model…')
                 try {
-                    await httpPost(API_BASE_URL + '/residency/startup', {}, 120000)
+                    await httpPost(apiUrl('/residency/startup'), {}, 120000)
                     console.log('[app] residency startup warm done')
                 } catch (e) {
                     console.log('[app] residency warm skipped:', e.message)
@@ -1438,5 +1569,12 @@ app.on('before-quit', () => {
             apiProcess.kill('SIGTERM')
         }
         apiProcess = null
+    }
+    clearApiState()
+    // Windows keeps painting a tray icon whose owner has exited until the user
+    // hovers over it, so release it explicitly on the way out.
+    if (tray && !tray.isDestroyed()) {
+        tray.destroy()
+        tray = null
     }
 })

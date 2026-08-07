@@ -235,6 +235,9 @@ FTS5 virtual tables on `events` and `sessions` enable full-text search across al
 - You can toggle data capture on/off at any time from the tray icon.
 - Per-app redaction: configure WhatsApp, Telegram, Signal, incognito browser windows, and others to be blacked out in screenshots.
 - Captured data has TTLs: raw events expire after 7 days, session summaries after 90 days.
+- The local API binds to `127.0.0.1` on a port chosen at launch, so it is never reachable from your network.
+
+**The one outbound request:** Clippy Vision checks the public GitHub releases page for a newer version, at most once every 12 hours. It sends no chat, screen, profile, or account data — only the request itself, like opening the releases page in a browser. Turn it off any time under **Settings → Updates**.
 
 ---
 
