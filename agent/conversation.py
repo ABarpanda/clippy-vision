@@ -235,6 +235,24 @@ def get_conversation_messages(conversation_id: str) -> list[dict]:
     ]
 
 
+def delete_conversation(conversation_id: str) -> dict:
+    """Delete all turns and summaries for a conversation."""
+    cid = (conversation_id or "").strip()
+    if not cid:
+        return {"deleted": False, "conversation_id": cid, "rows": 0}
+
+    cur = conn.execute(
+        "DELETE FROM conversations WHERE conversation_id = ?",
+        (cid,),
+    )
+    conn.commit()
+    return {
+        "deleted": cur.rowcount > 0,
+        "conversation_id": cid,
+        "rows": cur.rowcount,
+    }
+
+
 def get_recent_summaries(conversation_id: str, limit: int = RECENT_SUMMARIES) -> list[str]:
     """Last N rolling summaries (most recent first) — covers the window just before raw turns."""
     rows = conn.execute(
