@@ -83,7 +83,8 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "Clippy Vision",
-      "uninstallDisplayName": "Clippy Vision"
+      "uninstallDisplayName": "Clippy Vision",
+      "include": "build/installer.nsh"
     },
     "asar": true
   }
