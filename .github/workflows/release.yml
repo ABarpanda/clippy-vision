@@ -21,10 +21,10 @@ jobs:
         os: [windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
+      # Checkout the ref the workflow was triggered on (tag push or dispatch branch),
+      # not the release tag input — so workflow_dispatch from main builds current packaging.
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.inputs.tag || github.ref }}
 
       - name: Set up Node
         uses: actions/setup-node@v4
