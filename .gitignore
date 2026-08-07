@@ -100,9 +100,15 @@ secrets.json
 
 # ============================================================
 # RUNTIME / USER DATA
+# Written at repo root during `npm start` (dev USER_DATA = ROOT).
+# Packaged builds write the same names under Electron userData instead.
 # ============================================================
 setup_complete.json
+api_process.json
+desktop_settings.json
+release_check.json
 data/
+
 
 # ============================================================
 # ELECTRON
