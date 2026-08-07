@@ -63,7 +63,7 @@ const PYTHON_COMMAND = process.env.CLIPPY_PYTHON || commandFromKnownPaths(
 const OLLAMA_COMMAND = process.env.CLIPPY_OLLAMA || commandFromKnownPaths('ollama', 'ollama')
 const API_BASE_URL = 'http://127.0.0.1:8000'
 const OLLAMA_BASE_URL = 'http://127.0.0.1:11434'
-const RELEASE_REPOSITORY = 'rusetiq/clippy-vision'
+const RELEASE_REPOSITORY = 'protocorn/clippy-vision'
 const LOCAL_EMBEDDING_MODEL = 'nomic-embed-text'
 
 // Hosted and subscription providers are deliberately not active in this

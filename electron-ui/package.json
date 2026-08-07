@@ -67,16 +67,15 @@
         }
       ],
       "icon": "assets/icon.ico",
-      "artifactName": "ClippyVision-Setup-${version}.${ext}"
+      "artifactName": "ClippyVision-Windows-Setup-${version}.${ext}"
     },
     "mac": {
       "icon": "assets/icon.png",
       "target": [
-        {"target": "dmg", "arch": ["arm64", "x64"]},
-        {"target": "zip", "arch": ["arm64", "x64"]}
+        {"target": "dmg", "arch": ["arm64", "x64"]}
       ],
       "category": "public.app-category.productivity",
-      "artifactName": "ClippyVision-${version}-${arch}.${ext}"
+      "artifactName": "ClippyVision-macOS-${arch}-${version}.${ext}"
     },
     "nsis": {
       "oneClick": false,

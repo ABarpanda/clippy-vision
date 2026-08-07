@@ -2,7 +2,7 @@
 
 ## Recommended: Use the Installer
 
-Download the Windows installer or matching Apple Silicon / Intel macOS DMG from the [latest release](https://github.com/protocorn/clippy-vision/releases/latest).
+Download `ClippyVision-Windows-Setup-{version}.exe` on Windows, or `ClippyVision-macOS-arm64-{version}.dmg` (Apple Silicon) / `ClippyVision-macOS-x64-{version}.dmg` (Intel) on macOS, from the [latest release](https://github.com/protocorn/clippy-vision/releases/latest).
 
 The installer's built-in setup wizard will:
 - Check for Python (install via winget if missing)

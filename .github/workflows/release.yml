@@ -1,0 +1,58 @@
+name: Build & Publish Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing release tag to build and attach installers to (e.g. v1.2.0)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        working-directory: electron-ui
+        run: npm ci
+
+      - name: Build Windows installer
+        if: matrix.os == 'windows-latest'
+        working-directory: electron-ui
+        run: npm run dist:win
+
+      - name: Build macOS installer
+        if: matrix.os == 'macos-latest'
+        working-directory: electron-ui
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+        run: npm run dist:mac
+
+      - name: Upload installers to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          files: |
+            electron-ui/dist/*.exe
+            electron-ui/dist/*.dmg
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

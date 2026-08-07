@@ -79,7 +79,7 @@ Clippy Vision runs local AI models (text + vision) on your PC. Capture shares th
 
 ### Option A — Installer (recommended)
 
-1. Download `ClippyVision-Setup-1.0.1.exe` on Windows or the matching `ClippyVision-1.0.1-arm64.dmg` / `ClippyVision-1.0.1-x64.dmg` on macOS
+1. Download `ClippyVision-Windows-Setup-1.2.0.exe` on Windows, or the matching `ClippyVision-macOS-arm64-1.2.0.dmg` (Apple Silicon) / `ClippyVision-macOS-x64-1.2.0.dmg` (Intel) on macOS
 2. Follow the setup wizard (installs Python, Ollama, and AI models)
 3. Launch from Start Menu → Clippy Vision
 
@@ -253,7 +253,7 @@ npm start
 npm run dist
 ```
 
-The built installer appears at `electron-ui/dist/ClippyVision-Setup-{version}.exe`.
+The built installer appears at `electron-ui/dist/ClippyVision-Windows-Setup-{version}.exe` (or `ClippyVision-macOS-{arch}-{version}.dmg` when building on macOS).
 
 ---
 
