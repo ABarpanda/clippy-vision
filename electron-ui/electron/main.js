@@ -673,7 +673,7 @@ async function stepWarmup() {
     }
 
     fs.writeFileSync(SETUP_FLAG, JSON.stringify({
-        version: '1.0.1',
+        version: app.getVersion(),
         completedAt: new Date().toISOString(),
     }, null, 2))
 

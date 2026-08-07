@@ -35,6 +35,19 @@ jobs:
         working-directory: electron-ui
         run: npm ci
 
+      - name: Sync app version from release tag
+        working-directory: electron-ui
+        shell: bash
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          VERSION="${TAG#v}"
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.+-].*)?$ ]]; then
+            echo "Invalid version derived from tag '$TAG' (got '$VERSION')"
+            exit 1
+          fi
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
+          echo "Building Clippy Vision $VERSION (release tag $TAG)"
+
       - name: Build Windows installer
         if: matrix.os == 'windows-latest'
         working-directory: electron-ui
