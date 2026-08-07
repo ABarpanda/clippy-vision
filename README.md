@@ -2,7 +2,7 @@
 
 > **A fully local AI assistant that watches your work to eliminate the context problem. 100% private — no cloud, no data leakage.**
 
-![Platform](https://img.shields.io/badge/platform-Windows-blue)
+![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Models](https://img.shields.io/badge/models-Ollama%20local-orange)
 [![All Contributors](https://img.shields.io/github/all-contributors/protocorn/clippy-vision?color=ee8449&style=flat-square)](#contributors)
@@ -53,7 +53,7 @@ Use Clippy Vision when you need your own history back. Use Claude or ChatGPT whe
 
 ## Download
 
-**→ [Download ClippyVision-Setup-1.0.1.exe](https://github.com/protocorn/clippy-vision/releases/latest)**
+**→ [Download Clippy Vision for Windows or macOS](https://github.com/rusetiq/clippy-vision/releases/latest)**
 
 The installer includes a setup wizard that handles Python, Ollama, and all required models automatically. No terminal required.
 
@@ -79,7 +79,7 @@ Clippy Vision runs local AI models (text + vision) on your PC. Capture shares th
 
 ### Option A — Installer (recommended)
 
-1. Download and run `ClippyVision-Setup-1.0.1.exe`
+1. Download `ClippyVision-Setup-1.0.1.exe` on Windows or the matching `ClippyVision-1.0.1-arm64.dmg` / `ClippyVision-1.0.1-x64.dmg` on macOS
 2. Follow the setup wizard (installs Python, Ollama, and AI models)
 3. Launch from Start Menu → Clippy Vision
 

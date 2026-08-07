@@ -49,7 +49,7 @@ This isn't mandatory for every issue, quick bug reports don't need the full temp
 
 ## Development Setup
 
-Clippy Vision is Windows-only today. The app lives in `electron-ui/` and starts the Python API for you.
+Clippy Vision supports Windows and macOS. The app lives in `electron-ui/` and starts the Python API for you.
 
 1. Fork the repository
 2. Clone your fork:
@@ -101,7 +101,9 @@ Before submitting a PR:
 ## Areas That Need Help
 
 ### High Priority
-- [ ] Linux/Mac support (currently Windows-only)
+- [ ] Cross-OS support
+  - [x] macOS support
+  - [ ] Linux support
 - [ ] Wire Settings → Access control UI to the existing privacy API (see open `good first issue`s)
 - [ ] Automated tests for classification pipeline
 - [ ] Performance optimization for vision processing

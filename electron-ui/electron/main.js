@@ -1,16 +1,22 @@
 const {
     app, BrowserWindow, Tray, Menu,
-    nativeImage, ipcMain, Notification
+    nativeImage, ipcMain, Notification, shell, dialog, globalShortcut
 } = require('electron')
 const { spawn }  = require('child_process')
 const path       = require('path')
 const fs         = require('fs')
 const http       = require('http')
+const https      = require('https')
 const os         = require('os')
 
-// ─── paths ────────────────────────────────────────────────────────────────────
-// Packaged: Python lives in resources/clippy; writable data in %APPDATA%/Clippy Vision
-// Dev:      repo root (electron-ui/../..)
+// Keep one desktop process alive so a second launch focuses the existing tray app.
+if (!app.requestSingleInstanceLock()) {
+    app.quit()
+    process.exit(0)
+}
+// Packaged builds keep mutable state in Electron's user-data directory. During
+// development the repository data directory is used so local runs behave the
+// same way without copying state into an installation folder.
 const IS_PACKAGED     = app.isPackaged
 const ROOT            = IS_PACKAGED
     ? path.join(process.resourcesPath, 'clippy')
@@ -27,13 +33,165 @@ const API_SCRIPT      = path.join(ROOT, 'api_server.py')
 const REQUIREMENTS    = path.join(ROOT, 'requirements.txt')
 const SETUP_FLAG      = path.join(USER_DATA, 'setup_complete.json')
 const RESIDENCY_FILE  = path.join(DATA_DIR, 'model_residency.json')
+const CAPTURE_STATE_FILE = path.join(DATA_DIR, 'capture_status.json')
+const LLM_CONFIG_FILE = path.join(DATA_DIR, 'llm_config.json')
+// Electron does not always inherit the interactive shell PATH. These common
+// macOS locations cover Homebrew, npm/pnpm, Volta, and nvm installations.
+const PATH_HINTS = process.platform === 'darwin'
+    ? [
+        '/opt/homebrew/bin',
+        '/usr/local/bin',
+        path.join(os.homedir(), '.local/bin'),
+        path.join(os.homedir(), '.npm-global/bin'),
+        path.join(os.homedir(), 'Library/pnpm'),
+        path.join(os.homedir(), '.volta/bin'),
+        path.join(os.homedir(), '.nvm/current/bin'),
+    ]
+    : []
 
-// Keep a second slot free so text stays loaded when capture pins vision.
-// Vision itself is only warmed while screen capture is on (see model_residency.py).
+function commandFromKnownPaths(name, fallback) {
+    // Prefer an explicitly discoverable executable before falling back to the
+    // shell name, which lets spawn() still resolve system installations.
+    const candidate = PATH_HINTS.map((dir) => path.join(dir, name)).find((file) => fs.existsSync(file))
+    return candidate || fallback
+}
+
+const PYTHON_COMMAND = process.env.CLIPPY_PYTHON || commandFromKnownPaths(
+    'python3',
+    process.platform === 'win32' ? 'python' : 'python3',
+)
+const OLLAMA_COMMAND = process.env.CLIPPY_OLLAMA || commandFromKnownPaths('ollama', 'ollama')
+const API_BASE_URL = 'http://127.0.0.1:8000'
+const OLLAMA_BASE_URL = 'http://127.0.0.1:11434'
+const RELEASE_REPOSITORY = 'rusetiq/clippy-vision'
+const LOCAL_EMBEDDING_MODEL = 'nomic-embed-text'
+
+// Hosted and subscription providers are deliberately not active in this
+// release. Keep the names here as a documented extension seam until the
+// project is ready to define their privacy and authentication guarantees.
+// Future provider IDs: gemini_api, codex_cli, claude_cli.
 const OLLAMA_MAX_LOADED_MODELS = '2'
 const OLLAMA_NUM_PARALLEL = '1'
 
+const DEFAULT_LLM_CONFIG = {
+    provider: 'ollama',
+    base_url: OLLAMA_BASE_URL,
+    api_key: '',
+    cli_command: '',
+    chat_model: 'qwen3:8b',
+    vision_model: 'qwen3-vl:4b',
+    embedding_model: LOCAL_EMBEDDING_MODEL,
+}
+
+function normalizeLLMConfig(values = {}) {
+    const merged = { ...DEFAULT_LLM_CONFIG, ...values }
+    const requestedProvider = String(merged.provider || 'ollama').toLowerCase()
+    const supportedProvider = requestedProvider === 'ollama'
+
+    // An old hosted-provider setting must never leave its remote URL behind
+    // after being normalized to the local Ollama default.
+    merged.provider = 'ollama'
+    if (!values.base_url || !supportedProvider) {
+        merged.base_url = OLLAMA_BASE_URL
+    }
+    merged.base_url = String(merged.base_url || '').trim().replace(/\/+$/, '')
+    // Do not retain hosted credentials in a local-only build. Ollama's local
+    // endpoint does not require an API key.
+    merged.api_key = ''
+    merged.cli_command = ''
+    for (const field of ['chat_model', 'vision_model']) {
+        merged[field] = String(merged[field] || DEFAULT_LLM_CONFIG[field]).trim()
+    }
+    // Embeddings remain a local Ollama responsibility and cannot be redirected
+    // to a hosted service through the desktop settings.
+    merged.embedding_model = LOCAL_EMBEDDING_MODEL
+    return merged
+}
+
+function validateLLMConfig(values = {}) {
+    for (const field of ['base_url', 'chat_model', 'vision_model']) {
+        if (Object.prototype.hasOwnProperty.call(values, field) && !String(values[field] || '').trim()) {
+            throw new Error(`${field} cannot be empty.`)
+        }
+    }
+    if (values.provider !== 'ollama' || !/^https?:\/\/[^\s]+$/i.test(values.base_url)) {
+        throw new Error('Base URL must be a valid HTTP or HTTPS URL.')
+    }
+    for (const field of ['chat_model', 'vision_model']) {
+        if (values[field].length > 240) throw new Error(`${field} is too long.`)
+    }
+    return values
+}
+
+function readLLMConfig() {
+    let saved = {}
+    try { saved = JSON.parse(fs.readFileSync(LLM_CONFIG_FILE, 'utf8')) || {} } catch (_) {                 }
+    const env = {
+        provider: process.env.CLIPPY_LLM_PROVIDER,
+        base_url: process.env.CLIPPY_LLM_BASE_URL,
+        api_key: process.env.CLIPPY_LLM_API_KEY,
+        cli_command: process.env.CLIPPY_CLI_COMMAND,
+        chat_model: process.env.CLIPPY_CHAT_MODEL,
+        vision_model: process.env.CLIPPY_VISION_MODEL,
+    }
+    return normalizeLLMConfig({ ...saved, ...Object.fromEntries(Object.entries(env).filter(([, value]) => value)) })
+}
+
+function publicLLMConfig() {
+    const config = readLLMConfig()
+    const { api_key: _apiKey, ...safe } = config
+    const environment_overrides = Object.entries({
+        provider: 'CLIPPY_LLM_PROVIDER',
+        base_url: 'CLIPPY_LLM_BASE_URL',
+        api_key: 'CLIPPY_LLM_API_KEY',
+        cli_command: 'CLIPPY_CLI_COMMAND',
+        chat_model: 'CLIPPY_CHAT_MODEL',
+        vision_model: 'CLIPPY_VISION_MODEL',
+    }).filter(([, envName]) => String(process.env[envName] || '').trim()).map(([field]) => field)
+    return { ...safe, api_key_set: Boolean(config.api_key), environment_overrides }
+}
+
+function saveLLMConfig(values = {}) {
+    if (Object.prototype.hasOwnProperty.call(values, 'provider')) {
+        const provider = String(values.provider || '').trim().toLowerCase()
+        const validProviders = new Set(['ollama'])
+        if (!validProviders.has(provider)) throw new Error('Unsupported AI provider.')
+    }
+    const current = readLLMConfig()
+    const targetProvider = Object.prototype.hasOwnProperty.call(values, 'provider')
+        ? normalizeLLMConfig({ ...current, provider: values.provider }).provider
+        : current.provider
+    const providerChanged = Object.prototype.hasOwnProperty.call(values, 'provider') &&
+        targetProvider !== current.provider
+    const nextValues = { ...current, ...values }
+    if (providerChanged && !Object.prototype.hasOwnProperty.call(values, 'base_url')) {
+        nextValues.base_url = OLLAMA_BASE_URL
+    }
+    const next = normalizeLLMConfig(nextValues)
+
+    validateLLMConfig(next)
+    fs.mkdirSync(DATA_DIR, { recursive: true })
+    fs.writeFileSync(LLM_CONFIG_FILE, JSON.stringify(next, null, 2) + '\n')
+    return publicLLMConfig()
+}
+
+function openProviderAuth() {
+    // Hosted and subscription sign-in is intentionally a no-op while Clippy
+    // Vision's product boundary is 100% local.
+    return {
+        ok: false,
+        error: 'Hosted and subscription providers are disabled. Clippy Vision uses local Ollama.',
+    }
+}
+
+function configuredOllamaBaseURL() {
+    const config = readLLMConfig()
+    return config.provider === 'ollama' ? config.base_url : OLLAMA_BASE_URL
+}
+
 function buildPythonEnv(extra = {}) {
+    // Every child process receives the same data directory, import path, and
+    // tool-manager hints so packaged and development launches are consistent.
     const parts = [ROOT]
     if (process.env.PYTHONPATH) parts.push(process.env.PYTHONPATH)
     return {
@@ -42,32 +200,39 @@ function buildPythonEnv(extra = {}) {
         PYTHONUTF8: '1',
         CLIPPY_DATA_DIR: DATA_DIR,
         PYTHONPATH: parts.join(path.delimiter),
+        PATH: [...PATH_HINTS, process.env.PATH || ''].filter(Boolean).join(path.delimiter),
         OLLAMA_MAX_LOADED_MODELS,
         OLLAMA_NUM_PARALLEL,
         ...extra,
     }
 }
 
-/** Apply Ollama parallel/loaded-model settings for this process and persist for future logins. */
+
 async function ensureOllamaParallelConfig({ persist = true, restart = false } = {}) {
+    // Keep text and vision residency predictable on machines with limited RAM.
+    // Windows needs setx because Ollama may be started outside Electron.
     process.env.OLLAMA_MAX_LOADED_MODELS = OLLAMA_MAX_LOADED_MODELS
     process.env.OLLAMA_NUM_PARALLEL = OLLAMA_NUM_PARALLEL
 
-    if (persist) {
-        // setx writes HKCU env so future shells / Ollama launches inherit it
+    if (persist && process.platform === 'win32') {
+
         await runCommand('setx', ['OLLAMA_MAX_LOADED_MODELS', OLLAMA_MAX_LOADED_MODELS])
         await runCommand('setx', ['OLLAMA_NUM_PARALLEL', OLLAMA_NUM_PARALLEL])
     }
 
     if (!restart) return
 
-    // Restart so a previously running Ollama process picks up the new limits
-    await runCommand('taskkill', ['/IM', 'ollama.exe', '/F'])
-    await new Promise((r) => setTimeout(r, 1500))
-    spawnHidden('ollama', ['serve'], { cwd: ROOT, detached: false })
+
+
+
+    if (process.platform === 'win32') {
+        await runCommand('taskkill', ['/IM', 'ollama.exe', '/F'])
+        await new Promise((r) => setTimeout(r, 1500))
+        spawnHidden(OLLAMA_COMMAND, ['serve'], { cwd: ROOT, detached: false })
+    }
 }
 
-// ─── state ────────────────────────────────────────────────────────────────────
+
 let mainWindow    = null
 let setupWindow   = null
 let tray          = null
@@ -75,10 +240,21 @@ let captureProcess = null
 let apiProcess    = null
 let isQuitting    = false
 
-// ─────────────────────────────────────────────────────────────────────────────
-// helpers
-// ─────────────────────────────────────────────────────────────────────────────
+app.on('second-instance', () => {
+    if (setupWindow && !setupWindow.isDestroyed()) {
+        setupWindow.show()
+        setupWindow.focus()
+    } else {
+        showMainWindow()
+    }
+})
 
+
+
+
+
+// Child processes inherit this environment so Python and Ollama resolve the
+// same paths whether Electron was launched from Finder, a shell, or a DMG.
 function spawnHidden(cmd, args, opts = {}) {
     const { env: envExtra, ...rest } = opts
     return spawn(cmd, args, {
@@ -107,22 +283,28 @@ function stepProgress(key, percent) {
     sendSetup('step-progress', { key, percent })
 }
 
-// count how many steps are done and update the bottom pill
+
 let doneSoFar = 0
 const STEP_TOTAL = 6
 function markDone(key, sub) {
+    // The renderer owns the visual step state; Electron only sends monotonic
+    // completion updates after each asynchronous installer step finishes.
     doneSoFar++
     stepUpdate(key, 'done', sub)
     sendSetup('setup-overall', { done: doneSoFar, text: `${doneSoFar} / ${STEP_TOTAL} steps` })
 }
 
-// poll a URL until it responds 200, with timeout
+
 function pollUntilAlive(url, intervalMs, maxTries) {
+    // Setup and preflight use short HTTP probes instead of fixed sleeps so a
+    // fast local service finishes immediately while slower Macs still work.
     return new Promise((resolve, reject) => {
         let tries = 0
         const check = () => {
             http.get(url, (res) => {
-                if (res.statusCode < 500) resolve()
+                const alive = (res.statusCode || 0) < 500
+                res.resume()
+                if (alive) resolve()
                 else schedule()
             }).on('error', () => schedule())
         }
@@ -134,35 +316,55 @@ function pollUntilAlive(url, intervalMs, maxTries) {
     })
 }
 
-// run a command, collect stdout, return { code, stdout, stderr }
+
 function runCommand(cmd, args, opts = {}) {
+    // Resolve every command through the shared child-process environment and
+    // return a structured result so setup can show actionable errors in the UI.
     return new Promise((resolve) => {
         const proc = spawnHidden(cmd, args, { cwd: ROOT, ...opts })
         let out = '', err = ''
         proc.stdout.on('data', d => { out += d.toString() })
         proc.stderr.on('data', d => { err += d.toString() })
-        proc.on('exit', code => resolve({ code: code || 0, stdout: out.trim(), stderr: err.trim() }))
+        proc.on('exit', code => resolve({ code: code === null ? 1 : code, stdout: out.trim(), stderr: err.trim() }))
         proc.on('error', e => resolve({ code: 1, stdout: '', stderr: e.message }))
     })
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// setup steps
-// ─────────────────────────────────────────────────────────────────────────────
+function ollamaListHasModel(output, required) {
+    const expected = String(required || '').trim()
+    if (!expected) return false
+    return String(output || '').split(/\r?\n/).some((line) => {
+        const actual = line.trim().split(/\s+/)[0]
+        return actual === expected || (!expected.includes(':') && actual === `${expected}:latest`)
+    })
+}
+
+
+
+
 
 async function stepCheckPython() {
+    // macOS and Linux require a user-managed Python installation. Windows can
+    // offer the same setup flow through winget when Python is missing.
     stepUpdate('python', 'running', 'Checking for Python 3.9+...')
     log('> python --version', 'dim')
 
-    const { code, stdout } = await runCommand('python', ['--version'])
+    const { code, stdout, stderr } = await runCommand(PYTHON_COMMAND, ['--version'])
+    const version = stdout || stderr
 
-    if (code === 0 && stdout) {
-        log(stdout, 'ok')
-        markDone('python', stdout)
+    if (code === 0 && version) {
+        log(version, 'ok')
+        markDone('python', version)
         return
     }
 
-    // not found — try installing via winget
+    if (process.platform !== 'win32') {
+        log('Python was not found on PATH. Install Python 3.11+ from python.org or Homebrew, then retry.', 'err')
+        stepUpdate('python', 'error', 'Install Python 3.11+ and make sure it is on PATH.')
+        throw new Error('python-install-required')
+    }
+
+
     log('Python not found. Installing via winget...', 'info')
     stepUpdate('python', 'running', 'Installing Python 3.11 via winget...')
     log('> winget install Python.Python.3.11 --silent', 'dim')
@@ -180,26 +382,36 @@ async function stepCheckPython() {
         throw new Error('python-install-failed')
     }
 
-    const verify = await runCommand('python', ['--version'])
+    const verify = await runCommand(PYTHON_COMMAND, ['--version'])
     if (verify.code !== 0) {
         stepUpdate('python', 'error', 'Python installed but not on PATH. Restart required.')
         throw new Error('python-path')
     }
 
-    log(verify.stdout, 'ok')
-    markDone('python', verify.stdout)
+    const verifiedVersion = verify.stdout || verify.stderr || 'Python installed.'
+    log(verifiedVersion, 'ok')
+    markDone('python', verifiedVersion)
 }
 
 async function stepCheckOllama() {
+    // Ollama is the only active provider in this release, so setup always
+    // verifies the local runtime before downloading any model weights.
     stepUpdate('ollama', 'running', 'Checking for Ollama...')
     log('> ollama --version', 'dim')
 
-    const { code, stdout } = await runCommand('ollama', ['--version'])
+    const { code, stdout, stderr } = await runCommand(OLLAMA_COMMAND, ['--version'])
+    const version = stdout || stderr
 
     if (code === 0) {
-        log(stdout, 'ok')
-        markDone('ollama', stdout.split('\n')[0])
+        log(version || 'Ollama is available.', 'ok')
+        markDone('ollama', (version || 'Ollama is available.').split('\n')[0])
         return
+    }
+
+    if (process.platform !== 'win32') {
+        log('Ollama was not found on PATH. Install it from ollama.com, then retry.', 'err')
+        stepUpdate('ollama', 'error', 'Install Ollama from ollama.com and make sure it is on PATH.')
+        throw new Error('ollama-install-required')
     }
 
     log('Ollama not found. Installing via winget...', 'info')
@@ -219,29 +431,48 @@ async function stepCheckOllama() {
         throw new Error('ollama-install-failed')
     }
 
-    const verify = await runCommand('ollama', ['--version'])
+    const verify = await runCommand(OLLAMA_COMMAND, ['--version'])
     if (verify.code !== 0) {
         stepUpdate('ollama', 'error', 'Ollama installed but not on PATH. Restart may be required.')
         throw new Error('ollama-path')
     }
 
-    log(verify.stdout.split('\n')[0], 'ok')
-    markDone('ollama', verify.stdout.split('\n')[0])
+    const verifiedVersion = verify.stdout || verify.stderr || 'Ollama is available.'
+    log(verifiedVersion.split('\n')[0], 'ok')
+    markDone('ollama', verifiedVersion.split('\n')[0])
 }
 
 async function stepStartOllamaService() {
+    // Start the service only after its concurrency limits are persisted; this
+    // prevents a vision request from evicting the text model unexpectedly.
     stepUpdate('ollama-service', 'running', 'Configuring & starting Ollama...')
     log('> ollama serve', 'dim')
 
-    // Slot for text + vision when capture pins VL; vision is not warmed at launch.
+
     log('Setting OLLAMA_MAX_LOADED_MODELS=2 (vision only while capturing)...', 'info')
     await ensureOllamaParallelConfig({ persist: true, restart: true })
+
+
+
+
+    let serviceAlreadyAlive = false
+    try {
+        await pollUntilAlive(configuredOllamaBaseURL(), 250, 1)
+        serviceAlreadyAlive = true
+    } catch (_) {
+
+    }
+    if (!serviceAlreadyAlive && process.platform !== 'win32') {
+        log('Ollama is not running; starting a local service...', 'info')
+        spawnHidden(OLLAMA_COMMAND, ['serve'], { cwd: ROOT, detached: false })
+    }
 
     log('Waiting for Ollama service...', 'dim')
     stepProgress('ollama-service', -1)
 
     try {
-        await pollUntilAlive('http://localhost:11434', 1000, 30)
+        // Ensure Ollama is reachable before asking the API to load weights.
+        await pollUntilAlive(configuredOllamaBaseURL(), 1000, 30)
         log('Ollama ready.', 'ok')
         markDone('ollama-service', 'Ollama service running')
     } catch (e) {
@@ -252,14 +483,16 @@ async function stepStartOllamaService() {
 }
 
 async function stepInstallPackages() {
+    // pip output is streamed to the onboarding log while the renderer receives
+    // an approximate progress value for long installs.
     stepUpdate('packages', 'running', 'Installing Python packages...')
     log('> pip install -r requirements.txt', 'dim')
     stepProgress('packages', -1)
 
     return new Promise((resolve, reject) => {
-        const proc = spawnHidden('python', ['-m', 'pip', 'install', '-r', REQUIREMENTS], { cwd: ROOT })
+        const proc = spawnHidden(PYTHON_COMMAND, ['-m', 'pip', 'install', '-r', REQUIREMENTS], { cwd: ROOT })
 
-        const PKG_TOTAL = 20  // approximate — progress feels real
+        const PKG_TOTAL = 20
         let installed = 0
 
         proc.stdout.on('data', (chunk) => {
@@ -280,7 +513,7 @@ async function stepInstallPackages() {
         proc.stderr.on('data', (chunk) => {
             const lines = chunk.toString().split('\n').filter(l => l.trim())
             for (const line of lines) {
-                // pip writes normal progress to stderr, not just errors
+
                 const isError = line.toLowerCase().startsWith('error')
                 log(line, isError ? 'err' : 'dim')
             }
@@ -306,6 +539,8 @@ async function stepInstallPackages() {
 }
 
 async function stepPullModels() {
+    // Pull the embedding, text, and vision slots independently so an existing
+    // model is reused and interrupted setup can resume without redownloading.
     const models = [
         { name: 'nomic-embed-text', label: 'nomic-embed-text (~274 MB)' },
         { name: 'qwen3:8b',         label: 'qwen3:8b (~4.7 GB)' },
@@ -315,11 +550,12 @@ async function stepPullModels() {
     stepUpdate('models', 'running', 'Checking existing models...')
     log('> ollama list', 'dim')
 
-    const { stdout: listOut } = await runCommand('ollama', ['list'])
+    const { stdout: listOut } = await runCommand(OLLAMA_COMMAND, ['list'])
     log(listOut || '(no models yet)', 'dim')
 
-    const needed = models.filter(m => !listOut.includes(m.name.split(':')[0]))
-    const alreadyHave = models.filter(m => listOut.includes(m.name.split(':')[0]))
+    const hasModel = (name) => ollamaListHasModel(listOut, name)
+    const needed = models.filter(m => !hasModel(m.name))
+    const alreadyHave = models.filter(m => hasModel(m.name))
 
     for (const m of alreadyHave) {
         log(`Already have ${m.name} — skipping.`, 'ok')
@@ -339,20 +575,22 @@ async function stepPullModels() {
         stepProgress('models', -1)
 
         await new Promise((resolve, reject) => {
-            const proc = spawnHidden('ollama', ['pull', model.name], { cwd: ROOT })
+            const proc = spawnHidden(OLLAMA_COMMAND, ['pull', model.name], { cwd: ROOT })
 
             proc.stdout.on('data', (chunk) => {
                 const lines = chunk.toString().split('\n').filter(l => l.trim())
                 for (const line of lines) {
                     log(line, 'dim')
-                    // ollama pull prints: "pulling sha256:abc... 1.2 GB / 4.7 GB"
+
+                    // Ollama emits human-readable GB or MB progress lines; the
+                    // two parsers keep the progress bar useful for both sizes.
                     const match = line.match(/(\d+(?:\.\d+)?)\s*GB\s*\/\s*(\d+(?:\.\d+)?)\s*GB/)
                     if (match) {
                         const pct = Math.round((parseFloat(match[1]) / parseFloat(match[2])) * 100)
                         stepProgress('models', pct)
                         stepUpdate('models', 'running', `${model.label}: ${pct}%`)
                     }
-                    // also handle MB progress
+
                     const matchMB = line.match(/(\d+(?:\.\d+)?)\s*MB\s*\/\s*(\d+(?:\.\d+)?)\s*MB/)
                     if (matchMB) {
                         const pct = Math.round((parseFloat(matchMB[1]) / parseFloat(matchMB[2])) * 100)
@@ -383,6 +621,8 @@ async function stepPullModels() {
 }
 
 async function stepWarmup() {
+    // Warm text during onboarding for a fast first chat. Vision is deliberately
+    // loaded on demand when capture begins to keep idle memory lower.
     stepUpdate('warmup', 'running', 'Loading models into memory...')
     stepProgress('warmup', -1)
 
@@ -390,35 +630,37 @@ async function stepWarmup() {
     startServer()
 
     try {
-        await pollUntilAlive('http://localhost:8000/health', 1000, 90)
+        await pollUntilAlive(API_BASE_URL + '/health', 1000, 90)
         log('API server ready.', 'ok')
     } catch (_) {
         log('API server slow to start — continuing anyway.', 'info')
     }
 
-    // Ensure Ollama is reachable before asking it to load weights
+    // Ensure Ollama is reachable before asking the API to load weights.
     try {
-        await pollUntilAlive('http://localhost:11434', 1000, 30)
+        await pollUntilAlive(configuredOllamaBaseURL(), 1000, 30)
     } catch (_) {
         log('Ollama not responding — skipping model warm.', 'info')
     }
 
-    // Explicit warm call (text + embed only). Do not block setup forever if Ollama is slow.
-    log('Warming text + embed (vision loads when capture starts)...', 'info')
-    stepUpdate('warmup', 'running', 'Loading qwen3:8b + embed...')
+
+    // Explicitly warm text and embeddings; vision stays idle until capture.
+    log('Warming text (vision loads when capture starts)...', 'info')
+    stepUpdate('warmup', 'running', 'Loading qwen3:8b...')
     try {
-        await httpPost('http://localhost:8000/residency/startup', {}, 120000)
+        await httpPost(API_BASE_URL + '/residency/startup', {}, 120000)
         log('Text model ready — vision idle until screen capture.', 'ok')
     } catch (e) {
         log(`Model warm skipped or timed out (${e.message}) — continuing.`, 'info')
-        // Guarantee setup can finish even if warm hung mid-flight
+
+        // Leave an explicit idle marker so a later capture can retry the warm.
         try {
             fs.writeFileSync(RESIDENCY_FILE, JSON.stringify({
                 vision: 'idle',
                 reason: 'warmup_timeout',
                 updated_at: new Date().toISOString(),
             }, null, 2))
-        } catch (_) { /* ignore */ }
+        } catch (_) {              }
     }
 
     const dirs = [
@@ -439,8 +681,10 @@ async function stepWarmup() {
     markDone('warmup', 'Ready!')
 }
 
-// tiny http POST helper (no external deps)
+
 function httpPost(url, body, timeoutMs = 30000) {
+    // Keep the desktop bridge dependency-free; this helper only talks to the
+    // local API server and returns JSON when the endpoint provides it.
     return new Promise((resolve, reject) => {
         const data    = JSON.stringify(body)
         const parsed  = new URL(url)
@@ -452,8 +696,19 @@ function httpPost(url, body, timeoutMs = 30000) {
             headers:  { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) },
         }
         const req = http.request(options, (res) => {
-            res.resume()
-            res.on('end', resolve)
+            let responseBody = ''
+            res.setEncoding('utf8')
+            res.on('data', (chunk) => { responseBody += chunk })
+            res.on('end', () => {
+                if ((res.statusCode || 0) < 200 || (res.statusCode || 0) >= 300) {
+                    return reject(new Error(`HTTP ${res.statusCode || 0}`))
+                }
+                try {
+                    resolve(responseBody ? JSON.parse(responseBody) : undefined)
+                } catch (_) {
+                    resolve(undefined)
+                }
+            })
         })
         req.on('error', reject)
         req.setTimeout(timeoutMs, () => { req.destroy(); reject(new Error('timeout')) })
@@ -462,9 +717,9 @@ function httpPost(url, body, timeoutMs = 30000) {
     })
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// setup orchestrator
-// ─────────────────────────────────────────────────────────────────────────────
+
+
+
 
 const stepFns = {
     'python':         stepCheckPython,
@@ -476,6 +731,8 @@ const stepFns = {
 }
 
 async function runSetup(startFrom = 'python') {
+    // Retry starts at the failed step, while a fresh install runs the complete
+    // ordered chain from Python discovery through model warmup.
     const order = ['python', 'ollama', 'ollama-service', 'packages', 'models', 'warmup']
     const startIdx = order.indexOf(startFrom)
 
@@ -486,69 +743,72 @@ async function runSetup(startFrom = 'python') {
         } catch (err) {
             console.error(`[setup] step "${key}" failed:`, err.message)
             stepUpdate(key, 'error', err.message)
-            // stop here — user must click Retry in the UI
+            // Stop here so the user can retry the failed step from onboarding.
             return
         }
     }
 
-    // small delay so the renderer finishes processing the final step-update
-    // messages before we send setup-complete (prevents race on fast machines)
+
+
+    // Give the renderer time to paint the final step before switching screens.
     setTimeout(() => sendSetup('setup-complete'), 800)
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// pre-flight checks (run on every normal launch to detect broken installs)
-// ─────────────────────────────────────────────────────────────────────────────
 
-const REQUIRED_MODELS = ['qwen3:8b', 'qwen3-vl:4b', 'nomic-embed-text']
+
+
+
+const REQUIRED_MODELS = ['nomic-embed-text', 'qwen3:8b', 'qwen3-vl:4b']
 
 async function runPreflightChecks() {
-    // Ensure text can stay loaded when capture later pins vision
-    const alreadyConfigured =
-        process.env.OLLAMA_MAX_LOADED_MODELS === OLLAMA_MAX_LOADED_MODELS
+    // Every normal launch verifies the local runtime before starting the API,
+    // which turns missing models or permissions into a recoverable setup step.
+    // Ensure text can stay loaded when capture later pins vision.
+    const alreadyConfigured = process.env.OLLAMA_MAX_LOADED_MODELS === OLLAMA_MAX_LOADED_MODELS
     await ensureOllamaParallelConfig({
         persist: !alreadyConfigured,
         restart: false,
     })
 
-    // 1. Python
-    const py = await runCommand('python', ['--version'])
+    const py = await runCommand(PYTHON_COMMAND, ['--version'])
     if (py.code !== 0) {
         return { ok: false, step: 'python', reason: 'Python not found or not on PATH.' }
     }
 
-    // 2. Ollama binary
-    const ol = await runCommand('ollama', ['--version'])
+    const ol = await runCommand(OLLAMA_COMMAND, ['--version'])
     if (ol.code !== 0) {
         return { ok: false, step: 'ollama', reason: 'Ollama not found or not on PATH.' }
     }
 
-    // 3. Ollama service — if we just wrote the env vars for the first time,
-    //    restart so the running process picks up MAX_LOADED_MODELS=2
-    const serviceAlive = await pollUntilAlive('http://localhost:11434', 500, 3).then(() => true).catch(() => false)
+    // If the environment changed, restart Ollama so the running service picks
+    // up the persisted residency limits before checking required models.
+    const serviceAlive = await pollUntilAlive(configuredOllamaBaseURL(), 500, 3).then(() => true).catch(() => false)
     if (!alreadyConfigured) {
-        await ensureOllamaParallelConfig({ persist: false, restart: true })
-        const started = await pollUntilAlive('http://localhost:11434', 1000, 15).then(() => true).catch(() => false)
+        await ensureOllamaParallelConfig({ persist: false, restart: process.platform === 'win32' })
+        if (!serviceAlive && process.platform !== 'win32') {
+            spawnHidden(OLLAMA_COMMAND, ['serve'], { cwd: ROOT, detached: false })
+        }
+        const started = await pollUntilAlive(configuredOllamaBaseURL(), 1000, 15).then(() => true).catch(() => false)
         if (!started) {
             return { ok: false, step: 'ollama-service', reason: 'Ollama service could not be started.' }
         }
     } else if (!serviceAlive) {
-        spawnHidden('ollama', ['serve'], { cwd: ROOT, detached: false })
-        const started = await pollUntilAlive('http://localhost:11434', 1000, 10).then(() => true).catch(() => false)
+        spawnHidden(OLLAMA_COMMAND, ['serve'], { cwd: ROOT, detached: false })
+        const started = await pollUntilAlive(configuredOllamaBaseURL(), 1000, 10).then(() => true).catch(() => false)
         if (!started) {
             return { ok: false, step: 'ollama-service', reason: 'Ollama service could not be started.' }
         }
     }
 
-    // 4. Required models
-    const list = await runCommand('ollama', ['list'])
-    const missing = REQUIRED_MODELS.filter(m => !list.stdout.includes(m.split(':')[0]))
+    const list = await runCommand(OLLAMA_COMMAND, ['list'])
+    const missing = REQUIRED_MODELS.filter((name) => !ollamaListHasModel(list.stdout, name))
     if (missing.length > 0) {
         return { ok: false, step: 'models', reason: `Missing models: ${missing.join(', ')}` }
     }
 
-    // 5. Python packages (proxy: can api_server.py import cleanly?)
-    const pkgCheck = await runCommand('python', [
+
+    // Import checks are a cheap proxy for the full capture dependency set.
+    const pkgCheck = await runCommand(PYTHON_COMMAND, [
         '-c',
         'import fastapi, uvicorn, pynput, mss, PIL, psutil, imagehash, transformers, torch, sklearn',
     ])
@@ -559,12 +819,14 @@ async function runPreflightChecks() {
     return { ok: true, step: null, reason: null }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// hardware gate (shown before install steps)
-// ─────────────────────────────────────────────────────────────────────────────
+
+
+
 
 const HW_MIN = { ramGb: 16, vramGb: 6, diskGb: 12 }
 const HW_REC = { ramGb: 32, vramGb: 8, diskGb: 15 }
+const HW_MIN_MAC = { ramGb: 16, vramGb: 16, diskGb: 12 }
+const HW_REC_MAC = { ramGb: 32, vramGb: 32, diskGb: 15 }
 
 function gradeResource(value, min, rec) {
     if (value < min) return 'fail'
@@ -572,34 +834,49 @@ function gradeResource(value, min, rec) {
     return 'ok'
 }
 
-function detectWindowsLabel() {
+function detectOsLabel() {
+    if (process.platform === 'darwin') {
+        return process.arch === 'arm64' ? 'macos-apple-silicon' : 'macos-intel'
+    }
     if (process.platform !== 'win32') return process.platform
     const build = parseInt(os.release().split('.')[2] || '0', 10)
     return build >= 22000 ? 'windows11' : 'windows10'
 }
 
 async function getFreeDiskGb(dirPath) {
+    // statfs is available on modern Node; the command fallback covers older
+    // Electron runtimes and keeps the check working on both Windows and macOS.
     try {
         if (typeof fs.promises.statfs === 'function') {
             const s = await fs.promises.statfs(dirPath)
             return (Number(s.bavail) * Number(s.bsize)) / (1024 ** 3)
         }
-    } catch (_) { /* fall through */ }
+    } catch (_) {                    }
 
     try {
-        const root = path.parse(path.resolve(dirPath)).root
-        const letter = root.replace(/:\\?$/, '').replace('\\', '')
-        const r = await runCommand('powershell', [
-            '-NoProfile', '-Command',
-            `(Get-PSDrive -Name '${letter}').Free`,
-        ])
-        const bytes = parseFloat(String(r.stdout || '').trim())
-        if (!Number.isNaN(bytes) && bytes > 0) return bytes / (1024 ** 3)
-    } catch (_) { /* ignore */ }
+        if (process.platform === 'win32') {
+            const root = path.parse(path.resolve(dirPath)).root
+            const letter = root.replace(/:\\?$/, '').replace('\\', '')
+            const r = await runCommand('powershell', [
+                '-NoProfile', '-Command',
+                `(Get-PSDrive -Name '${letter}').Free`,
+            ])
+            const bytes = parseFloat(String(r.stdout || '').trim())
+            if (!Number.isNaN(bytes) && bytes > 0) return bytes / (1024 ** 3)
+        } else {
+            const r = await runCommand('df', ['-kP', dirPath])
+            const line = String(r.stdout || '').split(/\r?\n/).pop() || ''
+            const availableKb = parseFloat(line.trim().split(/\s+/)[3])
+            if (!Number.isNaN(availableKb) && availableKb > 0) return availableKb / (1024 ** 1024)
+        }
+    } catch (_) {              }
     return 0
 }
 
 async function getVramGb() {
+    // Apple Silicon shares memory with the GPU and has no nvidia-smi value;
+    // getHardwareCheck maps that case to unified system memory.
+    if (process.platform === 'darwin') return 0
     const r = await runCommand('nvidia-smi', [
         '--query-gpu=memory.total',
         '--format=csv,noheader,nounits',
@@ -611,19 +888,26 @@ async function getVramGb() {
 }
 
 async function getHardwareCheck() {
-    // Round RAM to nearest GB so marketed 16GB machines (~15.7 usable) aren't blocked
+    // Apple Silicon reports shared unified memory rather than discrete VRAM;
+    // use total memory for the GPU grade so capable Macs are not blocked.
+    // Round RAM to the nearest GB so marketed 16 GB machines are not blocked
+    // by a small amount of reserved memory.
     const ramGb = Math.round(os.totalmem() / (1024 ** 3))
     const diskRaw = await getFreeDiskGb(USER_DATA)
     const vramRaw = await getVramGb()
     const diskGb = Math.round(diskRaw * 10) / 10
-    const vramGb = Math.round(vramRaw * 10) / 10
-    const osId = detectWindowsLabel()
-    const osOk = osId === 'windows10' || osId === 'windows11'
+    const osId = detectOsLabel()
+    const requirements = process.platform === 'darwin' ? HW_MIN_MAC : HW_MIN
+    const recommended = process.platform === 'darwin' ? HW_REC_MAC : HW_REC
+    const vramGb = process.platform === 'darwin'
+        ? ramGb
+        : Math.round(vramRaw * 10) / 10
+    const osOk = process.platform === 'win32' || process.platform === 'darwin'
 
     const grades = {
-        ram:  gradeResource(ramGb, HW_MIN.ramGb, HW_REC.ramGb),
-        vram: gradeResource(vramGb, HW_MIN.vramGb, HW_REC.vramGb),
-        disk: gradeResource(diskGb, HW_MIN.diskGb, HW_REC.diskGb),
+        ram:  gradeResource(ramGb, requirements.ramGb, recommended.ramGb),
+        vram: gradeResource(vramGb, requirements.vramGb, recommended.vramGb),
+        disk: gradeResource(diskGb, requirements.diskGb, recommended.diskGb),
         os:   osOk ? 'ok' : 'fail',
     }
 
@@ -634,28 +918,34 @@ async function getHardwareCheck() {
     return {
         level,
         grades,
-        min: HW_MIN,
-        recommended: HW_REC,
+        min: requirements,
+        recommended,
         yours: {
             ramGb,
             vramGb,
             diskGb,
             os: osId,
+            memoryLabel: process.platform === 'darwin' ? 'Unified memory' : 'GPU VRAM',
             osLabel: osId === 'windows11' ? 'Windows 11'
                 : osId === 'windows10' ? 'Windows 10'
+                : osId === 'macos-apple-silicon' ? 'macOS · Apple Silicon'
+                : osId === 'macos-intel' ? 'macOS · Intel'
                 : osId,
         },
+        mode: 'ollama',
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// windows
-// ─────────────────────────────────────────────────────────────────────────────
 
-let setupStartFrom = 'python'  // which step setup should resume from
+
+
+
+let setupStartFrom = 'python'
 let setupInstallStarted = false
 
 function createSetupWindow() {
+    // Setup is a separate, isolated window so install logs and the hardware
+    // gate never compete with the main chat renderer.
     setupInstallStarted = false
     setupWindow = new BrowserWindow({
         width: 640,
@@ -674,10 +964,75 @@ function createSetupWindow() {
     setupWindow.setMenu(null)
 
     setupWindow.on('closed', () => { setupWindow = null })
-    // Install steps start only after the user passes the hardware gate (IPC).
+
+}
+
+const RELEASE_CHECK_FILE = path.join(USER_DATA, 'release_check.json')
+const RELEASE_CHECK_INTERVAL_MS = 12 * 60 * 60 * 1000
+
+function releaseVersionParts(value) {
+    return String(value || '').replace(/^v/i, '').split(/[+-]/)[0].split('.').map((part) => {
+        const number = parseInt(part, 10)
+        return Number.isFinite(number) ? number : 0
+    })
+}
+
+function isNewerVersion(candidate, current) {
+    const next = releaseVersionParts(candidate)
+    const installed = releaseVersionParts(current)
+    for (let i = 0; i < Math.max(next.length, installed.length); i++) {
+        if ((next[i] || 0) !== (installed[i] || 0)) return (next[i] || 0) > (installed[i] || 0)
+    }
+    return false
+}
+
+function fetchLatestRelease() {
+    return new Promise((resolve, reject) => {
+        const request = https.get(
+            `https://api.github.com/repos/${RELEASE_REPOSITORY}/releases/latest`,
+            { headers: { 'User-Agent': 'Clippy-Vision', Accept: 'application/vnd.github+json' } },
+            (response) => {
+                let body = ''
+                response.setEncoding('utf8')
+                response.on('data', (chunk) => { body += chunk })
+                response.on('end', () => {
+                    if (response.statusCode !== 200) return reject(new Error(`GitHub returned ${response.statusCode}`))
+                    try { resolve(JSON.parse(body)) } catch (error) { reject(error) }
+                })
+            },
+        )
+        request.setTimeout(5000, () => request.destroy(new Error('release check timeout')))
+        request.on('error', reject)
+    })
+}
+
+async function checkForLatestRelease() {
+    // Release checks are throttled and best-effort so a network outage never
+    // blocks a local app launch.
+    if (!mainWindow || mainWindow.isDestroyed()) return
+    try {
+        const previous = JSON.parse(fs.readFileSync(RELEASE_CHECK_FILE, 'utf8'))
+        if (Date.now() - Number(previous.checkedAt || 0) < RELEASE_CHECK_INTERVAL_MS) return
+    } catch (_) {                   }
+
+    try {
+        const release = await fetchLatestRelease()
+        fs.mkdirSync(USER_DATA, { recursive: true })
+        fs.writeFileSync(RELEASE_CHECK_FILE, JSON.stringify({ checkedAt: Date.now() }))
+        const version = String(release.tag_name || release.name || '').trim()
+        if (!version || !isNewerVersion(version, app.getVersion())) return
+        const url = release.html_url || `https://github.com/${RELEASE_REPOSITORY}/releases/tag/${encodeURIComponent(version)}`
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('release-available', { version, url, name: release.name || version })
+        }
+    } catch (error) {
+        console.log('[updates] release check skipped:', error.message)
+    }
 }
 
 function createMainWindow() {
+    // Closing the chat hides it to the tray; the process must stay alive for
+    // capture and background processing until the user explicitly quits.
     mainWindow = new BrowserWindow({
         minWidth: 400,
         width: 800,
@@ -692,8 +1047,9 @@ function createMainWindow() {
 
     mainWindow.loadFile(path.join(__dirname, '../src/index.html'))
     mainWindow.setMenu(null)
+    mainWindow.webContents.once('did-finish-load', () => checkForLatestRelease())
 
-    // X → hide to tray instead of quit
+
     mainWindow.on('close', (event) => {
         if (!isQuitting) {
             event.preventDefault()
@@ -713,13 +1069,15 @@ function showMainWindow() {
     mainWindow.focus()
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// API server
-// ─────────────────────────────────────────────────────────────────────────────
+
+
+
 
 function startServer() {
+    // The API stays as a local child process so chat, memory, and capture data
+    // never need a hosted relay.
     if (apiProcess) return
-    apiProcess = spawnHidden('python', [API_SCRIPT], { cwd: ROOT })
+    apiProcess = spawnHidden(PYTHON_COMMAND, [API_SCRIPT], { cwd: ROOT })
     apiProcess.stdout.on('data', d => console.log('[API]', d.toString().trim()))
     apiProcess.stderr.on('data', d => console.error('[API ERR]', d.toString().trim()))
     apiProcess.on('exit', (code) => {
@@ -728,12 +1086,22 @@ function startServer() {
     })
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// capture process
-// ─────────────────────────────────────────────────────────────────────────────
+
+
+
 
 function isCapturing() {
     return captureProcess != null && !captureProcess.killed
+}
+
+function writeCaptureState(active) {
+    try {
+        fs.writeFileSync(CAPTURE_STATE_FILE, JSON.stringify({
+            active: Boolean(active),
+            pid: active && captureProcess ? captureProcess.pid : null,
+            updated_at: Date.now() / 1000,
+        }, null, 2))
+    } catch (_) {                          }
 }
 
 function getTrayIcon(active) {
@@ -762,20 +1130,25 @@ function broadcastCaptureStatus() {
 }
 
 function notifyVisionUnload() {
-    // Capture process is force-killed; ask the API to unload VL.
-    httpPost('http://localhost:8000/residency/capture-stop', {}, 10000).catch((e) => {
+
+    httpPost(API_BASE_URL + '/residency/capture-stop', {}, 10000).catch((e) => {
         console.log('[Capture] vision unload notify failed:', e.message)
     })
 }
 
 function startCapture() {
+    // Capture is a separate Python process because keyboard hooks and image
+    // processing must not block Electron's renderer or tray event loop.
     if (isCapturing()) return
-    captureProcess = spawnHidden('python', [CAPTURE_SCRIPT], { cwd: ROOT })
-    captureProcess.stdout.on('data', d => console.log('[Capture]', d.toString().trim()))
-    captureProcess.stderr.on('data', d => console.error('[Capture ERR]', d.toString().trim()))
-    captureProcess.on('exit', (code) => {
+    const proc = spawnHidden(PYTHON_COMMAND, [CAPTURE_SCRIPT], { cwd: ROOT })
+    captureProcess = proc
+    proc.stdout.on('data', d => console.log('[Capture]', d.toString().trim()))
+    proc.stderr.on('data', d => console.error('[Capture ERR]', d.toString().trim()))
+    proc.on('exit', (code) => {
         console.log('[Capture] exited', code)
+        if (captureProcess !== proc) return
         captureProcess = null
+        writeCaptureState(false)
         notifyVisionUnload()
         updateTrayIcon()
         rebuildTrayMenu()
@@ -784,19 +1157,23 @@ function startCapture() {
     updateTrayIcon()
     rebuildTrayMenu()
     broadcastCaptureStatus()
+    writeCaptureState(true)
     console.log('[Capture] started pid=', captureProcess.pid)
 }
 
 function stopCapture() {
+    // Windows needs a tree kill for child processes; POSIX systems can use the
+    // normal termination signal and let the Python shutdown hook clean up.
     if (!captureProcess) return
     const proc = captureProcess
     captureProcess = null
+    writeCaptureState(false)
     if (process.platform === 'win32' && proc.pid) {
         spawnHidden('taskkill', ['/pid', String(proc.pid), '/T', '/F'])
     } else {
-        proc.kill('SIGTERM')
+        try { proc.kill('SIGTERM') } catch (_) { }
     }
-    // exit handler also notifies; call here so unload starts immediately
+
     notifyVisionUnload()
     updateTrayIcon()
     rebuildTrayMenu()
@@ -809,11 +1186,12 @@ function toggleCapture() {
     else startCapture()
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// tray
-// ─────────────────────────────────────────────────────────────────────────────
+
+
+
 
 function rebuildTrayMenu() {
+    // Rebuild after every capture transition so the menu label mirrors state.
     if (!tray) return
     tray.setContextMenu(Menu.buildFromTemplate([
         { label: isCapturing() ? 'Stop Capture' : 'Start Capture', click: toggleCapture },
@@ -825,6 +1203,8 @@ function rebuildTrayMenu() {
 }
 
 function createTray() {
+    // The tray is the persistent control surface while the main window is
+    // hidden, which keeps screen capture available without a large window.
     tray = new Tray(getTrayIcon(false))
     tray.setToolTip('Clippy Vision — Idle')
     rebuildTrayMenu()
@@ -832,14 +1212,56 @@ function createTray() {
     tray.on('double-click', showMainWindow)
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// IPC handlers
-// ─────────────────────────────────────────────────────────────────────────────
 
+
+
+
+// Expose only narrow, validated desktop actions to the isolated renderer.
 ipcMain.handle('toggle-capture',     () => { toggleCapture();  return isCapturing() })
 ipcMain.handle('get-capture-status', () => isCapturing())
+ipcMain.handle('get-login-item', () => app.getLoginItemSettings().openAtLogin)
+ipcMain.handle('set-login-item', (_event, enabled) => {
+    const openAtLogin = Boolean(enabled)
+    app.setLoginItemSettings({ openAtLogin })
+    return app.getLoginItemSettings().openAtLogin
+})
+ipcMain.handle('save-text-file', async (_event, payload = {}) => {
+    const content = String(payload.content || '')
+    if (content.length > 20_000_000) throw new Error('Export is too large to save from the desktop UI.')
+    const requestedName = path.basename(String(payload.filename || 'clippy-export.json'))
+    const safeName = requestedName && requestedName !== '.' && requestedName !== '..'
+        ? requestedName
+        : 'clippy-export.json'
+    const filename = safeName.toLowerCase().endsWith('.json') ? safeName : `${safeName}.json`
+    const result = await dialog.showSaveDialog(mainWindow, {
+        title: 'Export Clippy data',
+        defaultPath: path.join(USER_DATA, filename || 'clippy-export.json'),
+        filters: [{ name: 'JSON', extensions: ['json'] }],
+    })
+    if (result.canceled || !result.filePath) return { canceled: true }
+    fs.writeFileSync(result.filePath, content, 'utf8')
+    return { canceled: false, path: result.filePath }
+})
+ipcMain.handle('open-screenshot', async (_event, value) => {
+    const filename = path.basename(String(value || '').replace(/^\/screenshots\//, ''))
+    const target = path.join(DATA_DIR, 'screenshots', filename)
+    if (!filename || !fs.existsSync(target)) return false
+    return (await shell.openPath(target)) === ''
+})
+ipcMain.handle('open-external', (_event, url) => {
+    const value = String(url || '')
+    let parsed
+    try { parsed = new URL(value) } catch (_) { return false }
+    const expectedPath = `/${RELEASE_REPOSITORY}`
+    if (parsed.protocol !== 'https:' || parsed.hostname.toLowerCase() !== 'github.com' ||
+        !(parsed.pathname === expectedPath || parsed.pathname.startsWith(`${expectedPath}/`))) return false
+    return shell.openExternal(value)
+})
 
 ipcMain.handle('get-hardware-check', async () => getHardwareCheck())
+ipcMain.handle('get-llm-config', () => publicLLMConfig())
+ipcMain.handle('save-llm-config', (_event, values = {}) => saveLLMConfig(values))
+ipcMain.handle('open-provider-auth', (_event, provider) => openProviderAuth(String(provider || '')))
 
 ipcMain.handle('confirm-hardware-and-start', async (_event, { override } = {}) => {
     const check = await getHardwareCheck()
@@ -854,7 +1276,7 @@ ipcMain.handle('confirm-hardware-and-start', async (_event, { override } = {}) =
     }
     setupInstallStarted = true
     doneSoFar = 0
-    // Kick install after the renderer has switched views
+
     setImmediate(() => runSetup(setupStartFrom))
     return { ok: true, check }
 })
@@ -868,12 +1290,12 @@ ipcMain.handle('launch-app', () => {
     if (setupWindow && !setupWindow.isDestroyed()) setupWindow.close()
     createTray()
     createMainWindow()
-    // API server was already started during warmup step
+
 })
 
-// ─────────────────────────────────────────────────────────────────────────────
-// app lifecycle
-// ─────────────────────────────────────────────────────────────────────────────
+
+
+
 
 function sendLoadingStatus(title, sub) {
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -901,12 +1323,14 @@ function waitForMainWindowLoad() {
     })
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// app lifecycle
-// ─────────────────────────────────────────────────────────────────────────────
+
+
+
 
 app.whenReady().then(async () => {
-    // Ensure writable dirs exist (packaged → AppData; dev → repo)
+    // Register the global shortcut once Electron owns the application session.
+    globalShortcut.register('CommandOrControl+Shift+Space', () => toggleCapture())
+
     for (const d of [DATA_DIR, path.join(DATA_DIR, 'screenshots'), path.join(USER_DATA, 'logs')]) {
         if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true })
     }
@@ -918,8 +1342,8 @@ app.whenReady().then(async () => {
     const setupDone = fs.existsSync(SETUP_FLAG)
 
     if (setupDone) {
-        // Show loading UI immediately while preflight runs (no blank wait)
-    createTray()
+
+        createTray()
         createMainWindow()
         await waitForMainWindowLoad()
         sendLoadingStatus(
@@ -937,17 +1361,14 @@ app.whenReady().then(async () => {
         }
 
         console.log('[preflight] All checks passed — starting API')
-        sendLoadingStatus(
-            null,
-            'Starting AI server and loading models…'
-        )
+        sendLoadingStatus(null, 'Starting AI server and loading models…')
         startServer()
-        pollUntilAlive('http://localhost:8000/health', 1000, 90)
+        pollUntilAlive(API_BASE_URL + '/health', 1000, 90)
             .then(async () => {
                 console.log('[app] API server healthy — warming text model...')
                 sendLoadingStatus(null, 'Loading text model…')
                 try {
-                    await httpPost('http://localhost:8000/residency/startup', {}, 120000)
+                    await httpPost(API_BASE_URL + '/residency/startup', {}, 120000)
                     console.log('[app] residency startup warm done')
                 } catch (e) {
                     console.log('[app] residency warm skipped:', e.message)
@@ -967,17 +1388,27 @@ app.whenReady().then(async () => {
 
     app.on('activate', () => {
         if (mainWindow) showMainWindow()
+        else if (setupWindow) {
+            setupWindow.show()
+            setupWindow.focus()
+        }
     })
 })
 
 app.on('window-all-closed', () => {
-    // intentionally empty — tray keeps the app alive
+
 })
 
 app.on('before-quit', () => {
     isQuitting = true
+    globalShortcut.unregister('CommandOrControl+Shift+Space')
     stopCapture()
     if (apiProcess) {
-        spawnHidden('taskkill', ['/pid', String(apiProcess.pid), '/T', '/F'])
+        if (process.platform === 'win32') {
+            spawnHidden('taskkill', ['/pid', String(apiProcess.pid), '/T', '/F'])
+        } else {
+            apiProcess.kill('SIGTERM')
+        }
+        apiProcess = null
     }
 })
