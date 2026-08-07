@@ -2,7 +2,7 @@
 
 ## Recommended: Use the Installer
 
-Download the Windows installer or matching Apple Silicon / Intel macOS DMG from the [latest release](https://github.com/rusetiq/clippy-vision/releases/latest).
+Download the Windows installer or matching Apple Silicon / Intel macOS DMG from the [latest release](https://github.com/protocorn/clippy-vision/releases/latest).
 
 The installer's built-in setup wizard will:
 - Check for Python (install via winget if missing)

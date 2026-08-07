@@ -101,7 +101,9 @@ Before submitting a PR:
 ## Areas That Need Help
 
 ### High Priority
-- [x] macOS support
+- [ ] Cross-OS support
+  - [x] macOS support
+  - [ ] Linux support
 - [ ] Wire Settings → Access control UI to the existing privacy API (see open `good first issue`s)
 - [ ] Automated tests for classification pipeline
 - [ ] Performance optimization for vision processing
