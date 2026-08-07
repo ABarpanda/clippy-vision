@@ -672,10 +672,7 @@ async function stepWarmup() {
         if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true })
     }
 
-    fs.writeFileSync(SETUP_FLAG, JSON.stringify({
-        version: app.getVersion(),
-        completedAt: new Date().toISOString(),
-    }, null, 2))
+    writeSetupFlag()
 
     log('Setup complete!', 'ok')
     markDone('warmup', 'Ready!')
@@ -1297,6 +1294,36 @@ ipcMain.handle('launch-app', () => {
 
 
 
+function writeSetupFlag(extra = {}) {
+    let previous = {}
+    try {
+        if (fs.existsSync(SETUP_FLAG)) {
+            previous = JSON.parse(fs.readFileSync(SETUP_FLAG, 'utf8'))
+        }
+    } catch (_) {}
+
+    fs.writeFileSync(SETUP_FLAG, JSON.stringify({
+        ...previous,
+        ...extra,
+        version: app.getVersion(),
+        completedAt: previous.completedAt || new Date().toISOString(),
+    }, null, 2))
+}
+
+/** Keep setup_complete.json version in sync after upgrades without re-running setup. */
+function syncSetupFlagVersion() {
+    if (!fs.existsSync(SETUP_FLAG)) return
+    try {
+        const raw = JSON.parse(fs.readFileSync(SETUP_FLAG, 'utf8'))
+        if (raw.version === app.getVersion()) return
+        console.log(`[setup] Version changed ${raw.version || '?'} → ${app.getVersion()}; updating setup flag`)
+        writeSetupFlag({ upgradedAt: new Date().toISOString() })
+    } catch (err) {
+        console.warn('[setup] Could not read setup flag; rewriting:', err.message)
+        writeSetupFlag()
+    }
+}
+
 function sendLoadingStatus(title, sub) {
     if (mainWindow && !mainWindow.isDestroyed()) {
         const payload = {}
@@ -1339,6 +1366,7 @@ app.whenReady().then(async () => {
     console.log(`[paths] USER_DATA=${USER_DATA}`)
     console.log(`[paths] DATA_DIR=${DATA_DIR}`)
 
+    syncSetupFlagVersion()
     const setupDone = fs.existsSync(SETUP_FLAG)
 
     if (setupDone) {
