@@ -22,32 +22,42 @@ Everything runs entirely on your machine. No API keys, no cloud, no data leaving
 
 ---
 
+## One memory across every app you work in
+
+Your work is not stored in one place. It is spread across the browser, your IDE, local PDFs, terminal output, chat apps, notes files, spreadsheets, and design tools. Each of those keeps its own partial record, or none at all, and none of them know about each other.
+
+Clippy watches all of them and keeps one timeline. Two things follow from that, and neither is possible from any single app's own history:
+
+1. **You can search what was on the screen, not just what things were called.** Titles and filenames are usually useless later. A paper saved as `2103.00020v1.pdf`, a Jira ticket referred to only by its ID, a config you edited in a nameless scratch buffer. Clippy read the content, so the words that were actually in front of you are what you search.
+2. **You can reconstruct a whole stretch of work, not look up one artifact.** "What was I doing Tuesday afternoon" spans the paper you read, the file you edited, the snippet you copied, and the conversation you had about it. Clippy answers that as a summary of the work. Every per-app history hands you a list and leaves the reconstruction to you.
+
 ## How Clippy Vision fits with Claude / ChatGPT
 
-Claude and ChatGPT are built for **reasoning, writing, and general knowledge**. They're excellent when you bring them context - a pasted error log, a document, a research question. They are not built to know what was on your screen yesterday, which paper you opened last Tuesday, or what bug you fixed two weeks ago without you telling them.
+Claude and ChatGPT are built for **reasoning, writing, and general knowledge**. They are excellent when you bring them context. They are not built to know what was on your screen yesterday without you telling them.
 
-Clippy Vision is built for the **context problem**. It passively watches your work, remembers it, and answers from that memory. It doesn't replace Claude or ChatGPT - it fills the gap they can't: your personal activity history.
+Clippy Vision is built for the **context problem**. It watches your work, remembers it, and answers from that memory. It does not replace Claude or ChatGPT. It fills the gap they cannot: your personal activity history.
 
-| | Claude / ChatGPT | Clippy Vision |
-|--|--|--|
-| Strength | Reasoning, writing, coding help, world knowledge | Personal memory of *your* work |
-| Needs you to paste context | Yes | No - already saw it |
-| Runs where | Cloud | 100% on your machine |
-| Best for | "Help me solve / write / explain this" | "What was I doing / reading / debugging?" |
+| | Per-app history (browser, recent files) | Claude / ChatGPT | Clippy Vision |
+|--|--|--|--|
+| Sees | Names and timestamps, one app at a time | Whatever you paste or upload | Screen content across every app |
+| Answers with | A list to scan | Its general knowledge | What you were actually doing |
+| Needs you to reconstruct context | Yes | Yes | No - already saw it |
+| Runs where | Local | Cloud | 100% on your machine |
+| Best for | "Which tab or file did I open?" | "Help me solve / write / explain this" | "What was I doing / reading / debugging?" |
 
-Use Clippy Vision when you need your own history back. Use Claude or ChatGPT when you need a powerful reasoning partner. Many people use both - Clippy to reconstruct context, then paste that into Claude to go deeper.
-
-<p align="center">
-  <img src="assets/demo-product.png" alt="Clippy Vision recalling research notes" width="720" />
-</p>
-
-<p align="center"><em>Runs locally · Sees what you do · Remembers it · Answers from it</em></p>
+Use Clippy when you need your own work history back. Use Claude or ChatGPT when you need a strong reasoning partner. Many people use both: Clippy to reconstruct context, then paste that into Claude to go deeper.
 
 <p align="center">
-  <img src="assets/demo-vs-claude-urls.png" alt="Clippy Vision vs Claude on the same question" width="720" />
+  <img src="assets/demo-product.png" alt="Clippy Vision reconstructing research across apps and files" width="720" />
 </p>
 
-<p align="center"><em>Same question asked to both. Clippy returns the exact paper URLs from browsing history. Claude has no record of them.</em></p>
+<p align="center"><em>One question. Answer pulled from papers, chat tools, and a local notes file from the same research stretch.</em></p>
+
+<p align="center">
+  <img src="assets/demo-vs-claude-urls.png" alt="Clippy Vision vs Claude on a personal activity question" width="720" />
+</p>
+
+<p align="center"><em>Same kind of personal question. Clippy answers from activity it saw on your machine. Claude has no record of that work, because it never saw it.</em></p>
 
 ---
 
@@ -65,9 +75,15 @@ Click your platform to download **v1.2.0** directly:
 
 <p align="center">
   <a href="https://github.com/protocorn/clippy-vision/releases/latest">All releases &amp; older versions</a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/protocorn/clippy-vision/commits/main"><img src="https://img.shields.io/github/last-commit/protocorn/clippy-vision?style=flat-square&label=last%20commit" alt="Last commit" /></a>
+  &nbsp;
+  <a href="https://github.com/protocorn/clippy-vision/releases/latest"><img src="https://img.shields.io/github/release-date/protocorn/clippy-vision?style=flat-square&label=latest%20release" alt="Latest release date" /></a>
 </p>
 
 The installer includes a setup wizard that handles Python, Ollama, and all required models automatically. No terminal required.
+
+Clippy Vision is under active development. Three releases shipped in the first two weeks, including full macOS support, and bug reports usually get a reply the same day.
 
 ### System requirements
 
@@ -118,8 +134,16 @@ The app will open the setup wizard on first launch and walk you through dependen
 - **Smart query router** - a fine-tuned MiniLM classifier routes every question to the right retrieval strategy before the LLM is even called
 - **ReAct agent** - structured reasoning with tools: SQL generation, memory recall, fact saving
 - **Conversation memory** - rolling summaries + semantic search over past conversations
-- **Privacy controls** - toggle redaction per app (WhatsApp, Telegram, incognito windows, etc.)
 - **Toggle capture** - start/stop data capture from the tray icon or the in-app button, with a desktop notification on change
+- **Per-app redaction (in progress)** - backend rules exist for WhatsApp, Telegram, incognito windows, and similar targets; reliable matching outside Clippy's own window is still being improved, so capture on/off is the dependable privacy switch today
+
+---
+
+## Where this is going
+
+Clippy is reactive today: you ask, it answers. The next bet is making it proactive, so it can act on what it sees instead of waiting to be asked. Two other priorities sit alongside that: getting the hardware requirements down by reading window text through accessibility APIs before falling back to the vision model, and a timeline view so you can see and delete exactly what was captured.
+
+No dates attached to any of it. [PROJECT_VISION.md](PROJECT_VISION.md) has the current thinking, the priority order, and an honest list of what does not work yet. If you want to shape any of it, the [open issues](https://github.com/protocorn/clippy-vision/issues) are the place to start.
 
 ---
 
@@ -245,7 +269,7 @@ FTS5 virtual tables on `events` and `sessions` enable full-text search across al
 - All processing is local. Nothing leaves your machine.
 - Clippy Vision's own window is blacked out in screenshots before any AI model sees them.
 - You can toggle data capture on/off at any time from the tray icon.
-- Per-app redaction: configure WhatsApp, Telegram, Signal, incognito browser windows, and others to be blacked out in screenshots.
+- Per-app redaction is in progress for WhatsApp, Telegram, Signal, incognito windows, and similar targets. Matching is not reliable enough yet outside Clippy's own window, so capture on/off is the dependable privacy switch today.
 - Captured data has TTLs: raw events expire after 7 days, session summaries after 90 days.
 - The local API binds to `127.0.0.1` on a port chosen at launch, so it is never reachable from your network.
 
@@ -314,4 +338,4 @@ New here? [CONTRIBUTING.md](CONTRIBUTING.md) has setup steps and a list of good 
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup steps and good first issues, and [PROJECT_VISION.md](PROJECT_VISION.md) for what the project is optimizing for and where it is headed.
