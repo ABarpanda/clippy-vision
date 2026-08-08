@@ -15,21 +15,21 @@ This doc exists so contributors know what we're optimizing for, where we stand t
 # Roadmap
 No fixed timeline, ordered by priority rather than by date.
 
-**Version 1.0.1 (Current)**
-- Screen capture for Windows
-- Context building using qwen3:8b and qwen3-vl:4b
-- Hierarchical memory handling
-- Intent detection and query routing
-- ReAct agent for data retrieval and answering
+**Version 1.0.1 (Shipped)**
+- [x] Screen capture for Windows
+- [x] Context building using qwen3:8b and qwen3-vl:4b
+- [x] Hierarchical memory handling
+- [x] Intent detection and query routing
+- [x] ReAct agent for data retrieval and answering
 
-**Version 1.1.0 (Next in pipeline)**
-- Delete option for conversations (chats with agent)
-- Screen redaction for WhatsApp, incognito tabs/private windows, Gmail, Outlook, etc.
-- Markdown rendering for agent responses in UI
-- Other bug fixes
+**Version 1.1.0 (Shipped)**
+- [x] Delete option for conversations (chats with agent)
+- [ ] Screen redaction for WhatsApp, incognito tabs/private windows, Gmail, Outlook, etc. (will be rolled out in next version)
+- [x] Markdown rendering for agent responses in UI
+- [x] Other bug fixes
 
-**Version 1.2.0 (Next in pipeline)**
-- Screen capture support for macOS along with a macOS release
+**Version 1.2.0 (Current)**
+- [x] Screen capture support for macOS along with a macOS release
 
 **Version 1.3.0 (Next in pipeline)**
 - Skills layer, making the agent proactive instead of purely reactive
