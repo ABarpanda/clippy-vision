@@ -53,14 +53,14 @@ Use Clippy Vision when you need your own history back. Use Claude or ChatGPT whe
 
 ## Download
 
-Click your platform to download the latest installer directly:
+Click your platform to download **v1.2.0** directly:
 
 <p align="center">
-  <a href="https://github.com/protocorn/clippy-vision/releases/latest/download/ClippyVision-Windows-Setup.exe"><img src="https://img.shields.io/badge/Download-Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white" alt="Download for Windows" /></a>
+  <a href="https://github.com/protocorn/clippy-vision/releases/download/v1.2.0/ClippyVision-Windows-Setup-1.2.0.exe"><img src="https://img.shields.io/badge/Download-Windows%20v1.2.0-0078D6?style=for-the-badge&logo=windows&logoColor=white" alt="Download for Windows v1.2.0" /></a>
   &nbsp;
-  <a href="https://github.com/protocorn/clippy-vision/releases/latest/download/ClippyVision-macOS-arm64.dmg"><img src="https://img.shields.io/badge/Download-macOS%20(Apple%20Silicon)-000000?style=for-the-badge&logo=apple&logoColor=white" alt="Download for macOS Apple Silicon" /></a>
+  <a href="https://github.com/protocorn/clippy-vision/releases/download/v1.2.0/ClippyVision-macOS-arm64-1.2.0.dmg"><img src="https://img.shields.io/badge/Download-macOS%20Apple%20Silicon%20v1.2.0-000000?style=for-the-badge&logo=apple&logoColor=white" alt="Download for macOS Apple Silicon v1.2.0" /></a>
   &nbsp;
-  <a href="https://github.com/protocorn/clippy-vision/releases/latest/download/ClippyVision-macOS-x64.dmg"><img src="https://img.shields.io/badge/Download-macOS%20(Intel)-555555?style=for-the-badge&logo=apple&logoColor=white" alt="Download for macOS Intel" /></a>
+  <a href="https://github.com/protocorn/clippy-vision/releases/download/v1.2.0/ClippyVision-macOS-x64-1.2.0.dmg"><img src="https://img.shields.io/badge/Download-macOS%20Intel%20v1.2.0-555555?style=for-the-badge&logo=apple&logoColor=white" alt="Download for macOS Intel v1.2.0" /></a>
 </p>
 
 <p align="center">
