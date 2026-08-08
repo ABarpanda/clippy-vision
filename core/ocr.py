@@ -22,6 +22,8 @@ def _get_engine():
         if _engine is not None or _engine_error is not None:
             return _engine
         try:
+            # RapidOCR renamed its distribution; support both package layouts
+            # without forcing users onto one runtime version.
             try:
                 from rapidocr import RapidOCR
             except ImportError:
@@ -34,6 +36,8 @@ def _get_engine():
 
 
 def _parts(result):
+    # RapidOCR has returned tuples, lists, objects, and dictionaries across
+    # releases. Normalize those shapes before confidence filtering.
     if result is None:
         return [], []
     if isinstance(result, tuple) and len(result) >= 3:

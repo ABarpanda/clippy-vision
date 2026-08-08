@@ -35,6 +35,8 @@ def enrich_screenshot(path: Path) -> tuple[str, list[float] | None, str | None]:
         if cached and cached[:2] == (stat.st_mtime_ns, stat.st_size):
             ocr_cached = cached[5]
             embeddings_cached = cached[6]
+            # Feature flags are part of cache validity: enabling OCR or image
+            # embeddings later must enrich the file instead of returning gaps.
             if (not settings["ocr_enabled"] or ocr_cached) and (
                 not settings["image_embeddings_enabled"] or embeddings_cached
             ):

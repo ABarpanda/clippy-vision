@@ -406,6 +406,36 @@ class RuntimeRegressionTests(unittest.TestCase):
         result = search_screenshots(limit=-1, offset=-20)
         self.assertTrue(any(item["screenshot_filename"] == path.name for item in result["screenshots"]))
 
+    def test_screenshot_time_filter_is_applied_before_candidate_limit(self):
+        target_id = "old-screenshot-target"
+        noise_prefix = "newer-screenshot-noise-"
+        try:
+            conn.execute(
+                """INSERT INTO events
+                   (event_id, session_id, timestamp, event_type, summary, expires_at)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (target_id, "test-session", 100.0, "screenshot_analysis", "old target", 9999999999.0),
+            )
+            conn.execute(
+                """WITH RECURSIVE sequence(value) AS (
+                       SELECT 1 UNION ALL SELECT value + 1 FROM sequence WHERE value < 3000
+                   )
+                   INSERT INTO events
+                       (event_id, session_id, timestamp, event_type, summary, expires_at)
+                   SELECT ? || value, 'test-session', 200.0 + value,
+                          'screenshot_analysis', 'newer noise', 9999999999.0
+                   FROM sequence""",
+                (noise_prefix,),
+            )
+            conn.commit()
+
+            result = search_screenshots(start_ts=99.0, end_ts=101.0)
+
+            self.assertEqual([item["event_id"] for item in result["screenshots"]], [target_id])
+        finally:
+            conn.execute("DELETE FROM events WHERE event_id = ? OR event_id LIKE ?", (target_id, f"{noise_prefix}%"))
+            conn.commit()
+
     def test_vision_updates_only_pending_vision_events(self):
         event = make_event("vision-race")
         store_event(event)

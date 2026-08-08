@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Iterable
 
 
+# The bundled model is the preferred path. The deterministic hash encoder keeps
+# keyword-like retrieval available when PyTorch or the model cannot be loaded.
 MODEL_ID = "local:sentence-transformers/all-MiniLM-L6-v2"
 MODEL_DIMENSION = 384
 MAX_TOKENS = 256
@@ -33,6 +35,8 @@ def model_dir() -> Path:
 
 def _load_bundle():
     global _bundle, _load_error
+    # Cache both success and failure so every embedding call does not retry an
+    # expensive model import after a known startup failure.
     if _bundle is not None or _load_error is not None:
         return _bundle
     with _load_lock:
@@ -101,6 +105,8 @@ def _encode_with_bundle(bundle, texts: list[str]) -> list[list[float]]:
         encoded = {key: value.to(device) for key, value in encoded.items()}
         with torch.inference_mode():
             output = model(**encoded).last_hidden_state
+            # MiniLM returns token embeddings; masked mean pooling matches the
+            # sentence-transformers model's expected sentence representation.
             mask = encoded["attention_mask"].unsqueeze(-1).expand(output.size()).float()
             pooled = (output * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1e-9)
             normalized = torch.nn.functional.normalize(pooled, p=2, dim=1)
@@ -182,6 +188,8 @@ def _ensure_storage_model(model_id: str, bundle) -> None:
                     else [_hash_embedding(text) for text in fact_texts]
                 )
 
+            # Vectors from different encoders cannot be compared safely. Keep
+            # facts usable by rebuilding them now and lazily backfill bulk data.
             conn.execute("UPDATE events SET vector_embedding = NULL")
             conn.execute("UPDATE sessions SET summary_embedding = NULL")
             conn.execute("UPDATE conversations SET vector_embedding = NULL")

@@ -91,6 +91,8 @@ def _tensor_values(value) -> list[float]:
 def embed_image(path: Path) -> tuple[list[float], str]:
     bundle = _get_clip()
     if bundle is None:
+        # The pixel signature supports image-to-image deduplication only. Its
+        # model id prevents it from being compared with CLIP text embeddings.
         return _pixel_signature(path), PIXEL_EMBEDDING_MODEL
     torch, processor, model = bundle
     try:

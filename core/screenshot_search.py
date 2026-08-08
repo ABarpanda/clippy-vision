@@ -79,21 +79,32 @@ def resolve_screenshot_filename(timestamp: float, preferred: str | None = None) 
     return None
 
 
-def _rows() -> list[dict]:
+def _rows(start_ts: float | None = None, end_ts: float | None = None) -> list[dict]:
+    filters = [
+        "(event_type = 'screenshot_analysis' OR vision_ocr_text IS NOT NULL "
+        "OR screenshot_filename IS NOT NULL OR image_embedding IS NOT NULL)"
+    ]
+    params = []
+    if start_ts is not None:
+        filters.append("timestamp >= ?")
+        params.append(start_ts)
+    if end_ts is not None:
+        filters.append("timestamp < ?")
+        params.append(end_ts)
+    # Apply temporal filters before the safety cap so older exact-time lookups
+    # are not hidden by newer screenshots.
     records = conn.execute(
-        """SELECT event_id, timestamp, event_type, process_name,
+        f"""SELECT event_id, timestamp, event_type, process_name,
                   current_window_title, active_url, summary, interest_reason,
                   vision_ocr_text, vision_activity, vision_suggested_action,
                   vector_embedding, image_embedding, image_embedding_model,
                   screenshot_filename,
                   interesting, interest_score
            FROM events
-           WHERE event_type = 'screenshot_analysis'
-              OR vision_ocr_text IS NOT NULL
-              OR screenshot_filename IS NOT NULL
-              OR image_embedding IS NOT NULL
+           WHERE {' AND '.join(filters)}
            ORDER BY timestamp DESC
-           LIMIT 3000"""
+           LIMIT 3000""",
+        params,
     ).fetchall()
     return [
         {
@@ -167,11 +178,7 @@ def search_screenshots(
         offset = max(int(offset), 0)
     except (TypeError, ValueError):
         offset = 0
-    rows = _rows()
-    if start_ts is not None:
-        rows = [row for row in rows if row["timestamp"] >= start_ts]
-    if end_ts is not None:
-        rows = [row for row in rows if row["timestamp"] < end_ts]
+    rows = _rows(start_ts, end_ts)
     query = (query or "").strip()
     if not query:
         selected = rows[offset: offset + limit]
@@ -206,6 +213,8 @@ def search_screenshots(
             continue
         age_days = max(0.0, (now - float(row["timestamp"])) / 86400.0)
         recency = math.exp(-math.log(2) * age_days / 30.0)
+        # OCR/metadata and MiniLM carry most of the signal; CLIP and recency
+        # refine ordering when several frames describe the same activity.
         score = (keyword * 0.35) + (max(0.0, semantic) * 0.45) + (max(0.0, visual) * 0.20) + (recency * 0.04)
         scored.append((score, row))
     scored.sort(key=lambda item: item[0], reverse=True)

@@ -174,6 +174,8 @@ def _backfill_rows(rows: list[dict], *, priority: int) -> None:
     pending = [row for row in rows if not row.get("vector_embedding") and _event_text(row)]
     if not pending:
         return
+    # Interactive recall embeds only a bounded slice to avoid making the first
+    # query wait for the entire historical index.
     pending = pending[:INLINE_BACKFILL if priority == Priority.INTERACTIVE else INDEX_BATCH]
     try:
         vectors = embed_texts([_event_text(row) for row in pending])
@@ -182,8 +184,6 @@ def _backfill_rows(rows: list[dict], *, priority: int) -> None:
             if vector:
                 row["vector_embedding"] = json.dumps(vector)
     except Exception as exc:
-
-
         print(f"[rag] embedding backfill skipped: {exc}")
 
 
@@ -245,6 +245,7 @@ def search_event_rag(
             score = image_score or 0.0
         age_days = max(0.0, (now - float(row_map[event_id]["timestamp"])) / 86400.0)
         recency = math.exp(-math.log(2) * age_days / 30.0)
+        # Recency breaks near-ties without overpowering semantically older hits.
         score = (score * 0.96) + (recency * 0.04)
         scored.append((score, row_map[event_id]))
     if not scored:
