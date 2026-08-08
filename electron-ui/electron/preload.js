@@ -185,4 +185,8 @@ contextBridge.exposeInMainWorld('clippy', {
         ipcRenderer.on('loading-status', (_event, data) => callback(data))
     },
 
+    onReleaseAvailable: (callback) => {
+        ipcRenderer.on('release-available', (_event, data) => callback(data))
+    },
+
 })

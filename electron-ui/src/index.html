@@ -88,6 +88,38 @@
     .view { display: none; flex-direction: column; flex: 1; min-height: 0; }
     .view.active { display: flex; }
 
+    /* ---- Update available banner ---- */
+    .update-banner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 20px;
+      background: var(--accent-muted);
+      border-bottom: 1px solid var(--border);
+      color: var(--text);
+      font-size: 13px;
+    }
+    .update-banner[hidden] { display: none; }
+    .update-banner-actions { display: flex; align-items: center; gap: 14px; flex-shrink: 0; }
+    .update-banner-link {
+      color: var(--accent);
+      font-weight: 600;
+      text-decoration: none;
+    }
+    .update-banner-link:hover { color: var(--accent-hover); text-decoration: underline; }
+    .update-banner-dismiss {
+      background: none;
+      border: none;
+      color: var(--text);
+      opacity: 0.6;
+      cursor: pointer;
+      font-size: 13px;
+      line-height: 1;
+      padding: 2px 4px;
+    }
+    .update-banner-dismiss:hover { opacity: 1; }
+
     /* ---- Name setup view ---- */
     #name-view {
       align-items: center;
@@ -1298,6 +1330,14 @@
       </div>
     </header>
 
+    <div id="update-banner" class="update-banner" hidden>
+      <span id="update-banner-text"></span>
+      <div class="update-banner-actions">
+        <a id="update-banner-link" class="update-banner-link" href="#" target="_blank" rel="noopener">View release</a>
+        <button id="update-banner-dismiss" class="update-banner-dismiss" title="Dismiss">✕</button>
+      </div>
+    </div>
+
     <div id="chat-layout">
       <div id="drawer-backdrop"></div>
       <aside id="conv-drawer">
@@ -2217,6 +2257,30 @@
       } finally {
         captureBtn.disabled = false
       }
+    })
+
+    // ---- Update available banner ----
+    const updateBanner       = document.getElementById('update-banner')
+    const updateBannerText   = document.getElementById('update-banner-text')
+    const updateBannerLink   = document.getElementById('update-banner-link')
+    const updateBannerDismiss = document.getElementById('update-banner-dismiss')
+    let dismissedUpdateVersion = null
+
+    function showUpdateBanner({ version, url, name }) {
+      if (!version || version === dismissedUpdateVersion) return
+      updateBannerText.textContent = `A new version is available: ${name || version}`
+      updateBannerLink.href = url || '#'
+      updateBanner.hidden = false
+    }
+
+    updateBannerDismiss.addEventListener('click', () => {
+      dismissedUpdateVersion = updateBannerText.dataset.version
+      updateBanner.hidden = true
+    })
+
+    window.clippy.onReleaseAvailable((data) => {
+      updateBannerText.dataset.version = data.version
+      showUpdateBanner(data)
     })
 
     // keep button in sync when tray toggles capture
