@@ -53,7 +53,19 @@ Use Clippy Vision when you need your own history back. Use Claude or ChatGPT whe
 
 ## Download
 
-**→ [Download Clippy Vision for Windows or macOS](https://github.com/rusetiq/clippy-vision/releases/latest)**
+Click your platform to download the latest installer directly:
+
+<p align="center">
+  <a href="https://github.com/protocorn/clippy-vision/releases/latest/download/ClippyVision-Windows-Setup.exe"><img src="https://img.shields.io/badge/Download-Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white" alt="Download for Windows" /></a>
+  &nbsp;
+  <a href="https://github.com/protocorn/clippy-vision/releases/latest/download/ClippyVision-macOS-arm64.dmg"><img src="https://img.shields.io/badge/Download-macOS%20(Apple%20Silicon)-000000?style=for-the-badge&logo=apple&logoColor=white" alt="Download for macOS Apple Silicon" /></a>
+  &nbsp;
+  <a href="https://github.com/protocorn/clippy-vision/releases/latest/download/ClippyVision-macOS-x64.dmg"><img src="https://img.shields.io/badge/Download-macOS%20(Intel)-555555?style=for-the-badge&logo=apple&logoColor=white" alt="Download for macOS Intel" /></a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/protocorn/clippy-vision/releases/latest">All releases &amp; older versions</a>
+</p>
 
 The installer includes a setup wizard that handles Python, Ollama, and all required models automatically. No terminal required.
 
@@ -79,7 +91,7 @@ Clippy Vision runs local AI models (text + vision) on your PC. Capture shares th
 
 ### Option A - Installer (recommended)
 
-1. Download `ClippyVision-Windows-Setup-1.2.0.exe` on Windows, or the matching `ClippyVision-macOS-arm64-1.2.0.dmg` (Apple Silicon) / `ClippyVision-macOS-x64-1.2.0.dmg` (Intel) on macOS
+1. Use the [Download](#download) buttons above (Windows, macOS Apple Silicon, or macOS Intel)
 2. Follow the setup wizard (installs Python, Ollama, and AI models)
 3. Launch from Start Menu → Clippy Vision
 
