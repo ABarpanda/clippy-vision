@@ -63,22 +63,6 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: false
         run: npm run dist:mac
 
-      # Stable (versionless) names so README can link
-      # https://github.com/.../releases/latest/download/<name> forever.
-      - name: Create stable download aliases
-        shell: bash
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          cd electron-ui/dist
-          for f in *.exe *.dmg; do
-            stable="$(echo "$f" | sed -E 's/-[0-9]+\.[0-9]+\.[0-9]+((-|\+)[A-Za-z0-9.]+)?//')"
-            if [[ "$f" != "$stable" ]]; then
-              cp "$f" "$stable"
-              echo "Aliased $f -> $stable"
-            fi
-          done
-
       - name: Upload installers to release
         uses: softprops/action-gh-release@v2
         with:
