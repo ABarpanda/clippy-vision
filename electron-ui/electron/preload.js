@@ -169,6 +169,16 @@ contextBridge.exposeInMainWorld('clippy', {
 
     setUpdateCheckEnabled: (enabled) => ipcRenderer.invoke('set-update-check', Boolean(enabled)),
 
+    getMcpStatus: () => ipcRenderer.invoke('get-mcp-status'),
+
+    connectMcpClient: (id) => ipcRenderer.invoke('connect-mcp-client', id),
+
+    disconnectMcpClient: (id) => ipcRenderer.invoke('disconnect-mcp-client', id),
+
+    checkMcpHealth: () => ipcRenderer.invoke('check-mcp-health'),
+
+    copyMcpConfig: () => ipcRenderer.invoke('copy-mcp-config'),
+
     toggleCapture: () => ipcRenderer.invoke('toggle-capture'),
 
     getCaptureStatus: () => ipcRenderer.invoke('get-capture-status'),

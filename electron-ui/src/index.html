@@ -1002,6 +1002,16 @@
       color: var(--muted);
     }
 
+    .settings-section > .settings-hint a {
+      color: var(--accent);
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+
+    .settings-section > .settings-hint a:hover {
+      color: var(--accent-hover);
+    }
+
     .settings-field {
       margin-bottom: 12px;
     }
@@ -1461,6 +1471,28 @@
         </div>
       </section>
 
+      <section class="settings-section" id="mcp-section">
+        <h2>Connect other AI apps</h2>
+        <p class="settings-hint">
+          Let Claude Desktop or Cursor ask Clippy what you were working on, using the same
+          local memory this chat uses. Connecting writes a small config file for that app —
+          Clippy still keeps everything on this machine, but whatever you ask there is
+          handled under that app’s own privacy terms.
+          If Connect fails, use <strong>Copy config</strong> and add the server manually —
+          see
+          <a href="https://cursor.com/docs/mcp" target="_blank" rel="noopener">Cursor MCP docs</a>,
+          <a href="https://support.claude.com/en/articles/10949351-getting-started-with-local-mcp-servers-on-claude-desktop" target="_blank" rel="noopener">Claude Desktop local MCP</a>,
+          or the full
+          <a href="https://modelcontextprotocol.io/docs/develop/connect-local-servers" target="_blank" rel="noopener">MCP connect guide</a>.
+        </p>
+        <div class="privacy-list" id="mcp-clients"></div>
+        <div class="settings-actions">
+          <button type="button" id="mcp-check-btn" class="header-btn">Check server</button>
+          <button type="button" id="mcp-copy-btn" class="header-btn">Copy config</button>
+          <span id="mcp-status" class="settings-status"></span>
+        </div>
+      </section>
+
       <section class="settings-section" id="updates-section">
         <h2>Updates</h2>
         <p class="settings-hint">
@@ -1540,6 +1572,13 @@
     const profileStatus = document.getElementById('profile-status')
     const updateCheckToggle = document.getElementById('update-check-toggle')
     const updatesStatus = document.getElementById('updates-status')
+    const mcpClientList = document.getElementById('mcp-clients')
+    const mcpCheckBtn = document.getElementById('mcp-check-btn')
+    const mcpCopyBtn = document.getElementById('mcp-copy-btn')
+    const mcpStatus = document.getElementById('mcp-status')
+    let mcpHealth = null
+    let mcpClientsCache = []
+    let mcpHealthSeq = 0
 
     let isLoading = false
     // In-flight bot reply kept across conversation switches
@@ -2382,8 +2421,150 @@
       }
     }
 
+    function mcpClientDetail(client) {
+      if (!client.connected) {
+        return client.detected
+          ? 'Installed, not connected yet.'
+          : 'Not found on this computer. Connecting still writes its config.'
+      }
+      const parts = []
+      if (!client.entryCurrent) {
+        parts.push('Config is outdated — click Connect again to refresh paths.')
+      } else {
+        parts.push(`Config written — ${client.restartHint}`)
+      }
+      if (mcpHealth?.ok) {
+        parts.push(`Server ready (${mcpHealth.toolCount} tools).`)
+      } else if (mcpHealth && mcpHealth.ok === false) {
+        parts.push(`Server failed: ${mcpHealth.error || 'unknown error'}`)
+      }
+      return parts.join(' ')
+    }
+
+    function renderMcpClients(clients) {
+      mcpClientsCache = clients || []
+      mcpClientList.textContent = ''
+      for (const client of mcpClientsCache) {
+        const row = document.createElement('div')
+        row.className = 'privacy-row'
+
+        const text = document.createElement('div')
+        text.className = 'privacy-row-text'
+        const title = document.createElement('strong')
+        title.textContent = client.name
+        const detail = document.createElement('span')
+        detail.textContent = mcpClientDetail(client)
+        text.append(title, detail)
+
+        const button = document.createElement('button')
+        button.type = 'button'
+        button.className = 'header-btn'
+        button.textContent = client.connected ? 'Disconnect' : 'Connect'
+        button.addEventListener('click', () => toggleMcpClient(client, button))
+
+        row.append(text, button)
+        mcpClientList.append(row)
+      }
+    }
+
+    function applyMcpHealthStatus() {
+      if (!mcpHealth) return
+      if (mcpHealth.ok) {
+        setStatus(
+          mcpStatus,
+          `Server ready (${mcpHealth.toolCount} tools). Reload the AI app after connecting so it picks Clippy up.`,
+          'ok',
+        )
+      } else {
+        setStatus(mcpStatus, `Server check failed: ${mcpHealth.error || 'unknown error'}`, 'error')
+      }
+    }
+
+    async function runMcpHealthCheck({ quiet = false } = {}) {
+      const seq = ++mcpHealthSeq
+      if (mcpCheckBtn) mcpCheckBtn.disabled = true
+      if (!quiet) setStatus(mcpStatus, 'Checking MCP server…', null)
+      try {
+        const health = await window.clippy.checkMcpHealth()
+        if (seq !== mcpHealthSeq) return health
+        mcpHealth = health
+        renderMcpClients(mcpClientsCache)
+        applyMcpHealthStatus()
+        return health
+      } catch (error) {
+        if (seq !== mcpHealthSeq) return null
+        mcpHealth = { ok: false, toolCount: 0, tools: [], error: error.message }
+        renderMcpClients(mcpClientsCache)
+        setStatus(mcpStatus, `Server check failed: ${error.message}`, 'error')
+        return mcpHealth
+      } finally {
+        if (seq === mcpHealthSeq && mcpCheckBtn) mcpCheckBtn.disabled = false
+      }
+    }
+
+    async function loadMcpStatus({ checkHealth = false } = {}) {
+      try {
+        const status = await window.clippy.getMcpStatus()
+        renderMcpClients(status.clients)
+        if (!status.available) {
+          setStatus(mcpStatus, 'The MCP server file is missing from this installation.', 'error')
+          return status
+        }
+        if (checkHealth) await runMcpHealthCheck()
+        else if (mcpHealth) applyMcpHealthStatus()
+        return status
+      } catch (error) {
+        setStatus(mcpStatus, `Could not read MCP status: ${error.message}`, 'error')
+        return null
+      }
+    }
+
+    async function toggleMcpClient(client, button) {
+      const disconnecting = client.connected
+      button.disabled = true
+      setStatus(mcpStatus, disconnecting ? 'Disconnecting…' : 'Connecting…', null)
+      try {
+        const result = disconnecting
+          ? await window.clippy.disconnectMcpClient(client.id)
+          : await window.clippy.connectMcpClient(client.id)
+        await loadMcpStatus()
+        if (disconnecting) {
+          setStatus(mcpStatus, `${client.name} disconnected. ${result.restartHint}`, 'ok')
+        } else {
+          setStatus(mcpStatus, `${client.name} connected. Checking server…`, null)
+          const health = await runMcpHealthCheck({ quiet: true })
+          if (health?.ok) {
+            setStatus(
+              mcpStatus,
+              `${client.name} connected. Server ready (${health.toolCount} tools). ${result.restartHint}`,
+              'ok',
+            )
+          } else if (health) {
+            setStatus(
+              mcpStatus,
+              `${client.name} config written, but server check failed: ${health.error || 'unknown error'}`,
+              'error',
+            )
+          }
+        }
+      } catch (error) {
+        setStatus(mcpStatus, error.message, 'error')
+        button.disabled = false
+      }
+    }
+
+    async function copyMcpConfig() {
+      try {
+        await window.clippy.copyMcpConfig()
+        setStatus(mcpStatus, 'Config copied. Paste it into any other MCP client.', 'ok')
+      } catch (error) {
+        setStatus(mcpStatus, `Could not copy: ${error.message}`, 'error')
+      }
+    }
+
     async function loadSettings() {
       loadUpdateCheck()
+      loadMcpStatus({ checkHealth: true })
       setStatus(profileStatus, 'Loading…', null)
       try {
         const profile = await window.clippy.getProfile()
@@ -2457,6 +2638,8 @@
     })
     profileSaveBtn.addEventListener('click', saveProfile)
     updateCheckToggle.addEventListener('change', saveUpdateCheck)
+    mcpCheckBtn.addEventListener('click', () => runMcpHealthCheck())
+    mcpCopyBtn.addEventListener('click', copyMcpConfig)
 
     init()
   </script>

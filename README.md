@@ -120,7 +120,7 @@ npm install
 npm start
 ```
 
-The app will open the setup wizard on first launch and walk you through dependencies.
+The app will open the setup wizard on first launch and walk you through dependencies. The window and tray say **Clippy Vision (dev)** so it stays distinct from an installed copy — both can run side by side. See [CONTRIBUTING.md](CONTRIBUTING.md) for the path layout.
 
 ---
 
@@ -134,6 +134,7 @@ The app will open the setup wizard on first launch and walk you through dependen
 - **Smart query router** - a fine-tuned MiniLM classifier routes every question to the right retrieval strategy before the LLM is even called
 - **ReAct agent** - structured reasoning with tools: SQL generation, memory recall, fact saving
 - **Conversation memory** - rolling summaries + semantic search over past conversations
+- **MCP server** - query Clippy's memory from Claude Desktop, Cursor, or any MCP client, routed through the same retrieval pipeline the in-app chat uses ([setup](docs/MCP.md))
 - **Toggle capture** - start/stop data capture from the tray icon or the in-app button, with a desktop notification on change
 - **Per-app redaction (in progress)** - backend rules exist for WhatsApp, Telegram, incognito windows, and similar targets; reliable matching outside Clippy's own window is still being improved, so capture on/off is the dependable privacy switch today
 
@@ -283,7 +284,7 @@ FTS5 virtual tables on `events` and `sessions` enable full-text search across al
 # Python dependencies
 pip install -r requirements.txt
 
-# Run the desktop app
+# Run the desktop app (labelled "Clippy Vision (dev)" — separate from the installer)
 cd electron-ui
 npm install
 npm start
@@ -292,7 +293,7 @@ npm start
 npm run dist
 ```
 
-The built installer appears at `electron-ui/dist/ClippyVision-Windows-Setup-{version}.exe` (or `ClippyVision-macOS-{arch}-{version}.dmg` when building on macOS).
+The built installer appears at `electron-ui/dist/ClippyVision-Windows-Setup-{version}.exe` (or `ClippyVision-macOS-{arch}-{version}.dmg` when building on macOS). Dev (`npm start`) and the installed app use different data directories and instance locks so contributors can keep a release build installed while hacking.
 
 ---
 

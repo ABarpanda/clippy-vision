@@ -1,8 +1,8 @@
 const {
     app, BrowserWindow, Tray, Menu,
-    nativeImage, ipcMain, Notification, shell, dialog, globalShortcut
+    nativeImage, ipcMain, Notification, shell, dialog, globalShortcut, clipboard
 } = require('electron')
-const { spawn }  = require('child_process')
+const { spawn, execFileSync } = require('child_process')
 const path       = require('path')
 const fs         = require('fs')
 const http       = require('http')
@@ -10,15 +10,37 @@ const https      = require('https')
 const net        = require('net')
 const os         = require('os')
 
+const IS_PACKAGED     = app.isPackaged
+// Packaged installs and `npm start` must never share identity. Electron ties the
+// single-instance lock and Chromium profile to the app name / userData path, and
+// Windows also groups the taskbar + toast notifications by AppUserModelID. If
+// those match the installed copy, a contrib `npm start` silently quits and
+// focuses the download — so development takes its own name before claiming the lock.
+const APP_NAME          = IS_PACKAGED ? 'Clippy Vision' : 'Clippy Vision Dev'
+const APP_LABEL         = IS_PACKAGED ? 'Clippy Vision' : 'Clippy Vision (dev)'
+const APP_USER_MODEL_ID = IS_PACKAGED ? 'com.clippyvision.app' : 'com.clippyvision.app.dev'
+if (!IS_PACKAGED) {
+    app.setName(APP_NAME)
+    app.setPath('userData', path.join(app.getPath('appData'), APP_NAME))
+}
+if (process.platform === 'win32') {
+    app.setAppUserModelId(APP_USER_MODEL_ID)
+}
+
 // Keep one desktop process alive so a second launch focuses the existing tray app.
+// Dev and packaged each have their own lock, so both can run side by side.
 if (!app.requestSingleInstanceLock()) {
+    console.error(
+        `[clippy] ${APP_LABEL} is already running. ` +
+        'Find its tray icon (system tray) and quit it, or just open that window. ' +
+        'The installed "Clippy Vision" and "Clippy Vision (dev)" are separate apps.'
+    )
     app.quit()
     process.exit(0)
 }
 // Packaged builds keep mutable state in Electron's user-data directory. During
 // development the repository data directory is used so local runs behave the
 // same way without copying state into an installation folder.
-const IS_PACKAGED     = app.isPackaged
 const ROOT            = IS_PACKAGED
     ? path.join(process.resourcesPath, 'clippy')
     : path.join(__dirname, '../..')
@@ -31,6 +53,7 @@ const ICON_INACTIVE   = path.join(ASSETS, 'logo_inactive.png')
 const ICON_ACTIVE     = path.join(ASSETS, 'logo_active.png')
 const CAPTURE_SCRIPT  = path.join(ROOT, 'core', 'screen_capture.py')
 const API_SCRIPT      = path.join(ROOT, 'api_server.py')
+const MCP_SCRIPT      = path.join(ROOT, 'mcp_server.py')
 const REQUIREMENTS    = path.join(ROOT, 'requirements.txt')
 const SETUP_FLAG      = path.join(USER_DATA, 'setup_complete.json')
 const RESIDENCY_FILE  = path.join(DATA_DIR, 'model_residency.json')
@@ -57,6 +80,24 @@ function commandFromKnownPaths(name, fallback) {
     // shell name, which lets spawn() still resolve system installations.
     const candidate = PATH_HINTS.map((dir) => path.join(dir, name)).find((file) => fs.existsSync(file))
     return candidate || fallback
+}
+
+function resolveCommandPath(command) {
+    // MCP clients often spawn with a minimal PATH, so prefer an absolute interpreter.
+    if (!command) return command
+    if (path.isAbsolute(command) && fs.existsSync(command)) return command
+    try {
+        if (process.platform === 'win32') {
+            const out = execFileSync('where', [command], { encoding: 'utf8', windowsHide: true })
+            const matches = out.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
+            const preferred = matches.find((file) => !/\\WindowsApps\\/i.test(file)) || matches[0]
+            if (preferred && fs.existsSync(preferred)) return preferred
+        } else {
+            const resolved = execFileSync('which', [command], { encoding: 'utf8' }).trim()
+            if (resolved && fs.existsSync(resolved)) return resolved
+        }
+    } catch (_) { /* keep the unresolved command */ }
+    return command
 }
 
 const PYTHON_COMMAND = process.env.CLIPPY_PYTHON || commandFromKnownPaths(
@@ -995,6 +1036,13 @@ function createSetupWindow() {
 
     setupWindow.loadFile(path.join(__dirname, '../src/setup.html'))
     setupWindow.setMenu(null)
+    if (!IS_PACKAGED) {
+        setupWindow.on('page-title-updated', (event) => {
+            event.preventDefault()
+            setupWindow.setTitle(`${APP_LABEL} Setup`)
+        })
+        setupWindow.setTitle(`${APP_LABEL} Setup`)
+    }
 
     setupWindow.on('closed', () => { setupWindow = null })
 
@@ -1020,6 +1068,299 @@ function setUpdateCheckEnabled(enabled) {
         console.log('[updates] could not persist preference:', error.message)
     }
     return settings.updateCheckEnabled
+}
+
+// ── MCP client wiring ────────────────────────────────────────────────────────
+// MCP clients spawn the server themselves and inherit no Clippy environment, so
+// every path in the generated entry is absolute and the data directory is pinned.
+const MCP_SERVER_KEY = 'clippy-vision'
+
+function mcpClientTargets() {
+    const home = os.homedir()
+    const claudeConfig = process.platform === 'darwin'
+        ? path.join(home, 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json')
+        : path.join(process.env.APPDATA || path.join(home, 'AppData', 'Roaming'), 'Claude', 'claude_desktop_config.json')
+    return [
+        {
+            id: 'claude',
+            name: 'Claude Desktop',
+            configPath: claudeConfig,
+            restartHint: 'Quit and reopen Claude Desktop to finish.',
+        },
+        {
+            id: 'cursor',
+            name: 'Cursor',
+            configPath: path.join(home, '.cursor', 'mcp.json'),
+            restartHint: 'Reload Cursor to finish.',
+        },
+    ]
+}
+
+function mcpServerEntry() {
+    return {
+        command: resolveCommandPath(PYTHON_COMMAND),
+        args: [MCP_SCRIPT],
+        env: {
+            CLIPPY_DATA_DIR: DATA_DIR,
+            PYTHONPATH: ROOT,
+            PYTHONIOENCODING: 'utf-8',
+            PYTHONUTF8: '1',
+        },
+    }
+}
+
+function mcpEntryMatches(written) {
+    if (!written || typeof written !== 'object') return false
+    const expected = mcpServerEntry()
+    if (String(written.command || '') !== String(expected.command)) return false
+    if (JSON.stringify(written.args || []) !== JSON.stringify(expected.args)) return false
+    const writtenEnv = written.env || {}
+    return Object.keys(expected.env).every(
+        (key) => String(writtenEnv[key] ?? '') === String(expected.env[key]),
+    )
+}
+
+function readJsonFile(file) {
+    // null means "unreadable"; callers must not overwrite a config they cannot parse.
+    try { return JSON.parse(fs.readFileSync(file, 'utf8')) } catch (_) { return null }
+}
+
+function mcpConfigSnippet() {
+    return JSON.stringify({ mcpServers: { [MCP_SERVER_KEY]: mcpServerEntry() } }, null, 2)
+}
+
+function mcpStatus() {
+    return {
+        available: fs.existsSync(MCP_SCRIPT),
+        snippet: mcpConfigSnippet(),
+        clients: mcpClientTargets().map(({ id, name, configPath, restartHint }) => {
+            const written = readJsonFile(configPath)?.mcpServers?.[MCP_SERVER_KEY] || null
+            return {
+                id,
+                name,
+                configPath,
+                restartHint,
+                detected: fs.existsSync(path.dirname(configPath)),
+                connected: Boolean(written),
+                entryCurrent: mcpEntryMatches(written),
+            }
+        }),
+    }
+}
+
+function mcpTarget(id) {
+    const target = mcpClientTargets().find((client) => client.id === id)
+    if (!target) throw new Error('Unknown MCP client.')
+    return target
+}
+
+function isHiddenFile(filePath) {
+    // Cursor marks mcp.json Hidden on Windows; Node then fails in-place writes with EPERM.
+    if (process.platform !== 'win32' || !fs.existsSync(filePath)) return false
+    try {
+        // attrib: "A  RH    C:\...\mcp.json" — flag letters sit before the drive path.
+        const out = execFileSync('attrib', [filePath], { encoding: 'utf8', windowsHide: true })
+        const pathAt = out.search(/[A-Za-z]:[\\/]/)
+        const flags = (pathAt === -1 ? out : out.slice(0, pathAt)).replace(/\s+/g, '')
+        return flags.includes('H')
+    } catch (_) {
+        return false
+    }
+}
+
+function setHiddenAttr(filePath, hidden) {
+    if (process.platform !== 'win32' || !fs.existsSync(filePath)) return
+    try {
+        execFileSync('attrib', [hidden ? '+H' : '-H', filePath], {
+            windowsHide: true, stdio: 'ignore',
+        })
+    } catch (_) { /* best-effort */ }
+}
+
+function writeMcpConfigFile(filePath, contents) {
+    // In-place writeFileSync fails with EPERM on Hidden mcp.json. Replace via a
+    // sibling temp file works without clearing the attribute first.
+    const tmpPath = `${filePath}.clippy-tmp`
+    fs.writeFileSync(tmpPath, contents)
+    try {
+        if (fs.existsSync(filePath)) fs.unlinkSync(filePath)
+        fs.renameSync(tmpPath, filePath)
+        return
+    } catch (_) {
+        // If the original was removed but rename failed, keep the new body.
+        if (!fs.existsSync(filePath) && fs.existsSync(tmpPath)) {
+            try {
+                fs.renameSync(tmpPath, filePath)
+                return
+            } catch (_) { /* fall through to in-place write */ }
+        }
+        try {
+            if (fs.existsSync(tmpPath) && fs.existsSync(filePath)) fs.unlinkSync(tmpPath)
+        } catch (_) { /* continue to fallback */ }
+    }
+
+    const restoreHidden = isHiddenFile(filePath)
+    if (restoreHidden) setHiddenAttr(filePath, false)
+    try {
+        fs.writeFileSync(filePath, contents)
+    } finally {
+        if (restoreHidden) setHiddenAttr(filePath, true)
+        try { if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath) } catch (_) { /* ignore */ }
+    }
+}
+
+function throwIfMcpConfigLocked(error, target, body) {
+    if (error && (error.code === 'EPERM' || error.code === 'EACCES' || error.code === 'EBUSY')) {
+        clipboard.writeText(body)
+        throw new Error(
+            `${path.basename(target.configPath)} is locked by ${target.name}. ` +
+            'Config copied to the clipboard — paste it into that app’s MCP settings, ' +
+            'or close the app and try again.'
+        )
+    }
+    throw error
+}
+
+function connectMcpClient(id) {
+    const target = mcpTarget(id)
+    if (!fs.existsSync(MCP_SCRIPT)) throw new Error('mcp_server.py is missing from this installation.')
+
+    const existing = readJsonFile(target.configPath)
+    if (existing === null && fs.existsSync(target.configPath)) {
+        throw new Error(`${path.basename(target.configPath)} is not valid JSON. Fix or move it, then try again.`)
+    }
+
+    const config = existing || {}
+    config.mcpServers = { ...(config.mcpServers || {}), [MCP_SERVER_KEY]: mcpServerEntry() }
+    const body = JSON.stringify(config, null, 2) + '\n'
+
+    fs.mkdirSync(path.dirname(target.configPath), { recursive: true })
+    // Other servers live in this file, so keep a copy before rewriting it.
+    if (existing) {
+        try { fs.copyFileSync(target.configPath, `${target.configPath}.clippy-backup`) } catch (_) { /* non-fatal */ }
+    }
+    try {
+        writeMcpConfigFile(target.configPath, body)
+    } catch (error) {
+        throwIfMcpConfigLocked(error, target, body)
+    }
+    return { path: target.configPath, restartHint: target.restartHint }
+}
+
+function disconnectMcpClient(id) {
+    const target = mcpTarget(id)
+    const config = readJsonFile(target.configPath)
+    if (!config?.mcpServers?.[MCP_SERVER_KEY]) {
+        return { path: target.configPath, restartHint: target.restartHint }
+    }
+
+    delete config.mcpServers[MCP_SERVER_KEY]
+    const body = JSON.stringify(config, null, 2) + '\n'
+    try {
+        writeMcpConfigFile(target.configPath, body)
+    } catch (error) {
+        throwIfMcpConfigLocked(error, target, body)
+    }
+    return { path: target.configPath, restartHint: target.restartHint }
+}
+
+function parseMcpHealthOutput(stderr, stdout) {
+    const lines = `${stderr || ''}\n${stdout || ''}`.split(/\r?\n/)
+    for (let i = lines.length - 1; i >= 0; i--) {
+        const line = lines[i].trim()
+        if (!line.startsWith('CLIPPY_MCP_HEALTH:')) continue
+        return JSON.parse(line.slice('CLIPPY_MCP_HEALTH:'.length))
+    }
+    return null
+}
+
+function checkMcpHealth() {
+    // Spawns the same interpreter + env clients use, with --self-check instead of stdio MCP.
+    return new Promise((resolve) => {
+        const started = Date.now()
+        const fail = (error) => resolve({
+            ok: false,
+            tools: [],
+            toolCount: 0,
+            dataDir: DATA_DIR,
+            error: String(error || 'MCP health check failed.'),
+            durationMs: Date.now() - started,
+        })
+
+        if (!fs.existsSync(MCP_SCRIPT)) {
+            return fail('mcp_server.py is missing from this installation.')
+        }
+
+        const entry = mcpServerEntry()
+        const proc = spawnHidden(entry.command, [...entry.args, '--self-check'], {
+            cwd: ROOT,
+            env: entry.env,
+        })
+        let stdout = ''
+        let stderr = ''
+        let settled = false
+        const finish = (result) => {
+            if (settled) return
+            settled = true
+            clearTimeout(timer)
+            resolve(result)
+        }
+        const timer = setTimeout(() => {
+            try { proc.kill() } catch (_) { /* best-effort */ }
+            finish({
+                ok: false,
+                tools: [],
+                toolCount: 0,
+                dataDir: DATA_DIR,
+                error: 'MCP health check timed out after 45s.',
+                durationMs: Date.now() - started,
+            })
+        }, 45000)
+
+        proc.stdout.on('data', (chunk) => { stdout += chunk.toString() })
+        proc.stderr.on('data', (chunk) => { stderr += chunk.toString() })
+        proc.on('error', (error) => finish({
+            ok: false,
+            tools: [],
+            toolCount: 0,
+            dataDir: DATA_DIR,
+            error: error.message,
+            durationMs: Date.now() - started,
+        }))
+        proc.on('exit', (code) => {
+            try {
+                const payload = parseMcpHealthOutput(stderr, stdout)
+                if (payload) {
+                    return finish({
+                        ok: Boolean(payload.ok),
+                        tools: Array.isArray(payload.tools) ? payload.tools : [],
+                        toolCount: Number(payload.tool_count) || (payload.tools || []).length || 0,
+                        dataDir: payload.data_dir || DATA_DIR,
+                        error: payload.error || null,
+                        durationMs: Date.now() - started,
+                    })
+                }
+            } catch (error) {
+                return finish({
+                    ok: false,
+                    tools: [],
+                    toolCount: 0,
+                    dataDir: DATA_DIR,
+                    error: `Could not parse health output: ${error.message}`,
+                    durationMs: Date.now() - started,
+                })
+            }
+            const detail = (stderr || stdout || `self-check exited with code ${code === null ? 1 : code}`).trim()
+            finish({
+                ok: false,
+                tools: [],
+                toolCount: 0,
+                dataDir: DATA_DIR,
+                error: detail.slice(0, 500) || 'MCP self-check produced no result.',
+                durationMs: Date.now() - started,
+            })
+        })
+    })
 }
 
 function releaseVersionParts(value) {
@@ -1100,6 +1441,14 @@ function createMainWindow() {
 
     mainWindow.loadFile(path.join(__dirname, '../src/index.html'))
     mainWindow.setMenu(null)
+    if (!IS_PACKAGED) {
+        // The page sets its own title, so re-apply the dev label after each update.
+        mainWindow.on('page-title-updated', (event) => {
+            event.preventDefault()
+            mainWindow.setTitle(APP_LABEL)
+        })
+        mainWindow.setTitle(APP_LABEL)
+    }
     mainWindow.webContents.setWindowOpenHandler(({ url }) => {
         try {
             const parsed = new URL(url)
@@ -1226,7 +1575,7 @@ function getTrayIcon(active) {
 function updateTrayIcon() {
     if (!tray) return
     tray.setImage(getTrayIcon(isCapturing()))
-    tray.setToolTip(isCapturing() ? 'Clippy Vision — Capturing' : 'Clippy Vision — Idle')
+    tray.setToolTip(isCapturing() ? `${APP_LABEL} — Capturing` : `${APP_LABEL} — Idle`)
 }
 
 function broadcastCaptureStatus() {
@@ -1236,7 +1585,7 @@ function broadcastCaptureStatus() {
     }
     if (Notification.isSupported()) {
         new Notification({
-            title: 'Clippy Vision',
+            title: APP_LABEL,
             body: active ? 'Screen capture started' : 'Screen capture stopped',
             silent: false,
         }).show()
@@ -1308,6 +1657,8 @@ function rebuildTrayMenu() {
     // Rebuild after every capture transition so the menu label mirrors state.
     if (!tray) return
     tray.setContextMenu(Menu.buildFromTemplate([
+        { label: APP_LABEL, enabled: false },
+        { type: 'separator' },
         { label: isCapturing() ? 'Stop Capture' : 'Start Capture', click: toggleCapture },
         { type: 'separator' },
         { label: 'Open Chat', click: showMainWindow },
@@ -1323,7 +1674,7 @@ function createTray() {
     // reuse the existing tray instead of leaving a second icon behind.
     if (tray && !tray.isDestroyed()) return
     tray = new Tray(getTrayIcon(false))
-    tray.setToolTip('Clippy Vision — Idle')
+    tray.setToolTip(`${APP_LABEL} — Idle`)
     rebuildTrayMenu()
     tray.on('click', toggleCapture)
     tray.on('double-click', showMainWindow)
@@ -1378,6 +1729,12 @@ ipcMain.handle('open-external', (_event, url) => {
 ipcMain.handle('get-api-base', async () => apiUrl())
 ipcMain.handle('get-update-check', () => readDesktopSettings().updateCheckEnabled)
 ipcMain.handle('set-update-check', (_event, enabled) => setUpdateCheckEnabled(enabled))
+
+ipcMain.handle('get-mcp-status', () => mcpStatus())
+ipcMain.handle('connect-mcp-client', (_event, id) => connectMcpClient(String(id || '')))
+ipcMain.handle('disconnect-mcp-client', (_event, id) => disconnectMcpClient(String(id || '')))
+ipcMain.handle('check-mcp-health', () => checkMcpHealth())
+ipcMain.handle('copy-mcp-config', () => { clipboard.writeText(mcpConfigSnippet()); return true })
 
 ipcMain.handle('get-hardware-check', async () => getHardwareCheck())
 ipcMain.handle('get-llm-config', () => publicLLMConfig())
@@ -1479,9 +1836,6 @@ function waitForMainWindowLoad() {
 
 
 app.whenReady().then(async () => {
-    // Windows groups the taskbar entry, tray icon, and notifications by this id.
-    if (process.platform === 'win32') app.setAppUserModelId('com.clippyvision.app')
-
     // Register the global shortcut once Electron owns the application session.
     globalShortcut.register('CommandOrControl+Shift+Space', () => toggleCapture())
 
@@ -1491,11 +1845,13 @@ app.whenReady().then(async () => {
 
     await clearStaleApiProcess()
     await ensureApiPort()
+    console.log(`[clippy] starting ${APP_LABEL} (packaged=${IS_PACKAGED})`)
     console.log(`[api] port=${apiPort}`)
-    console.log(`[paths] packaged=${IS_PACKAGED}`)
+    console.log(`[paths] instance=${APP_NAME}`)
     console.log(`[paths] ROOT=${ROOT}`)
     console.log(`[paths] USER_DATA=${USER_DATA}`)
     console.log(`[paths] DATA_DIR=${DATA_DIR}`)
+    console.log(`[paths] electronUserData=${app.getPath('userData')}`)
 
     syncSetupFlagVersion()
     const setupDone = fs.existsSync(SETUP_FLAG)

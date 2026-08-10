@@ -43,6 +43,7 @@
         "to": "clippy",
         "filter": [
           "api_server.py",
+          "mcp_server.py",
           "requirements.txt",
           "pyproject.toml",
           "agent/**/*",

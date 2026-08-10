@@ -2,7 +2,6 @@ import json
 import time
 import uuid
 import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from agent.tools import TOOLS, TOOL_SCHEMAS, WRITE_TOOLS, WRITE_TOOL_SCHEMAS
 from agent.memory import get_autobiographical_context
 from agent.router import classify_query, should_prefetch
@@ -17,11 +16,7 @@ from agent.conversation import (
 from core.memory_store import get_unresolved_conflicts
 
 from core.storage import get_user_name
-from agent.prefetch.topic_search import topic_search
-from agent.prefetch.specific_recall import specific_recall
-from agent.prefetch.time_anchor import time_anchor_fetch
-from agent.prefetch.memory_query import memory_query
-from agent.helpers.time_resolver import resolve_temporal_range
+from agent.prefetch.pipeline import build_combined_query, run_prefetch
 
 MODEL     = "qwen3:8b"
 MAX_STEPS = 10
@@ -30,9 +25,6 @@ EMBED_MODEL = "nomic-embed-text"
 # Soft cap on user turns. Prefetch/history/profile already consume most of the
 # context window; ~4k chars (~1k tokens) leaves room for unknown retrieval size.
 USER_MESSAGE_MAX_CHARS = 4000
-
-# Routes that have real prefetch implementations
-_PREFETCHABLE = {"time_anchored", "topic_search", "specific_recall", "memory_query"}
 
 _TOOL_POLICY_PREFETCH = """Tool Policy:
 - <prefetch_context> above contains the retrieved data for this query. Read it and answer from it.
@@ -94,16 +86,10 @@ Response Style:
 
 
 def _build_combined_query_context(conversation_id: str, user_message: str) -> str:
-
-    recent_turns = get_recent_chats(conversation_id, limit=3)
-    if not recent_turns:
-        return user_message
-    
-    prior = " | ".join(
+    return build_combined_query(user_message, (
         f"{'User' if t['role'] == 'user' else 'Clippy'}: {t['content']}"
-        for t in recent_turns
-    )
-    return f"User: {user_message} | Prior turns: {prior}"
+        for t in get_recent_chats(conversation_id, limit=3)
+    ))
 
 def _build_conversation_history(conversation_id: str, q_vec: list|None=None) -> str:
     """Assemble the conversation history block for the system prompt.
@@ -181,77 +167,6 @@ def _build_system_prompt(
         tool_policy=tool_policy,
         conversation_history=history,
     )
-
-
-def _fetch_single_route(
-    route: str,
-    temporal_range,          # pre-resolved, may be None
-    query: str,
-    combined: str,
-    q_vec: list,
-) -> str:
-    """Execute one prefetch route and return its string result."""
-    if route == "memory_query":
-        return memory_query(q_vec=q_vec)
-
-    if route == "topic_search":
-        return topic_search(combined, q_vec=q_vec, temporal_range=temporal_range)
-
-    if route == "time_anchored":
-        if temporal_range:
-            return time_anchor_fetch(temporal_range, q_vec=q_vec)
-        return ""
-
-    if route == "specific_recall":
-        return specific_recall(combined, temporal_range=temporal_range, q_vec=q_vec)
-
-    return ""
-
-
-def _run_prefetch(decision, query: str, combined: str, q_vec: list) -> str:
-    """Fire prefetch for primary + all secondary routes in parallel.
-
-    Time handling:
-    - Resolve temporal range once from `combined` (enriched with recent turns).
-    - If time_anchored is PRIMARY  → run time_anchor_fetch to get the session view.
-    - If time_anchored is SECONDARY → pass temporal_range as a filter to primary;
-      do NOT run a separate time_anchor_fetch (the range narrows, not supplements).
-    """
-    # ── Resolve temporal range once ───────────────────────────────────────────
-    all_routes = {decision.primary} | set(decision.secondary)
-    needs_time = "time_anchored" in all_routes
-    temporal_range = resolve_temporal_range(combined) if needs_time else None
-
-    # ── Build the list of routes to run ───────────────────────────────────────
-    # time_anchored as secondary = filter only; don't run it as a standalone fetch
-    # Non-prefetchable primaries (e.g. casual) are skipped; their secondaries still run.
-    primary_routes = [decision.primary] if decision.primary in _PREFETCHABLE else []
-    secondary_routes = [
-        s for s in decision.secondary
-        if s in _PREFETCHABLE and s != decision.primary and s != "time_anchored"
-    ]
-    routes_to_run = primary_routes + secondary_routes
-    print(f"[prefetch] routes: {routes_to_run}")
-
-    # ── Single route — no thread overhead ────────────────────────────────────
-    if len(routes_to_run) == 1:
-        return _fetch_single_route(routes_to_run[0], temporal_range, query, combined, q_vec)
-
-    # ── Multiple routes — run in parallel ────────────────────────────────────
-    parts: list[str] = []
-    with ThreadPoolExecutor(max_workers=len(routes_to_run)) as ex:
-        future_to_route = {
-            ex.submit(_fetch_single_route, r, temporal_range, query, combined, q_vec): r
-            for r in routes_to_run
-        }
-        for future in as_completed(future_to_route):
-            route  = future_to_route[future]
-            result = future.result()
-            print(f"[prefetch]   {route} → {len(result)} chars")
-            if result:
-                parts.append(result)
-
-    return "\n\n---\n\n".join(parts)
 
 
 def _stream_ollama(messages: list[dict], prefetch_active: bool = False):
@@ -333,7 +248,7 @@ def _prepare_turn(user_message: str, conversation_id: str):
 
     if decision and q_vec and should_prefetch(decision, confidence):
         try:
-            prefetch_context = _run_prefetch(decision, user_message, combined, q_vec)
+            prefetch_context = run_prefetch(decision, user_message, combined, q_vec)
             print(f"[prefetch] {decision.primary} → {len(prefetch_context)} chars")
         except Exception as e:
             print(f"[prefetch] ERROR — {e}")
