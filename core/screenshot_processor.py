@@ -51,7 +51,7 @@ def _get_nearest_event(screenshot_ts: float) -> Optional[dict]:
                   summary, payload
            FROM events
            WHERE ABS(timestamp - ?) <= ?
-           AND classification_status IN ('awaiting_vision', 'screenshot_only')
+           AND classification_status IN ('done', 'awaiting_vision', 'screenshot_only')
            AND vision_ocr_text IS NULL
            AND vision_activity IS NULL
            AND vision_suggested_action IS NULL
@@ -276,10 +276,9 @@ def _group_by_similarity(
 
 def _process_group(group: list[Path]) -> bool:
     """
-    Extract text once from the most recent screenshot in the group, then copy
-    that text-only verdict to visually identical screenshots in the same burst.
-    Each screenshot still looks up its own nearest event independently so
-    window_context and process_name remain accurate per event.
+    Compute the image embedding once for the representative while extracting
+    each frame's own accessibility/OCR text. This preserves timestamp accuracy
+    when small text changes do not materially change the perceptual hash.
 
     Returns True if successful (all members marked processed).
     Returns False if the representative failed (no members marked processed).
@@ -332,9 +331,15 @@ def _process_group(group: list[Path]) -> bool:
         other_event = _get_nearest_event(ts)
         if other_event is None:
             other_event = _create_screenshot_event(ts)
+        try:
+            member_text, _, _ = enrich_screenshot(path, include_image_embedding=False)
+        except Exception as e:
+            print(f"  [screenshot_processor] Text enrichment failed for {path.name}: {e}")
+            member_text = ""
+        member_verdict = build_capture_text_verdict(other_event, member_text)
         applied = apply_vision_verdict(
             other_event["event_id"],
-            verdict,
+            member_verdict,
             image_embedding,
             image_embedding_model,
             path.name,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 import sys
 import tempfile
 import time
@@ -21,7 +22,7 @@ from classifier.tier_two_classifier import VERDICT_SCHEMA
 from core.events import Event, WindowMetadata
 from core.paths import get_data_dir, get_screenshots_dir
 from core.screenshot_search import search_screenshots
-from core.screenshot_processor import _group_by_similarity
+from core.screenshot_processor import _get_nearest_event, _group_by_similarity, _process_group
 from core.screenshot_enrichment import enrich_screenshot, remember_accessibility_text
 from core.accessibility_text import is_useful_accessibility_text, normalize_accessibility_text
 from core import rag
@@ -39,7 +40,8 @@ from core.storage import (
     store_summary,
     set_user_name,
 )
-from core.vision import get_screenshots_near
+from core.vision import _foreground_accessibility_text, get_screenshots_near
+from core.summarizer import _build_prompt
 from agent.router import classify_query
 from agent.helpers.time_resolver import resolve_temporal_range
 from agent.prefetch.specific_recall import detect_artifact_type, specific_recall
@@ -80,6 +82,49 @@ def make_event(event_id: str, event_type: str = "typing_burst", timestamp: float
 
 
 class RuntimeRegressionTests(unittest.TestCase):
+    def test_private_foreground_window_never_exposes_accessibility_text(self):
+        metadata = {"process_name": "Slack", "current_window_title": "Private channel"}
+        with patch("core.vision.get_window_metadata", return_value=metadata), patch(
+            "core.vision.should_redact_window", return_value=True
+        ), patch("core.vision.extract_accessibility_text") as extract_text:
+            self.assertEqual(_foreground_accessibility_text(), "")
+        extract_text.assert_not_called()
+
+    def test_accessibility_text_is_discarded_if_foreground_window_changes(self):
+        before = {"process_name": "Code", "current_window_title": "Editor", "active_url": None}
+        after = {"process_name": "Slack", "current_window_title": "Private", "active_url": None}
+        with patch("core.vision.get_window_metadata", side_effect=[before, after]), patch(
+            "core.vision.should_redact_window", return_value=False
+        ), patch("core.vision.is_clippy_window", return_value=False), patch(
+            "core.vision.extract_accessibility_text", return_value="editor text"
+        ):
+            self.assertEqual(_foreground_accessibility_text(), "")
+
+    def test_accessibility_text_is_kept_for_stable_safe_window(self):
+        metadata = {"process_name": "Code", "current_window_title": "Editor", "active_url": None}
+        with patch("core.vision.get_window_metadata", side_effect=[metadata, metadata]), patch(
+            "core.vision.should_redact_window", return_value=False
+        ), patch("core.vision.is_clippy_window", return_value=False), patch(
+            "core.vision.extract_accessibility_text", return_value="editor text"
+        ):
+            self.assertEqual(_foreground_accessibility_text(), "editor text")
+
+    def test_screen_text_is_included_in_session_summary_prompt(self):
+        marker = "project alpha private milestone 4827"
+        prompt = _build_prompt([{
+            "timestamp": 100.0,
+            "summary": "Background screenshot",
+            "vision_activity": "Code — Editor",
+            "vision_ocr_text": marker,
+        }])
+        self.assertIn(marker, prompt)
+
+    def test_packaged_app_includes_bundled_minilm(self):
+        package_path = Path(__file__).resolve().parents[1] / "electron-ui" / "package.json"
+        package = json.loads(package_path.read_text())
+        filters = package["build"]["extraResources"][0]["filter"]
+        self.assertIn("models/embeddings/all-MiniLM-L6-v2/**/*", filters)
+
     def test_clear_events_removes_activity_derived_memory_but_preserves_chat_memory(self):
         stamp = time.time()
         cluster_id = "mixed-source-cluster"
@@ -461,6 +506,52 @@ class RuntimeRegressionTests(unittest.TestCase):
         ).fetchone()
         self.assertEqual(row, ("first", "first.jpg", "done"))
 
+    def test_screenshot_enrichment_attaches_to_done_event_without_reclassifying_it(self):
+        event = make_event("done-screen-enrichment", timestamp=12345.0)
+        store_event(event)
+        def cleanup_event():
+            conn.execute("DELETE FROM events WHERE event_id=?", (event["event_id"],))
+            conn.commit()
+        self.addCleanup(cleanup_event)
+        apply_verdict(event["event_id"], {
+            "verdict": "interesting",
+            "score": 9,
+            "reason": "important typing",
+        })
+        nearest = _get_nearest_event(event["timestamp"])
+        self.assertEqual(nearest["event_id"], event["event_id"])
+        applied = apply_vision_verdict(event["event_id"], {
+            "verdict": "not_interesting",
+            "score": 5,
+            "reason": "screen text captured",
+            "ocr_text": "project alpha",
+            "user_activity": "TestApp — Test window",
+            "suggested_action": None,
+        })
+        self.assertTrue(applied)
+        row = conn.execute(
+            "SELECT interesting, interest_score, interest_reason, vision_ocr_text FROM events WHERE event_id=?",
+            (event["event_id"],),
+        ).fetchone()
+        self.assertEqual(row, (1, 9.0, "important typing", "project alpha"))
+
+    def test_phash_group_keeps_each_frames_captured_text(self):
+        group = [Path("1000.jpg"), Path("2000.jpg")]
+        events = [
+            {"event_id": "new", "event_type": "screenshot_analysis", "process_name": "App", "window_context": {}, "summary": "new"},
+            {"event_id": "old", "event_type": "screenshot_analysis", "process_name": "App", "window_context": {}, "summary": "old"},
+        ]
+        with patch("core.screenshot_processor._get_nearest_event", side_effect=events), patch(
+            "core.screenshot_processor.enrich_screenshot",
+            side_effect=[("new frame text", [1.0], "clip:test"), ("old frame text", None, None)],
+        ) as enrich, patch("core.screenshot_processor.apply_vision_verdict", return_value=True) as apply, patch(
+            "core.screenshot_processor._mark_as_processed", return_value=True
+        ):
+            self.assertTrue(_process_group(group))
+        self.assertEqual(enrich.call_count, 2)
+        self.assertEqual(apply.call_args_list[0].args[1]["ocr_text"], "new frame text")
+        self.assertEqual(apply.call_args_list[1].args[1]["ocr_text"], "old frame text")
+
     def test_phash_bursts_do_not_chain_past_the_time_window(self):
         paths = [Path("1000.jpg"), Path("21000.jpg"), Path("41000.jpg")]
         digest = imagehash.hex_to_hash("0" * 16)
@@ -556,6 +647,23 @@ class RuntimeRegressionTests(unittest.TestCase):
         rows, total = result
         self.assertGreaterEqual(total, 1)
         self.assertIn("keyword-rag", "\n".join(rows))
+
+    def test_rag_indexer_stops_promptly(self):
+        rag.stop_event_indexer(wait=True)
+        calls = []
+        with patch.object(rag, "INDEX_INTERVAL_SECONDS", 0.01), patch.object(
+            rag, "get_capture_settings", return_value={"rag_enabled": True}
+        ), patch.object(rag, "_index_pending_once", side_effect=lambda: calls.append(time.time())):
+            thread = rag.start_event_indexer()
+            deadline = time.time() + 1
+            while not calls and time.time() < deadline:
+                time.sleep(0.01)
+            rag.stop_event_indexer(wait=True)
+            count = len(calls)
+            time.sleep(0.04)
+        self.assertIsNotNone(thread)
+        self.assertGreater(count, 0)
+        self.assertEqual(len(calls), count)
 
     def test_clearing_screenshots_removes_derived_data(self):
         path = get_screenshots_dir() / "clear-me.jpg"

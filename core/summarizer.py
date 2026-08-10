@@ -58,6 +58,9 @@ def _build_prompt(events: list[dict]) -> str:
         line = f"{e['summary']}"
         if e.get("vision_activity"):
             line += f" | vision: {e['vision_activity']}"
+        if e.get("vision_ocr_text"):
+            captured_text = " ".join(str(e["vision_ocr_text"]).split())[:1200]
+            line += f" | screen text: {captured_text}"
         lines.append(line)
     return "Events:\n" + "\n".join(lines)
 

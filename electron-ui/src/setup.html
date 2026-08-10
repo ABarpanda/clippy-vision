@@ -541,12 +541,12 @@
       <div class="card provider-card">
         <div class="card-head">AI connection</div>
         <div class="provider-card-body">
-          <label>Provider<select id="llm-provider"><option value="ollama">Ollama · local chat and vision</option></select></label>
+          <label>Provider<select id="llm-provider"><option value="ollama">Ollama-compatible local API</option></select></label>
           <div class="provider-details" id="provider-details">
             <label id="llm-base-url-field">Base URL<input id="llm-base-url" placeholder="http://127.0.0.1:1234/v1" /></label>
             <div class="provider-fields">
               <label>Chat model<input id="llm-chat-model" placeholder="local-chat" /></label>
-              <label>Vision model<input id="llm-vision-model" placeholder="local-vision" /></label>
+              <label id="llm-vision-model-field">Vision model<input id="llm-vision-model" placeholder="local-vision" /></label>
             </div>
             <label id="llm-cli-command-field" hidden>CLI command/path<input id="llm-cli-command" placeholder="Detected from PATH" /></label>
             <div class="provider-help">MiniLM embeddings are bundled and event RAG is opt-in.</div>
@@ -604,7 +604,7 @@
       </details>
 
       <p class="note" id="hardware-note">
-        Ollama downloads the chat, vision, and embedding models locally.
+        Use the managed Ollama default, or point Clippy at an existing local API to skip the chat-model download.
       </p>
 
       <label class="override" id="override-row">
@@ -746,10 +746,11 @@
         ? 'macOS 12+'
         : 'Windows 10/11'
 
-      // The onboarding gate describes the local Ollama runtime. Hosted and
-      // subscription modes remain a comment-only future extension.
+      // Hosted and subscription modes remain a comment-only future extension.
       $('hardware-summary').textContent = check.level === 'ready' ? 'Ready' : check.level === 'warn' ? 'Review' : 'Blocked'
-      $('hardware-note').textContent = 'The default text model uses roughly 5 GB on disk. Screen capture does not load a vision model.'
+      $('hardware-note').textContent = check.mode === 'external'
+        ? 'The configured local API supplies chat. MiniLM, accessibility capture, and OCR stay on this Mac.'
+        : 'The default text model uses roughly 5 GB on disk. Screen capture does not load a vision model.'
 
       const verdict = $('verdict')
       const continueBtn = $('btn-continue')
@@ -807,12 +808,12 @@
     }
 
     function renderLLMConfig(config) {
-      // Keep the model fields ready for local model selection, while leaving
-      // hosted-provider controls out of onboarding until that work is approved.
+      // Keep onboarding limited to the two values needed by a local endpoint.
       const provider = 'ollama'
       $('llm-provider').value = provider
-      $('provider-details').hidden = true
-      $('llm-base-url-field').hidden = true
+      $('provider-details').hidden = false
+      $('llm-base-url-field').hidden = false
+      $('llm-vision-model-field').hidden = true
       $('llm-api-key-field').hidden = true
       $('llm-cli-command-field').hidden = true
       $('llm-connect-btn').hidden = true
@@ -822,7 +823,11 @@
       $('llm-cli-command').value = config.cli_command || ''
       $('llm-api-key').value = ''
       $('llm-api-key').placeholder = config.api_key_set ? 'Saved key is set · leave blank to keep it' : 'Leave blank if your local server needs no key'
-      $('provider-help').textContent = 'Ollama manages the chat model; capture uses accessibility text and local OCR.'
+      const baseURL = $('llm-base-url').value.replace(/\/+$/, '').toLowerCase()
+      const managed = baseURL === 'http://127.0.0.1:11434' || baseURL === 'http://localhost:11434'
+      $('provider-help').textContent = managed
+        ? 'Clippy can install and manage Ollama locally.'
+        : 'Clippy will use this existing local API and skip Ollama and model downloads.'
     }
 
     function selectedLLMConfig() {
@@ -891,6 +896,7 @@
           else btn.disabled = false
           return
         }
+        if (res.check) configureSetupMode(res.check.mode)
         showInstallScreen()
       } catch (e) {
         btn.disabled = false

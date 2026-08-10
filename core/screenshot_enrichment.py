@@ -36,6 +36,10 @@ def remember_accessibility_text(path: Path, text: str) -> None:
             stat.st_size,
             normalize_accessibility_text(text),
         )
+        while len(_accessibility_cache) > _cache_limit:
+            stale = next(iter(_accessibility_cache))
+            _accessibility_cache.pop(stale, None)
+            _cache.pop(stale, None)
 
 
 def _captured_accessibility_text(path: Path, stat) -> str:
@@ -46,7 +50,11 @@ def _captured_accessibility_text(path: Path, stat) -> str:
     return ""
 
 
-def enrich_screenshot(path: Path) -> tuple[str, list[float] | None, str | None]:
+def enrich_screenshot(
+    path: Path,
+    *,
+    include_image_embedding: bool = True,
+) -> tuple[str, list[float] | None, str | None]:
     stat = path.stat()
     key = str(path)
     settings = get_capture_settings()
@@ -58,19 +66,20 @@ def enrich_screenshot(path: Path) -> tuple[str, list[float] | None, str | None]:
             # Feature flags are part of cache validity: enabling OCR or image
             # embeddings later must enrich the file instead of returning gaps.
             if (not settings["ocr_enabled"] or ocr_cached) and (
-                not settings["image_embeddings_enabled"] or embeddings_cached
+                not settings["image_embeddings_enabled"] or not include_image_embedding or embeddings_cached
             ):
                 return (
                     cached[2] if settings["ocr_enabled"] else "",
-                    cached[3] if settings["image_embeddings_enabled"] else None,
-                    cached[4] if settings["image_embeddings_enabled"] else None,
+                    cached[3] if settings["image_embeddings_enabled"] and include_image_embedding else None,
+                    cached[4] if settings["image_embeddings_enabled"] and include_image_embedding else None,
                 )
 
     accessibility_text = _captured_accessibility_text(path, stat)
     should_run_ocr = settings["ocr_enabled"] and not is_useful_accessibility_text(accessibility_text)
     ocr_text = extract_text(path) if should_run_ocr else ""
     captured_text = merge_ocr_text(accessibility_text, ocr_text)
-    image_embedding, image_embedding_model = (embed_image(path) if settings["image_embeddings_enabled"] else (None, None))
+    should_embed_image = settings["image_embeddings_enabled"] and include_image_embedding
+    image_embedding, image_embedding_model = (embed_image(path) if should_embed_image else (None, None))
     result = (captured_text, image_embedding, image_embedding_model)
     with _cache_lock:
         _cache[key] = (
@@ -78,7 +87,7 @@ def enrich_screenshot(path: Path) -> tuple[str, list[float] | None, str | None]:
             stat.st_size,
             *result,
             bool(settings["ocr_enabled"]),
-            bool(settings["image_embeddings_enabled"]),
+            bool(should_embed_image),
         )
         while len(_cache) > _cache_limit:
             stale = next(iter(_cache))

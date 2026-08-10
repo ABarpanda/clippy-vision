@@ -104,12 +104,15 @@ def apply_vision_verdict(
                image_embedding=?,
                image_embedding_model=?,
                screenshot_filename=?,
-               interesting=?,
-               interest_score=?,
-               interest_reason=?,
+               interesting=CASE WHEN classification_status='done' THEN interesting ELSE ? END,
+               interest_score=CASE WHEN classification_status='done' THEN interest_score ELSE ? END,
+               interest_reason=CASE WHEN classification_status='done' THEN interest_reason ELSE ? END,
                classification_status='done'
            WHERE event_id=?
-             AND classification_status IN ('awaiting_vision', 'screenshot_only')""",
+             AND classification_status IN ('done', 'awaiting_vision', 'screenshot_only')
+             AND vision_ocr_text IS NULL
+             AND vision_activity IS NULL
+             AND vision_suggested_action IS NULL""",
         (
             verdict.get("ocr_text"),
             verdict.get("user_activity"),

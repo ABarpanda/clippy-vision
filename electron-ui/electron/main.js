@@ -195,6 +195,15 @@ function configuredOllamaBaseURL() {
     return config.provider === 'ollama' ? config.base_url : OLLAMA_BASE_URL
 }
 
+function usesManagedOllama() {
+    const baseURL = configuredOllamaBaseURL().toLowerCase().replace(/\/+$/, '')
+    return new Set([
+        'http://127.0.0.1:11434',
+        'http://localhost:11434',
+        'http://[::1]:11434',
+    ]).has(baseURL)
+}
+
 function apiUrl(pathname = '') {
     return `http://127.0.0.1:${apiPort || DEFAULT_API_PORT}${pathname}`
 }
@@ -321,13 +330,13 @@ function stepProgress(key, percent) {
 
 
 let doneSoFar = 0
-const STEP_TOTAL = 6
+let setupStepTotal = 6
 function markDone(key, sub) {
     // The renderer owns the visual step state; Electron only sends monotonic
     // completion updates after each asynchronous installer step finishes.
     doneSoFar++
     stepUpdate(key, 'done', sub)
-    sendSetup('setup-overall', { done: doneSoFar, text: `${doneSoFar} / ${STEP_TOTAL} steps` })
+    sendSetup('setup-overall', { done: doneSoFar, text: `${doneSoFar} / ${setupStepTotal} steps` })
 }
 
 
@@ -653,8 +662,8 @@ async function stepPullModels() {
 }
 
 async function stepWarmup() {
-    // Warm text during onboarding for a fast first chat. Vision is deliberately
-    // loaded on demand when capture begins to keep idle memory lower.
+    // Warm the configured chat model during onboarding for a fast first reply.
+    const chatModel = readLLMConfig().chat_model
     stepUpdate('warmup', 'running', 'Loading models into memory...')
     stepProgress('warmup', -1)
 
@@ -678,7 +687,7 @@ async function stepWarmup() {
 
     // Capture uses accessibility text with OCR fallback and warms no model.
     log('Warming the text model...', 'info')
-    stepUpdate('warmup', 'running', 'Loading qwen3:8b...')
+    stepUpdate('warmup', 'running', `Loading ${chatModel}...`)
     try {
         await httpPost(apiUrl('/residency/startup'), {}, 120000)
         log('Text model ready — capture remains model-free.', 'ok')
@@ -762,8 +771,12 @@ const stepFns = {
 async function runSetup(startFrom = 'python') {
     // Retry starts at the failed step, while a fresh install runs the complete
     // ordered chain from Python discovery through model warmup.
-    const order = ['python', 'ollama', 'ollama-service', 'packages', 'models', 'warmup']
-    const startIdx = order.indexOf(startFrom)
+    const order = usesManagedOllama()
+        ? ['python', 'ollama', 'ollama-service', 'packages', 'models', 'warmup']
+        : ['python', 'packages', 'warmup']
+    setupStepTotal = order.length
+    const requestedIndex = order.indexOf(startFrom)
+    const startIdx = requestedIndex >= 0 ? requestedIndex : 0
 
     for (let i = startIdx; i < order.length; i++) {
         const key = order[i]
@@ -792,46 +805,55 @@ const REQUIRED_MODELS = ['qwen3:8b']
 async function runPreflightChecks() {
     // Every normal launch verifies the local runtime before starting the API,
     // which turns missing models or permissions into a recoverable setup step.
+    const managedOllama = usesManagedOllama()
     const alreadyConfigured = process.env.OLLAMA_MAX_LOADED_MODELS === OLLAMA_MAX_LOADED_MODELS
-    await ensureOllamaParallelConfig({
-        persist: !alreadyConfigured,
-        restart: false,
-    })
+    if (managedOllama) {
+        await ensureOllamaParallelConfig({
+            persist: !alreadyConfigured,
+            restart: false,
+        })
+    }
 
     const py = await runCommand(PYTHON_COMMAND, ['--version'])
     if (py.code !== 0) {
         return { ok: false, step: 'python', reason: 'Python not found or not on PATH.' }
     }
 
-    const ol = await runCommand(OLLAMA_COMMAND, ['--version'])
-    if (ol.code !== 0) {
-        return { ok: false, step: 'ollama', reason: 'Ollama not found or not on PATH.' }
-    }
-
-    // If the environment changed, restart Ollama so the running service picks
-    // up the persisted residency limits before checking required models.
     const serviceAlive = await pollUntilAlive(configuredOllamaBaseURL(), 500, 3).then(() => true).catch(() => false)
-    if (!alreadyConfigured) {
-        await ensureOllamaParallelConfig({ persist: false, restart: process.platform === 'win32' })
-        if (!serviceAlive && process.platform !== 'win32') {
-            spawnHidden(OLLAMA_COMMAND, ['serve'], { cwd: ROOT, detached: false })
+    if (!managedOllama) {
+        if (!serviceAlive) {
+            return { ok: false, step: 'warmup', reason: 'The configured local API is not reachable.' }
         }
-        const started = await pollUntilAlive(configuredOllamaBaseURL(), 1000, 15).then(() => true).catch(() => false)
-        if (!started) {
-            return { ok: false, step: 'ollama-service', reason: 'Ollama service could not be started.' }
+    } else {
+        const ol = await runCommand(OLLAMA_COMMAND, ['--version'])
+        if (ol.code !== 0) {
+            return { ok: false, step: 'ollama', reason: 'Ollama not found or not on PATH.' }
         }
-    } else if (!serviceAlive) {
-        spawnHidden(OLLAMA_COMMAND, ['serve'], { cwd: ROOT, detached: false })
-        const started = await pollUntilAlive(configuredOllamaBaseURL(), 1000, 10).then(() => true).catch(() => false)
-        if (!started) {
-            return { ok: false, step: 'ollama-service', reason: 'Ollama service could not be started.' }
-        }
-    }
 
-    const list = await runCommand(OLLAMA_COMMAND, ['list'])
-    const missing = REQUIRED_MODELS.filter((name) => !ollamaListHasModel(list.stdout, name))
-    if (missing.length > 0) {
-        return { ok: false, step: 'models', reason: `Missing models: ${missing.join(', ')}` }
+        // If the environment changed, restart Ollama so the running service picks
+        // up the persisted residency limits before checking required models.
+        if (!alreadyConfigured) {
+            await ensureOllamaParallelConfig({ persist: false, restart: process.platform === 'win32' })
+            if (!serviceAlive && process.platform !== 'win32') {
+                spawnHidden(OLLAMA_COMMAND, ['serve'], { cwd: ROOT, detached: false })
+            }
+            const started = await pollUntilAlive(configuredOllamaBaseURL(), 1000, 15).then(() => true).catch(() => false)
+            if (!started) {
+                return { ok: false, step: 'ollama-service', reason: 'Ollama service could not be started.' }
+            }
+        } else if (!serviceAlive) {
+            spawnHidden(OLLAMA_COMMAND, ['serve'], { cwd: ROOT, detached: false })
+            const started = await pollUntilAlive(configuredOllamaBaseURL(), 1000, 10).then(() => true).catch(() => false)
+            if (!started) {
+                return { ok: false, step: 'ollama-service', reason: 'Ollama service could not be started.' }
+            }
+        }
+
+        const list = await runCommand(OLLAMA_COMMAND, ['list'])
+        const missing = REQUIRED_MODELS.filter((name) => !ollamaListHasModel(list.stdout, name))
+        if (missing.length > 0) {
+            return { ok: false, step: 'models', reason: `Missing models: ${missing.join(', ')}` }
+        }
     }
 
 
@@ -960,7 +982,7 @@ async function getHardwareCheck() {
                 : osId === 'macos-intel' ? 'macOS · Intel'
                 : osId,
         },
-        mode: 'ollama',
+        mode: usesManagedOllama() ? 'ollama' : 'external',
     }
 }
 

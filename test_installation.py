@@ -5,13 +5,16 @@ Run this after setup to ensure everything is working correctly
 
 import sys
 import os
+import platform
 
 def test_imports():
     """Test if all required Python packages are installed"""
     print("\n[1/5] Testing Python imports...")
     try:
-        import win32gui
-        import win32api
+        if platform.system() == "Windows":
+            import win32gui
+            import win32api
+            import uiautomation
         import mss
         from PIL import Image
         from pynput import keyboard
@@ -40,34 +43,17 @@ def test_ollama_connection():
         return False
 
 def test_models():
-    """Test if required models are available"""
-    print("\n[3/5] Checking installed models...")
+    """Test the configured local provider without assuming a local CLI."""
+    print("\n[3/5] Checking configured chat model...")
     try:
-        import subprocess
-        result = subprocess.run(
-            ["ollama", "list"],
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        
-        models_output = result.stdout
-        required_models = ["qwen3:8b"]
-        missing = []
-        
-        for model in required_models:
-            if model in models_output:
-                print(f"  ✓ {model}")
-            else:
-                print(f"  ✗ {model} (missing)")
-                missing.append(model)
-        
-        if missing:
-            print(f"\n  To install missing models:")
-            for model in missing:
-                print(f"    ollama pull {model}")
-            return False
-        return True
+        from core.llm_gateway import gateway
+        result = gateway.test_connection()
+        chat = result.get("capabilities", {}).get("chat", {})
+        if result.get("ok") and chat.get("available") is not False:
+            print(f"  ✓ {chat.get('model') or 'Configured chat model'}")
+            return True
+        print(f"  ✗ {result.get('error') or 'Configured chat model is unavailable'}")
+        return False
     except Exception as e:
         print(f"  ✗ Error checking models: {e}")
         return False
@@ -149,8 +135,8 @@ def main():
     if all_passed:
         print("\n✓ All tests passed! Clippy Vision is ready to use.")
         print("\nNext steps:")
-        print("  1. Start capture: python core\\screen_capture.py")
-        print("  2. Chat with Clippy: python agent\\react_agent.py")
+        print(f"  1. Start capture: python core{os.sep}screen_capture.py")
+        print(f"  2. Chat with Clippy: python agent{os.sep}react_agent.py")
     else:
         print("\n✗ Some tests failed. Please fix the issues above.")
         print("  See QUICKSTART.md for troubleshooting help.")

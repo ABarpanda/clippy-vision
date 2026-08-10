@@ -294,6 +294,8 @@ def _index_pending_once() -> None:
 
 def _index_loop() -> None:
     while not _stop.wait(INDEX_INTERVAL_SECONDS):
+        if not get_capture_settings()["rag_enabled"]:
+            break
         try:
             _index_pending_once()
         except Exception as exc:
@@ -313,3 +315,14 @@ def start_event_indexer() -> threading.Thread | None:
         _thread = threading.Thread(target=_index_loop, daemon=True, name="rag-event-indexer")
         _thread.start()
         return _thread
+
+
+def stop_event_indexer(*, wait: bool = False) -> None:
+    """Stop background embedding promptly when event RAG is disabled."""
+    global _thread
+    _stop.set()
+    thread = _thread
+    if wait and thread and thread is not threading.current_thread():
+        thread.join(timeout=1.0)
+    if not thread or not thread.is_alive():
+        _thread = None

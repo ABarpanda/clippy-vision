@@ -54,7 +54,7 @@ from core.paths import get_data_dir
 from core.platform_support import platform_label
 from core.llm_config import get_llm_config, public_llm_config, save_llm_config
 from core.llm_gateway import gateway
-from core.rag import start_event_indexer
+from core.rag import start_event_indexer, stop_event_indexer
 from core.app_settings import get_capture_settings, set_capture_settings
 from core.diagnostics import get_diagnostics
 from core.paths import get_screenshots_dir
@@ -74,7 +74,10 @@ async def lifespan(app: FastAPI):
         start_event_indexer()
 
 
-    yield
+    try:
+        yield
+    finally:
+        stop_event_indexer(wait=True)
 
 
 app = FastAPI(lifespan=lifespan)
@@ -332,6 +335,8 @@ def write_capture_settings(req: CaptureSettingsRequest):
     settings = set_capture_settings(req.dict(exclude_unset=True))
     if settings["rag_enabled"]:
         start_event_indexer()
+    else:
+        stop_event_indexer()
     return settings
 
 

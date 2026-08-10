@@ -61,6 +61,32 @@ _last_capture_hash = None
 _activity_timer: Optional[threading.Timer] = None
 
 
+def _foreground_accessibility_text() -> str:
+    """Read foreground text only when the same window is safe to persist."""
+    metadata = get_window_metadata()
+    if not metadata:
+        return ""
+    process_name = metadata.get("process_name", "")
+    title = metadata.get("current_window_title", "")
+    if is_clippy_window(process_name, title) or should_redact_window(process_name, title):
+        return ""
+    captured_text = extract_accessibility_text()
+    current = get_window_metadata()
+    if not current:
+        return ""
+    original_key = (process_name, title, metadata.get("active_url"))
+    current_key = (
+        current.get("process_name", ""),
+        current.get("current_window_title", ""),
+        current.get("active_url"),
+    )
+    if current_key != original_key:
+        return ""
+    if is_clippy_window(current_key[0], current_key[1]) or should_redact_window(current_key[0], current_key[1]):
+        return ""
+    return captured_text
+
+
 def _redact_clippy_windows(img: Image.Image, monitor: dict) -> None:
     """Paint a black rectangle over windows that should be hidden.
 
@@ -169,7 +195,7 @@ def capture_screenshot(timestamp_ms: int) -> Optional[Path]:
         buf = io.BytesIO()
         img.save(buf, format="JPEG", quality=JPEG_QUALITY, optimize=True)
         path.write_bytes(buf.getvalue())
-        remember_accessibility_text(path, extract_accessibility_text())
+        remember_accessibility_text(path, _foreground_accessibility_text())
         with _lock:
             _last_capture_hash = digest
         return path
