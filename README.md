@@ -1,6 +1,6 @@
 ﻿# Clippy Vision
 
-> **A fully local AI assistant that watches your work to eliminate the context problem. 100% private - no cloud, no data leakage.**
+> **A fully local AI assistant that watches your work to build context automatically without needing to explain much to an LLM. 100% private - no cloud, no data leakage.**
 
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
