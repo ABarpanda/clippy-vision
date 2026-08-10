@@ -66,6 +66,18 @@ Clippy Vision supports Windows and macOS. The app lives in `electron-ui/` and st
    The setup wizard runs on first launch (Python, Ollama, models, `requirements.txt`).
 4. Create a branch: `git checkout -b feature/your-feature-name`
 
+### Dev app vs installed app
+
+`npm start` launches **Clippy Vision (dev)** — a separate app from the installer build.
+
+| | Installed (Start Menu) | `npm start` |
+|--|--|--|
+| Window / tray label | Clippy Vision | Clippy Vision (dev) |
+| Activity data | `%APPDATA%\Clippy Vision\data` | `<repo>\core\data` |
+| Single-instance lock | Own lock | Own lock |
+
+Both can run at the same time. If `npm start` exits immediately, a previous **dev** instance is still in the system tray — right-click it → Quit, then start again. The terminal prints which instance is running (`[clippy] starting Clippy Vision (dev)`).
+
 For Python-only work outside the app, you can also install deps with `pip install -r requirements.txt` from the repo root.
 
 See [QUICKSTART.md](QUICKSTART.md) for installer and troubleshooting details.
