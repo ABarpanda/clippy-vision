@@ -759,6 +759,24 @@
       padding-top: 8px;
     }
 
+    .copy-reply {
+      align-self: flex-start;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 2px 0;
+      background: transparent;
+      border: none;
+      color: var(--muted);
+      font-family: inherit;
+      font-size: 12px;
+      font-weight: 550;
+      cursor: pointer;
+      text-align: left;
+    }
+
+    .copy-reply:hover { color: var(--text); }
+
     .message-body {
       line-height: 1.55;
       word-break: break-word;
@@ -1636,8 +1654,35 @@
       let rawContent = content || ''
       if (rawContent) setMessageMarkdown(messageBody, rawContent)
 
+      const copyBtn = document.createElement('button')
+      copyBtn.type = 'button'
+      copyBtn.className = 'copy-reply'
+      copyBtn.textContent = 'Copy'
+      copyBtn.style.display = rawContent ? '' : 'none'
+
+      let copyResetTimer = null
+      copyBtn.addEventListener('click', async () => {
+        if (!rawContent) return
+        try {
+          await navigator.clipboard.writeText(rawContent)
+        } catch {
+          return
+        }
+        copyBtn.textContent = 'Copied'
+        if (copyResetTimer) clearTimeout(copyResetTimer)
+        copyResetTimer = setTimeout(() => {
+          copyBtn.textContent = 'Copy'
+          copyResetTimer = null
+        }, 1500)
+      })
+
+      function updateCopyVisibility() {
+        copyBtn.style.display = rawContent ? '' : 'none'
+      }
+
       root.appendChild(thinkBlock)
       root.appendChild(messageBody)
+      root.appendChild(copyBtn)
 
       if (!thinking && !pending) {
         thinkBlock.style.display = 'none'
@@ -1658,12 +1703,14 @@
         appendContent(delta) {
           rawContent += delta || ''
           setMessageMarkdown(messageBody, rawContent)
+          updateCopyVisibility()
           messages.scrollTop = messages.scrollHeight
         },
         resetContent() {
           rawContent = ''
           messageBody.classList.remove('md')
           messageBody.innerHTML = ''
+          updateCopyVisibility()
         },
         setStatus(text) {
           thinkBlock.style.display = ''
@@ -1677,6 +1724,7 @@
             thinkBlock.style.display = 'none'
           }
           if (rawContent) setMessageMarkdown(messageBody, rawContent)
+          updateCopyVisibility()
         },
         fail(message) {
           thinkBlock.classList.remove('is-pending')
@@ -1685,6 +1733,7 @@
           messageBody.classList.remove('md')
           messageBody.textContent = message
           messageBody.style.color = 'var(--danger)'
+          updateCopyVisibility()
         },
       }
     }
