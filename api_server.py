@@ -70,7 +70,8 @@ async def lifespan(app: FastAPI):
     threading.Thread(target=load_classifier, daemon=True, name="router-classifier-warmup").start()
 
 
-    start_event_indexer()
+    if get_capture_settings()["rag_enabled"]:
+        start_event_indexer()
 
 
     yield
@@ -140,6 +141,7 @@ class CaptureSettingsRequest(BaseModel):
     capture_clipboard: Optional[bool] = None
     ocr_enabled: Optional[bool] = None
     image_embeddings_enabled: Optional[bool] = None
+    rag_enabled: Optional[bool] = None
     min_gap_seconds: Optional[float] = None
     background_interval_seconds: Optional[float] = None
     activity_debounce_seconds: Optional[float] = None
@@ -327,7 +329,10 @@ def read_capture_settings():
 
 @app.put("/settings/capture")
 def write_capture_settings(req: CaptureSettingsRequest):
-    return set_capture_settings(req.dict(exclude_unset=True))
+    settings = set_capture_settings(req.dict(exclude_unset=True))
+    if settings["rag_enabled"]:
+        start_event_indexer()
+    return settings
 
 
 @app.get("/settings/data")
@@ -463,7 +468,7 @@ def residency_status():
 
 def residency_capture_stop():
 
-    """Unload vision when Electron stops screen capture (process may be force-killed)."""
+    """Record that the model-free capture process stopped."""
 
     return on_capture_stop()
 

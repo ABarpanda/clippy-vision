@@ -25,19 +25,18 @@ def test_imports():
         return False
 
 def test_ollama_connection():
-    """Test connection to Ollama"""
-    print("\n[2/5] Testing Ollama connection...")
+    """Test the bundled local embedding path."""
+    print("\n[2/5] Testing local embeddings...")
     try:
-        from core.llm_gateway import gateway
-        result = gateway.embed("test", embed_model="nomic-embed-text", timeout=30)
+        from core.local_embeddings import embed_text
+        result = embed_text("test")
         if result:
-            print("  ✓ Ollama connection successful")
+            print("  ✓ Local embeddings available")
             return True
-        print("  ✗ Ollama returned empty embedding")
+        print("  ✗ Local embeddings returned an empty vector")
         return False
     except Exception as e:
-        print(f"  ✗ Ollama connection failed: {e}")
-        print("  Make sure Ollama is running: ollama serve")
+        print(f"  ✗ Local embeddings failed: {e}")
         return False
 
 def test_models():
@@ -53,7 +52,7 @@ def test_models():
         )
         
         models_output = result.stdout
-        required_models = ["qwen3:8b", "qwen3-vl:4b", "nomic-embed-text"]
+        required_models = ["qwen3:8b"]
         missing = []
         
         for model in required_models:

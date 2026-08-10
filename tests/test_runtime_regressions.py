@@ -17,10 +17,13 @@ from PIL import Image
 import imagehash
 
 from classifier.worker import apply_verdict, apply_vision_verdict
+from classifier.tier_two_classifier import VERDICT_SCHEMA
 from core.events import Event, WindowMetadata
 from core.paths import get_data_dir, get_screenshots_dir
 from core.screenshot_search import search_screenshots
 from core.screenshot_processor import _group_by_similarity
+from core.screenshot_enrichment import enrich_screenshot, remember_accessibility_text
+from core.accessibility_text import is_useful_accessibility_text, normalize_accessibility_text
 from core import rag
 from core.cli_providers import _build_command, _extract_output
 from core.llm_config import normalize_config
@@ -44,7 +47,7 @@ from agent.prefetch.topic_search import topic_search
 from agent.prefetch.memory_query import memory_query
 from agent.memory import get_autobiographical_context
 from core.memory_store import save_identity_field, set_introduction
-from core.app_settings import get_capture_settings, set_capture_settings
+from core.app_settings import get_capture_settings, normalize_capture_settings, set_capture_settings
 from core.intro_builder import gather_intro_inputs
 from core.llm_config import get_llm_config, public_llm_config, save_llm_config
 from core.privacy_settings import get_privacy_enabled, set_privacy_enabled, should_redact_window
@@ -182,7 +185,8 @@ class RuntimeRegressionTests(unittest.TestCase):
         event = make_event("topic-event-fallback", event_type="context_change")
         event["summary"] = "quasarneedle project planning"
         store_event(event)
-        result = topic_search("quasarneedle", q_vec=None)
+        with patch("core.rag.get_capture_settings", return_value={"rag_enabled": True}):
+            result = topic_search("quasarneedle", q_vec=None)
         self.assertIn("event-level activity fallback", result)
         self.assertIn("quasarneedle", result)
 
@@ -463,6 +467,49 @@ class RuntimeRegressionTests(unittest.TestCase):
         groups = _group_by_similarity(paths, {path.stem: digest for path in paths})
         self.assertEqual(sorted(len(group) for group in groups), [1, 2])
 
+    def test_accessibility_text_skips_ocr_when_ui_text_is_useful(self):
+        path = get_screenshots_dir() / "accessibility-first.jpg"
+        Image.new("RGB", (4, 4), "white").save(path, format="JPEG")
+        self.addCleanup(path.unlink, missing_ok=True)
+        ui_text = normalize_accessibility_text(
+            "Project settings\nConfigure local capture and privacy controls"
+        )
+        self.assertTrue(is_useful_accessibility_text(ui_text))
+        remember_accessibility_text(path, ui_text)
+
+        with patch(
+            "core.screenshot_enrichment.get_capture_settings",
+            return_value={"ocr_enabled": True, "image_embeddings_enabled": False},
+        ), patch("core.screenshot_enrichment.extract_text") as extract_ocr:
+            captured_text, image_embedding, image_model = enrich_screenshot(path)
+
+        extract_ocr.assert_not_called()
+        self.assertEqual(captured_text, ui_text)
+        self.assertIsNone(image_embedding)
+        self.assertIsNone(image_model)
+
+    def test_sparse_accessibility_text_falls_back_to_ocr(self):
+        path = get_screenshots_dir() / "accessibility-fallback.jpg"
+        Image.new("RGB", (4, 4), "white").save(path, format="JPEG")
+        self.addCleanup(path.unlink, missing_ok=True)
+        remember_accessibility_text(path, "OK")
+
+        with patch(
+            "core.screenshot_enrichment.get_capture_settings",
+            return_value={"ocr_enabled": True, "image_embeddings_enabled": False},
+        ), patch("core.screenshot_enrichment.extract_text", return_value="Document body from OCR") as extract_ocr:
+            captured_text, _, _ = enrich_screenshot(path)
+
+        extract_ocr.assert_called_once_with(path)
+        self.assertIn("OK", captured_text)
+        self.assertIn("Document body from OCR", captured_text)
+
+    def test_capture_models_and_event_rag_are_opt_in(self):
+        settings = normalize_capture_settings({})
+        self.assertFalse(settings["image_embeddings_enabled"])
+        self.assertFalse(settings["rag_enabled"])
+        self.assertNotIn("needs_vision", VERDICT_SCHEMA["properties"]["verdict"]["enum"])
+
     def test_text_embeddings_are_bundled_and_local(self):
         vector = embed_text("local semantic memory test")
         status = embedding_status()
@@ -500,7 +547,8 @@ class RuntimeRegressionTests(unittest.TestCase):
         rag.embed_text = lambda *args, **kwargs: []
         rag.embed_texts = lambda texts: [[] for _ in texts]
         try:
-            result = rag.search_event_rag("keyword fallback phrase")
+            with patch("core.rag.get_capture_settings", return_value={"rag_enabled": True}):
+                result = rag.search_event_rag("keyword fallback phrase")
         finally:
             rag.embed_text = original_embed_text
             rag.embed_texts = original_embed_texts

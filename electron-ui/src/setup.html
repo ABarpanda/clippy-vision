@@ -549,8 +549,8 @@
       </div>
 
       <p class="note">
-        Models use roughly 8 GB on disk (qwen3:8b, qwen3-vl:4b, embed).
-        During capture, leave headroom for Chrome, your IDE, and the Windows compositor.
+        The default text model uses roughly 5 GB on disk. Screen capture uses
+        accessibility text with local OCR fallback and does not load a vision model.
       </p>
 
       <label class="override" id="override-row">
@@ -609,7 +609,7 @@
         <div class="step-icon">○</div>
         <div class="step-body">
           <div class="step-label">AI Models</div>
-          <div class="step-sub">Downloading qwen3:8b, qwen3-vl:4b, nomic-embed-text (~8 GB)</div>
+          <div class="step-sub">Downloading qwen3:8b (~4.7 GB)</div>
           <div class="step-bar-wrap"><div class="step-bar" id="bar-models"></div></div>
         </div>
       </div>

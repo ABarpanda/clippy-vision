@@ -28,9 +28,8 @@ const REQUIREMENTS    = path.join(ROOT, 'requirements.txt')
 const SETUP_FLAG      = path.join(USER_DATA, 'setup_complete.json')
 const RESIDENCY_FILE  = path.join(DATA_DIR, 'model_residency.json')
 
-// Keep a second slot free so text stays loaded when capture pins vision.
-// Vision itself is only warmed while screen capture is on (see model_residency.py).
-const OLLAMA_MAX_LOADED_MODELS = '2'
+// Capture is model-free, so Ollama only needs room for the text model.
+const OLLAMA_MAX_LOADED_MODELS = '1'
 const OLLAMA_NUM_PARALLEL = '1'
 
 function buildPythonEnv(extra = {}) {
@@ -233,8 +232,7 @@ async function stepStartOllamaService() {
     stepUpdate('ollama-service', 'running', 'Configuring & starting Ollama...')
     log('> ollama serve', 'dim')
 
-    // Slot for text + vision when capture pins VL; vision is not warmed at launch.
-    log('Setting OLLAMA_MAX_LOADED_MODELS=2 (vision only while capturing)...', 'info')
+    log('Setting OLLAMA_MAX_LOADED_MODELS=1...', 'info')
     await ensureOllamaParallelConfig({ persist: true, restart: true })
 
     log('Waiting for Ollama service...', 'dim')
@@ -307,9 +305,7 @@ async function stepInstallPackages() {
 
 async function stepPullModels() {
     const models = [
-        { name: 'nomic-embed-text', label: 'nomic-embed-text (~274 MB)' },
         { name: 'qwen3:8b',         label: 'qwen3:8b (~4.7 GB)' },
-        { name: 'qwen3-vl:4b',      label: 'qwen3-vl:4b (~2.9 GB)' },
     ]
 
     stepUpdate('models', 'running', 'Checking existing models...')
@@ -403,12 +399,12 @@ async function stepWarmup() {
         log('Ollama not responding — skipping model warm.', 'info')
     }
 
-    // Explicit warm call (text + embed only). Do not block setup forever if Ollama is slow.
-    log('Warming text + embed (vision loads when capture starts)...', 'info')
-    stepUpdate('warmup', 'running', 'Loading qwen3:8b + embed...')
+    // Explicit text-only warm. Capture uses accessibility text with OCR fallback.
+    log('Warming the text model...', 'info')
+    stepUpdate('warmup', 'running', 'Loading qwen3:8b...')
     try {
         await httpPost('http://localhost:8000/residency/startup', {}, 120000)
-        log('Text model ready — vision idle until screen capture.', 'ok')
+        log('Text model ready — capture remains model-free.', 'ok')
     } catch (e) {
         log(`Model warm skipped or timed out (${e.message}) — continuing.`, 'info')
         // Guarantee setup can finish even if warm hung mid-flight
@@ -500,10 +496,9 @@ async function runSetup(startFrom = 'python') {
 // pre-flight checks (run on every normal launch to detect broken installs)
 // ─────────────────────────────────────────────────────────────────────────────
 
-const REQUIRED_MODELS = ['qwen3:8b', 'qwen3-vl:4b', 'nomic-embed-text']
+const REQUIRED_MODELS = ['qwen3:8b']
 
 async function runPreflightChecks() {
-    // Ensure text can stay loaded when capture later pins vision
     const alreadyConfigured =
         process.env.OLLAMA_MAX_LOADED_MODELS === OLLAMA_MAX_LOADED_MODELS
     await ensureOllamaParallelConfig({
@@ -523,8 +518,7 @@ async function runPreflightChecks() {
         return { ok: false, step: 'ollama', reason: 'Ollama not found or not on PATH.' }
     }
 
-    // 3. Ollama service — if we just wrote the env vars for the first time,
-    //    restart so the running process picks up MAX_LOADED_MODELS=2
+    // 3. Ollama service — restart once if the loaded-model limit changed.
     const serviceAlive = await pollUntilAlive('http://localhost:11434', 500, 3).then(() => true).catch(() => false)
     if (!alreadyConfigured) {
         await ensureOllamaParallelConfig({ persist: false, restart: true })
@@ -761,13 +755,6 @@ function broadcastCaptureStatus() {
     }
 }
 
-function notifyVisionUnload() {
-    // Capture process is force-killed; ask the API to unload VL.
-    httpPost('http://localhost:8000/residency/capture-stop', {}, 10000).catch((e) => {
-        console.log('[Capture] vision unload notify failed:', e.message)
-    })
-}
-
 function startCapture() {
     if (isCapturing()) return
     captureProcess = spawnHidden('python', [CAPTURE_SCRIPT], { cwd: ROOT })
@@ -776,7 +763,6 @@ function startCapture() {
     captureProcess.on('exit', (code) => {
         console.log('[Capture] exited', code)
         captureProcess = null
-        notifyVisionUnload()
         updateTrayIcon()
         rebuildTrayMenu()
         broadcastCaptureStatus()
@@ -796,8 +782,6 @@ function stopCapture() {
     } else {
         proc.kill('SIGTERM')
     }
-    // exit handler also notifies; call here so unload starts immediately
-    notifyVisionUnload()
     updateTrayIcon()
     rebuildTrayMenu()
     broadcastCaptureStatus()

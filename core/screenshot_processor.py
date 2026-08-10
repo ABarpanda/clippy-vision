@@ -13,9 +13,8 @@ try:
 except ImportError:
     from storage import conn, store_event
     from events import get_session_id, Event, WindowMetadata
-from classifier.vision_classifier import classify_with_vision
-from classifier.worker import OCR_ONLY_VERDICT, apply_vision_verdict
-from core.screenshot_enrichment import enrich_screenshot, merge_ocr_text
+from classifier.worker import apply_vision_verdict, build_capture_text_verdict
+from core.screenshot_enrichment import enrich_screenshot
 
 
 POLL_SECS = 10
@@ -277,8 +276,8 @@ def _group_by_similarity(
 
 def _process_group(group: list[Path]) -> bool:
     """
-    Run vision once on the most recent screenshot in the group (the representative),
-    then copy the OCR/activity verdict to all other screenshots in the group.
+    Extract text once from the most recent screenshot in the group, then copy
+    that text-only verdict to visually identical screenshots in the same burst.
     Each screenshot still looks up its own nearest event independently so
     window_context and process_name remain accurate per event.
 
@@ -305,12 +304,7 @@ def _process_group(group: list[Path]) -> bool:
         print(f"  [screenshot_processor] Screenshot enrichment failed for {representative.name}: {e}")
         ocr_text, image_embedding, image_embedding_model = "", None, None
 
-    try:
-        verdict = classify_with_vision(rep_event, [representative])
-    except Exception as e:
-        print(f"  [screenshot_processor] Vision classifier unavailable: {e}")
-        verdict = dict(OCR_ONLY_VERDICT)
-    verdict["ocr_text"] = merge_ocr_text(ocr_text, verdict.get("ocr_text"))
+    verdict = build_capture_text_verdict(rep_event, ocr_text)
     applied = apply_vision_verdict(
         rep_event["event_id"],
         verdict,

@@ -4,14 +4,12 @@ from pathlib import Path
 from .tier_zero_classifier import tier_zero_classifier
 from .tier_one_classifier import tier1_score
 from .tier_two_classifier import classify_with_llm
-from .vision_classifier import classify_with_vision
 from core.vision import get_screenshots_near
-from core.screenshot_enrichment import enrich_screenshot, merge_ocr_text
+from core.screenshot_enrichment import enrich_screenshot
 from core.storage import conn
 
 POLL_SECS = 2
 VISION_POLL_SECS = 5
-VISION_SCORE_THRESHOLD = 7
 MAX_VISION_WAIT_SECS   = 300
 
 DEFAULT_SCREENSHOT_VERDICT = {
@@ -26,7 +24,7 @@ DEFAULT_SCREENSHOT_VERDICT = {
 OCR_ONLY_VERDICT = {
     "verdict": "not_interesting",
     "score": 5,
-    "reason": "Local screenshot OCR completed; vision classification was unavailable",
+    "reason": "Local accessibility and OCR text capture completed",
     "ocr_text": "",
     "user_activity": "",
     "suggested_action": None,
@@ -58,11 +56,11 @@ def _print_verdict(tier: int, event: dict, verdict: dict):
     process_name = event["process_name"] or "unknown"
     print(f"  [TIER-{tier}] {verdict_str} (score={score}/10) | {event_type} in {process_name} | {reason}")
 
-def _print_vision_verdict(event: dict, verdict: dict):
+def _print_capture_text_verdict(event: dict, verdict: dict):
     verdict_str = verdict["verdict"].upper()
     process_name = event["process_name"] or "unknown"
     print(
-        f"  [VISION] {verdict_str} (score={verdict['score']}/10) | "
+        f"  [SCREEN TEXT] {verdict_str} (score={verdict['score']}/10) | "
         f"{event['event_type']} in {process_name} | {verdict['reason']}"
     )
     if verdict.get("user_activity"):
@@ -76,8 +74,8 @@ def _print_vision_verdict(event: dict, verdict: dict):
 
 
 
-def apply_verdict(event_id: str, verdict: dict, needs_vision: bool = False):
-    status      = "awaiting_vision" if needs_vision else "done"
+def apply_verdict(event_id: str, verdict: dict):
+    status      = "done"
     interesting = 0 if verdict["verdict"] == "not_interesting" else 1
     cursor = conn.execute(
         """UPDATE events
@@ -129,6 +127,22 @@ def apply_vision_verdict(
     return bool(cursor.rowcount)
 
 
+def build_capture_text_verdict(event: dict, captured_text: str) -> dict:
+    window = event.get("window_context") or {}
+    context = " — ".join(
+        value for value in (
+            str(window.get("process_name") or "").strip(),
+            str(window.get("current_window_title") or "").strip(),
+        ) if value
+    )
+    verdict = dict(OCR_ONLY_VERDICT)
+    verdict["ocr_text"] = captured_text
+    verdict["user_activity"] = context or str(event.get("summary") or "").strip()
+    if not captured_text:
+        verdict["reason"] = "No accessibility or OCR text was available"
+    return verdict
+
+
 def _row_to_event(row) -> dict:
     (event_id, timestamp, event_type,
      process_name, current_window_title, active_url,
@@ -166,8 +180,7 @@ def classify_event(event: dict):
     verdict = tier1_score(event, conn)
     if verdict:
         _print_verdict(1, event, verdict)
-        needs_vision = (verdict["verdict"] == "interesting" and verdict["score"] <= VISION_SCORE_THRESHOLD)
-        apply_verdict(event["event_id"], verdict, needs_vision=needs_vision)
+        apply_verdict(event["event_id"], verdict)
         return
 
 
@@ -195,16 +208,12 @@ def classify_event(event: dict):
         return
 
     _print_verdict(2, event, verdict)
-    needs_vision = (
-        verdict["verdict"] == "needs_vision"
-        or (verdict["verdict"] == "interesting" and verdict["score"] <= VISION_SCORE_THRESHOLD)
-    )
-    apply_verdict(event["event_id"], verdict, needs_vision=needs_vision)
+    apply_verdict(event["event_id"], verdict)
 
-def classify_vision_event(event: dict):
+def classify_capture_text_event(event: dict):
     screenshots = get_screenshots_near(event["timestamp"], max_count=1)
     if not screenshots:
-        _print_vision_verdict(event, DEFAULT_SCREENSHOT_VERDICT)
+        _print_capture_text_verdict(event, DEFAULT_SCREENSHOT_VERDICT)
         apply_vision_verdict(event["event_id"], DEFAULT_SCREENSHOT_VERDICT)
         return
 
@@ -215,23 +224,18 @@ def classify_vision_event(event: dict):
     shot_delta = int(event["timestamp"] - shot_ts_ms / 1000)
     vision_lag = int(time.time() - event["timestamp"])
     print(
-        f"  [VISION] event@{event_ts} | screenshot@{shot_ts} "
+        f"  [SCREEN TEXT] event@{event_ts} | screenshot@{shot_ts} "
         f"(Δ{shot_delta:+d}s vs event) | processing lag {vision_lag}s"
     )
 
     try:
         ocr_text, image_embedding, image_embedding_model = enrich_screenshot(screenshots[0])
     except Exception as e:
-        print(f"  [VISION] Screenshot enrichment failed: {e}")
+        print(f"  [SCREEN TEXT] Screenshot enrichment failed: {e}")
         ocr_text, image_embedding, image_embedding_model = "", None, None
 
-    try:
-        verdict = classify_with_vision(event, screenshots)
-    except Exception as e:
-        print(f"  [VISION] Classifier unavailable: {e} — storing local screenshot data")
-        verdict = dict(OCR_ONLY_VERDICT)
-    verdict["ocr_text"] = merge_ocr_text(ocr_text, verdict.get("ocr_text"))
-    _print_vision_verdict(event, verdict)
+    verdict = build_capture_text_verdict(event, ocr_text)
+    _print_capture_text_verdict(event, verdict)
     apply_vision_verdict(event["event_id"], verdict, image_embedding, image_embedding_model, screenshots[0].name)
 
 
@@ -256,8 +260,8 @@ def worker_loop():
         for row in rows:
             classify_event(_row_to_event(row))
 
-def vision_worker_loop():
-    print("[worker] Vision worker started")
+def capture_text_worker_loop():
+    print("[worker] Screen text worker started")
     while True:
         rows = conn.execute(
             """SELECT event_id, timestamp, event_type,
@@ -283,17 +287,17 @@ def vision_worker_loop():
                 )
                 conn.commit()
                 event_ts = time.strftime("%H:%M:%S", time.localtime(event["timestamp"]))
-                print(f"  [VISION] Skipped stale event@{event_ts} ({age_secs:.0f}s old > {MAX_VISION_WAIT_SECS}s limit)")
+                print(f"  [SCREEN TEXT] Skipped stale event@{event_ts} ({age_secs:.0f}s old > {MAX_VISION_WAIT_SECS}s limit)")
                 continue
-            classify_vision_event(event)
+            classify_capture_text_event(event)
 
-def start_vision_worker():
-    t = threading.Thread(target=vision_worker_loop, daemon=True)
+def start_capture_text_worker():
+    t = threading.Thread(target=capture_text_worker_loop, daemon=True)
     t.start()
     return t
 
 def start_worker():
     t = threading.Thread(target=worker_loop, daemon=True)
     t.start()
-    start_vision_worker()
+    start_capture_text_worker()
     return t

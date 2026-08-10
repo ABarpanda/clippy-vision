@@ -6,9 +6,11 @@ from pathlib import Path
 from core.image_embeddings import embed_image
 from core.ocr import extract_text
 from core.app_settings import get_capture_settings
+from core.accessibility_text import is_useful_accessibility_text, normalize_accessibility_text
 
 
 _cache: dict[str, tuple[int, int, str, list[float] | None, str | None, bool, bool]] = {}
+_accessibility_cache: dict[str, tuple[int, int, str]] = {}
 _cache_lock = threading.Lock()
 _cache_limit = 512
 
@@ -24,6 +26,24 @@ def merge_ocr_text(*values: str | None) -> str:
                 seen.add(key)
                 lines.append(text)
     return "\n".join(lines)[:4000]
+
+
+def remember_accessibility_text(path: Path, text: str) -> None:
+    stat = path.stat()
+    with _cache_lock:
+        _accessibility_cache[str(path)] = (
+            stat.st_mtime_ns,
+            stat.st_size,
+            normalize_accessibility_text(text),
+        )
+
+
+def _captured_accessibility_text(path: Path, stat) -> str:
+    with _cache_lock:
+        cached = _accessibility_cache.get(str(path))
+        if cached and cached[:2] == (stat.st_mtime_ns, stat.st_size):
+            return cached[2]
+    return ""
 
 
 def enrich_screenshot(path: Path) -> tuple[str, list[float] | None, str | None]:
@@ -46,9 +66,12 @@ def enrich_screenshot(path: Path) -> tuple[str, list[float] | None, str | None]:
                     cached[4] if settings["image_embeddings_enabled"] else None,
                 )
 
-    ocr_text = extract_text(path) if settings["ocr_enabled"] else ""
+    accessibility_text = _captured_accessibility_text(path, stat)
+    should_run_ocr = settings["ocr_enabled"] and not is_useful_accessibility_text(accessibility_text)
+    ocr_text = extract_text(path) if should_run_ocr else ""
+    captured_text = merge_ocr_text(accessibility_text, ocr_text)
     image_embedding, image_embedding_model = (embed_image(path) if settings["image_embeddings_enabled"] else (None, None))
-    result = (ocr_text, image_embedding, image_embedding_model)
+    result = (captured_text, image_embedding, image_embedding_model)
     with _cache_lock:
         _cache[key] = (
             stat.st_mtime_ns,
@@ -58,5 +81,7 @@ def enrich_screenshot(path: Path) -> tuple[str, list[float] | None, str | None]:
             bool(settings["image_embeddings_enabled"]),
         )
         while len(_cache) > _cache_limit:
-            _cache.pop(next(iter(_cache)))
+            stale = next(iter(_cache))
+            _cache.pop(stale)
+            _accessibility_cache.pop(stale, None)
     return result

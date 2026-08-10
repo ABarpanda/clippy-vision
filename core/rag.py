@@ -18,6 +18,7 @@ import time
 from typing import Iterable
 
 from core.image_embeddings import embed_text as embed_image_text
+from core.app_settings import get_capture_settings
 from core.local_embeddings import embed_text, embed_texts
 from core.llm_gateway import Priority
 from core.screenshot_search import resolve_screenshot_filename
@@ -196,6 +197,9 @@ def search_event_rag(
 ) -> tuple[list[str], int] | None:
     """Return hybrid text and visual event matches."""
 
+    if not get_capture_settings()["rag_enabled"]:
+        return None
+
     rows = _candidate_rows(start_ts, end_ts)
     if not rows:
         return [], 0
@@ -296,11 +300,13 @@ def _index_loop() -> None:
             print(f"[rag] indexer error: {exc}")
 
 
-def start_event_indexer() -> threading.Thread:
+def start_event_indexer() -> threading.Thread | None:
     """Start one best-effort background event embedding worker."""
 
     global _thread
     with _start_lock:
+        if not get_capture_settings()["rag_enabled"]:
+            return None
         if _thread and _thread.is_alive():
             return _thread
         _stop.clear()

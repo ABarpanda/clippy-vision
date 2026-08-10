@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 
 from core.image_embeddings import embed_text as embed_image_text
+from core.app_settings import get_capture_settings
 from core.local_embeddings import embed_text
 from core.paths import get_screenshots_dir
 from core.storage import conn
@@ -184,16 +185,19 @@ def search_screenshots(
         selected = rows[offset: offset + limit]
         return {"screenshots": [_display_record(row) for row in selected], "total": len(rows), "query": ""}
 
+    settings = get_capture_settings()
     query_vector = None
-    try:
-        query_vector = embed_text(query)
-    except Exception as exc:
-        print(f"[screenshot-search] text search unavailable: {exc}")
+    if settings["rag_enabled"]:
+        try:
+            query_vector = embed_text(query)
+        except Exception as exc:
+            print(f"[screenshot-search] text search unavailable: {exc}")
     image_query = None
-    try:
-        image_query = embed_image_text(query)
-    except Exception as exc:
-        print(f"[screenshot-search] visual search unavailable: {exc}")
+    if settings["image_embeddings_enabled"]:
+        try:
+            image_query = embed_image_text(query)
+        except Exception as exc:
+            print(f"[screenshot-search] visual search unavailable: {exc}")
 
     now = time.time()
     scored = []

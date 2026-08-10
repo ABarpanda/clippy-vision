@@ -47,6 +47,12 @@ try:
     from core.app_settings import get_capture_settings
 except ImportError:
     from app_settings import get_capture_settings
+try:
+    from core.accessibility_text import extract_accessibility_text
+    from core.screenshot_enrichment import remember_accessibility_text
+except ImportError:
+    from accessibility_text import extract_accessibility_text
+    from screenshot_enrichment import remember_accessibility_text
 
 _lock = threading.Lock()
 _last_capture_ms = 0
@@ -159,6 +165,7 @@ def capture_screenshot(timestamp_ms: int) -> Optional[Path]:
         buf = io.BytesIO()
         img.save(buf, format="JPEG", quality=JPEG_QUALITY, optimize=True)
         path.write_bytes(buf.getvalue())
+        remember_accessibility_text(path, extract_accessibility_text())
         with _lock:
             _last_capture_hash = digest
         return path

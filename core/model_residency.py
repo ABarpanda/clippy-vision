@@ -1,9 +1,7 @@
-"""Vision model residency tied to screen capture — not app launch.
+"""Text model residency for the local assistant.
 
-Startup (API):     pin text only; vision idle / unloaded.
-Capture start:     pin vision if RAM allows, else on-demand (short keep_alive).
-Capture stop:      unload vision.
-While pinned:      if free RAM drops below the floor, demote to on-demand.
+Startup (API): pin the text model when the local provider is active.
+Capture: accessibility text and OCR run without loading a vision model.
 
 Persists to <data>/model_residency.json. Gateway reads policy via keep_alive_for().
 """
@@ -243,11 +241,6 @@ def warm_for_startup() -> dict:
                 reason = "text_warmup_failed"
                 err = str(e)
 
-            try:
-                _unload_vision()
-            except Exception as e:
-                print(f"[residency] vision unload skipped: {e}")
-
             payload = dict(
                 reason=reason,
                 available_before_mb=_mb(before),
@@ -266,52 +259,16 @@ def warm_for_startup() -> dict:
 
 
 def on_capture_start() -> dict:
-    """Screen capture turned on: pin vision if RAM allows, else on-demand."""
+    """Keep capture model-free; accessibility and OCR handle screen text."""
     with _lock:
-        if is_external_provider():
-            return _persist(
-                "idle",
-                reason="external_provider",
-                provider=get_llm_config()["provider"],
-                vision_warm_skipped=True,
-            )
-        free = _available()
-        print(f"[residency] capture start  free~{free / _GB:.1f}GB")
-
-        if _can_pin_vision(free):
-            try:
-                _warm(VL_MODEL, KEEP_ALIVE_PINNED)
-            except Exception as e:
-                print(f"[residency] vision pin failed - on_demand: {e}")
-                _stop_monitor()
-                return _persist("on_demand", reason="vl_warm_failed", error=str(e),
-                                available_before_mb=_mb(free))
-
-            after = _available()
-            if after < _FREE_FLOOR:
-                print(f"[residency] after VL pin free~{after / _GB:.1f}GB - on_demand")
-                _unload_vision()
-                _stop_monitor()
-                return _persist("on_demand", reason="post_pin_below_floor",
-                                available_before_mb=_mb(free), available_after_mb=_mb(after))
-
-            result = _persist("pinned", reason="capture_pin",
-                              available_before_mb=_mb(free), available_after_mb=_mb(after))
-            _start_monitor()
-            return result
-
         _stop_monitor()
-        return _persist("on_demand", reason="insufficient_ram_to_pin",
-                        available_before_mb=_mb(free))
+        return _persist("idle", reason="capture_text_only", vision_warm_skipped=True)
 
 
 def on_capture_stop() -> dict:
-    """Screen capture turned off: unload vision and return to idle."""
+    """Record the idle state; capture never loads a vision model."""
     with _lock:
-        print("[residency] capture stop - unloading vision")
         _stop_monitor()
-        if not is_external_provider():
-            _unload_vision()
         return _persist("idle", reason="capture_stop")
 
 
