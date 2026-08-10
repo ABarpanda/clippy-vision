@@ -422,6 +422,20 @@ def remove_conversation(conversation_id: str):
 
 
 
+@app.delete("/conversations/{conversation_id}")
+
+def conversation_delete(conversation_id: str):
+
+    result = delete_conversation(conversation_id)
+
+    if not result["deleted"]:
+
+        raise HTTPException(status_code=404, detail="Conversation not found.")
+
+    return result
+
+
+
 @app.get("/health")
 
 def health():
@@ -475,6 +489,10 @@ def residency_capture_stop():
 
 
 if __name__ == "__main__":
-    host = os.environ.get("CLIPPY_API_HOST", "127.0.0.1")
-    port = int(os.environ.get("CLIPPY_API_PORT", "8000"))
-    uvicorn.run(app, host=host, port=port)
+    # Loopback only. This API serves captured screen content and conversation
+    # history, so it must never be reachable from the local network.
+    # Electron reserves a free port and passes it in; 8000 is only the fallback
+    # for running this module directly.
+    port = int(os.environ.get("CLIPPY_API_PORT") or 8000)
+
+    uvicorn.run(app, host="127.0.0.1", port=port)

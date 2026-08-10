@@ -1,14 +1,14 @@
-pywin32>=306; sys_platform == "win32"
-uiautomation; sys_platform == "win32"
+pywin32>=306; platform_system == "Windows"
+uiautomation; platform_system == "Windows"
 mss
 Pillow
 pynput
 psutil
 imagehash
-rapidocr>=3.8.1,<4
-onnxruntime>=1.19.2
 mcp>=1.27,<2
 transformers>=4.40.0
+rapidocr>=3.8.1,<4
+onnxruntime>=1.19.2
 safetensors>=0.4.0
 torch
 scikit-learn

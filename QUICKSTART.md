@@ -2,7 +2,7 @@
 
 ## Recommended: Use the Installer
 
-Download and run **[ClippyVision-Setup-1.0.1.exe](https://github.com/protocorn/clippy-vision/releases/latest)**.
+Download `ClippyVision-Windows-Setup-{version}.exe` on Windows, or `ClippyVision-macOS-arm64-{version}.dmg` (Apple Silicon) / `ClippyVision-macOS-x64-{version}.dmg` (Intel) on macOS, from the [latest release](https://github.com/protocorn/clippy-vision/releases/latest).
 
 The installer's built-in setup wizard will:
 - Check for Python (install via winget if missing)
@@ -14,7 +14,9 @@ The installer's built-in setup wizard will:
 
 After setup completes, click **Launch**. Clippy Vision will start automatically on future reboots via the system tray.
 
-**Requirements:** Windows 10/11 (64-bit). The setup wizard checks available hardware before install. Internet is needed on first run for the text model; screen capture itself uses accessibility APIs and local OCR without loading a vision model.
+**Requirements:** Windows 10/11 (64-bit) or macOS 12+. Internet is needed on first run for the text model; screen capture uses accessibility APIs and local OCR without loading a vision model.
+
+On macOS, grant Clippy Vision Screen Recording and Accessibility permission in System Settings → Privacy & Security.
 
 ---
 

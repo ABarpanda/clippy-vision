@@ -25,6 +25,8 @@ PLATFORM = sys.platform
 IS_WINDOWS = PLATFORM == "win32"
 IS_MACOS = PLATFORM == "darwin"
 
+# AppleScript and Accessibility queries are relatively expensive, so the
+# capture loop shares a short-lived front-window snapshot between callers.
 _MAC_CACHE_TTL_SECONDS = 0.75
 _mac_cache_lock = threading.Lock()
 _mac_cache_at = 0.0
@@ -103,6 +105,8 @@ def _windows_browser_url(window: Any, class_name: str) -> Optional[str]:
     return None
 
 
+# macOS does not expose a Win32-style foreground-window handle. System Events
+# provides the frontmost process, title, and logical bounds through AppleScript.
 _MAC_FRONTMOST_SCRIPT = r'''
 tell application "System Events"
     set frontProc to first application process whose frontmost is true
@@ -169,6 +173,8 @@ def _mac_metadata() -> tuple[Optional[WindowMetadata], Optional[tuple[int, int, 
 
 def get_window_metadata() -> Optional[WindowMetadata]:
     """Return the frontmost app/window, with a short cache to avoid shell churn on macOS."""
+    # Keep the capture pipeline platform-neutral; only this adapter knows how
+    # to ask each operating system for its frontmost application.
     global _mac_cache_at, _mac_cache
     if IS_WINDOWS:
         return _windows_metadata()
@@ -183,6 +189,8 @@ def get_window_metadata() -> Optional[WindowMetadata]:
 
 
 
+    # Linux support is intentionally best-effort: xdotool is optional and the
+    # rest of capture should continue even when a desktop lacks it.
     title = _run_command(["xdotool", "getactivewindow", "getwindowname"])
     process_name = "unknown"
     if title:
@@ -199,6 +207,8 @@ def get_window_metadata() -> Optional[WindowMetadata]:
 
 def get_foreground_window_bounds() -> Optional[tuple[int, int, int, int]]:
     """Return macOS front-window bounds in logical screen coordinates."""
+    # The redaction layer calls this after metadata so both values come from
+    # the same cached AppleScript observation.
     if not IS_MACOS:
         return None
     get_window_metadata()

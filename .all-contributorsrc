@@ -34,6 +34,25 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "rusetiq",
+      "name": "aarush",
+      "avatar_url": "https://avatars.githubusercontent.com/u/234747645?v=4",
+      "profile": "https://github.com/rusetiq",
+      "contributions": [
+        "code",
+        "platform"
+      ]
+    },
+    {
+      "login": "shaurya703",
+      "name": "shaurya703",
+      "avatar_url": "https://github.com/shaurya703.png",
+      "profile": "https://github.com/shaurya703",
+      "contributions": [
+        "code"
+      ]
     }
   ]
 }

@@ -7,6 +7,8 @@ import threading
 import time
 from typing import Optional
 
+# Vision owns screenshot scheduling and privacy redaction. Model inference is
+# performed by the downstream processor after a frame has been written.
 try:
     from core.paths import get_screenshots_dir
 except ImportError:
@@ -32,10 +34,11 @@ _SCREENSHORT_DIR = get_screenshots_dir()
 MIN_GAP_SECONDS = 8
 
 BACKGROUND_INTERVALS_SECS = 60
+# Retain only a bounded local window of visual context.
 SCREENSHOT_TTL_MS = 24 * 60 * 60 * 1000
 JPEG_QUALITY = 75
 
-
+# Coalesce typing, paste, and context-change notifications into one capture.
 ACTIVITY_DEBOUNCE_SECONDS = 2.0
 
 
@@ -45,12 +48,10 @@ except ImportError:
     from privacy_settings import is_clippy_window, should_redact_window
 try:
     from core.app_settings import get_capture_settings
-except ImportError:
-    from app_settings import get_capture_settings
-try:
     from core.accessibility_text import extract_accessibility_text
     from core.screenshot_enrichment import remember_accessibility_text
 except ImportError:
+    from app_settings import get_capture_settings
     from accessibility_text import extract_accessibility_text
     from screenshot_enrichment import remember_accessibility_text
 
@@ -93,7 +94,8 @@ def _redact_clippy_windows(img: Image.Image, monitor: dict) -> None:
                 return
 
             if is_clippy_window(name, title):
-
+                # Only obscure Clippy when the user is looking at it. A hidden
+                # or minimized window does not occupy the pixels being saved.
                 if hwnd != foreground_hwnd:
                     return
             elif not should_redact_window(name, title):
@@ -111,10 +113,8 @@ def _redact_clippy_windows(img: Image.Image, monitor: dict) -> None:
         return
 
     if IS_MACOS:
-
-
-
-
+        # Accessibility permission is required for precise bounds. If it is
+        # unavailable, fail closed and redact the whole frame.
         metadata = get_window_metadata()
         if not metadata:
             draw.rectangle([0, 0, img.width, img.height], fill=(0, 0, 0))
@@ -147,6 +147,8 @@ def capture_screenshot(timestamp_ms: int) -> Optional[Path]:
     if not settings["capture_screenshots"]:
         return None
     try:
+        # monitor 0 is the virtual desktop; monitor 1 is the primary display.
+        # The setting keeps the default capture cost low for multi-monitor Macs.
         with mss.mss() as sct:
             settings = get_capture_settings()
             monitor = sct.monitors[0] if settings["capture_all_monitors"] else (sct.monitors[1] if len(sct.monitors) > 1 else sct.monitors[0])
@@ -155,6 +157,8 @@ def capture_screenshot(timestamp_ms: int) -> Optional[Path]:
 
         _redact_clippy_windows(img, monitor)
 
+        # Hash after redaction so privacy changes are reflected in the
+        # duplicate-frame decision. Near-identical frames are not persisted.
         digest = imagehash.phash(img)
         global _last_capture_hash
         with _lock:
@@ -179,6 +183,8 @@ def _capture_if_not_recent() -> None:
     settings = get_capture_settings()
     if not settings["capture_screenshots"]:
         return
+    # Reserve the timestamp before image work so concurrent activity callbacks
+    # cannot start overlapping captures.
     with _lock:
         now_ms = int(time.time() * 1000)
         if now_ms - _last_capture_ms < settings["min_gap_seconds"] * 1000:
@@ -189,6 +195,8 @@ def _capture_if_not_recent() -> None:
     capture_screenshot(now_ms)
 
 def purge_expired_screenshots() -> None:
+    # Filenames begin with epoch milliseconds, keeping cleanup portable across
+    # filesystems with different birth-time semantics.
     retention_days = get_capture_settings()["screenshot_retention_days"]
     cutoff_ms = int(time.time() * 1000) - int(retention_days * 86400 * 1000)
     for path in _SCREENSHORT_DIR.glob("*.jpg"):
@@ -236,6 +244,8 @@ def get_screenshots_near(
             continue
 
 
+        # Allow a small future window for camera lag, but never attach a frame
+        # captured substantially after the event being explained.
         offset = ts_ms - target_ms
         if -window_ms <= offset <= 10_000:
             candidates.append((abs(offset), path))
@@ -243,12 +253,16 @@ def get_screenshots_near(
     return [path for _, path in candidates[:max_count]]
 
 def start_background_capture() -> None:
+    # Periodic capture preserves context when the user is reading or watching
+    # a video without producing keyboard or clipboard events.
     while True:
         _capture_if_not_recent()
         purge_expired_screenshots()
         time.sleep(get_capture_settings()["background_interval_seconds"])
 
 def start_vision_daemon() -> threading.Thread:
+    # A daemon thread lets the desktop process exit without waiting on the
+    # long-lived background loop.
     t = threading.Thread(target=start_background_capture, daemon=True)
     t.start()
     print("Vision daemon started")

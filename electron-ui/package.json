@@ -1,28 +1,28 @@
 {
   "name": "clippy-vision",
   "productName": "Clippy Vision",
-  "version": "1.0.1",
+  "version": "1.2.0",
   "description": "Local AI desktop companion with screen awareness",
   "author": "Clippy Vision",
   "license": "MIT",
   "main": "electron/main.js",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder --win",
-    "dist:dir": "electron-builder --win --dir",
-    "pack": "electron-builder --win --dir"
+    "dist": "electron-builder",
+    "dist:all": "electron-builder --win --mac",
+    "dist:win": "electron-builder --win",
+    "dist:mac": "electron-builder --mac",
+    "dist:mac:arm64": "electron-builder --mac --arm64",
+    "dist:mac:x64": "electron-builder --mac --x64",
+    "dist:mac:all": "electron-builder --mac",
+    "dist:dir": "electron-builder --dir",
+    "dist:mac:dir": "electron-builder --mac --dir",
+    "pack": "electron-builder --dir"
   },
   "keywords": [],
   "devDependencies": {
-    "@vitejs/plugin-react": "^6.0.3",
     "electron": "^43.1.1",
-    "electron-builder": "^26.15.3",
-    "vite": "^8.1.5",
-    "vite-plugin-electron": "^1.1.0"
-  },
-  "dependencies": {
-    "react": "^19.2.7",
-    "react-dom": "^19.2.7"
+    "electron-builder": "^26.15.3"
   },
   "build": {
     "appId": "com.clippyvision.app",
@@ -63,11 +63,28 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "icon": "assets/icon.ico",
-      "artifactName": "ClippyVision-Setup-${version}.${ext}"
+      "artifactName": "ClippyVision-Windows-Setup-${version}.${ext}"
+    },
+    "mac": {
+      "icon": "assets/icon.png",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["arm64", "x64"]
+        },
+        {
+          "target": "zip",
+          "arch": ["arm64", "x64"]
+        }
+      ],
+      "category": "public.app-category.productivity",
+      "artifactName": "ClippyVision-macOS-${arch}-${version}.${ext}"
     },
     "nsis": {
       "oneClick": false,
@@ -75,8 +92,13 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "Clippy Vision",
-      "uninstallDisplayName": "Clippy Vision"
+      "uninstallDisplayName": "Clippy Vision",
+      "include": "nsis/installer.nsh"
     },
     "asar": true
+  },
+  "dependencies": {
+    "dompurify": "^3.4.13",
+    "marked": "^18.0.9"
   }
 }

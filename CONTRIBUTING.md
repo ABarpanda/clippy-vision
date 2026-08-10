@@ -49,7 +49,7 @@ This isn't mandatory for every issue, quick bug reports don't need the full temp
 
 ## Development Setup
 
-Clippy Vision is Windows-only today. The app lives in `electron-ui/` and starts the Python API for you.
+Clippy Vision supports Windows and macOS. The app lives in `electron-ui/` and starts the Python API for you.
 
 1. Fork the repository
 2. Clone your fork:
@@ -65,6 +65,18 @@ Clippy Vision is Windows-only today. The app lives in `electron-ui/` and starts 
    ```
    The setup wizard runs on first launch (Python, Ollama, models, `requirements.txt`).
 4. Create a branch: `git checkout -b feature/your-feature-name`
+
+### Dev app vs installed app
+
+`npm start` launches **Clippy Vision (dev)** — a separate app from the installer build.
+
+| | Installed (Start Menu) | `npm start` |
+|--|--|--|
+| Window / tray label | Clippy Vision | Clippy Vision (dev) |
+| Activity data | `%APPDATA%\Clippy Vision\data` | `<repo>\core\data` |
+| Single-instance lock | Own lock | Own lock |
+
+Both can run at the same time. If `npm start` exits immediately, a previous **dev** instance is still in the system tray — right-click it → Quit, then start again. The terminal prints which instance is running (`[clippy] starting Clippy Vision (dev)`).
 
 For Python-only work outside the app, you can also install deps with `pip install -r requirements.txt` from the repo root.
 
@@ -101,7 +113,9 @@ Before submitting a PR:
 ## Areas That Need Help
 
 ### High Priority
-- [ ] Linux/Mac support (currently Windows-only)
+- [ ] Cross-OS support
+  - [x] macOS support
+  - [ ] Linux support
 - [ ] Wire Settings → Access control UI to the existing privacy API (see open `good first issue`s)
 - [ ] Automated tests for classification pipeline
 - [ ] Performance optimization for vision processing
