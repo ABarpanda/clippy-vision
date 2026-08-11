@@ -60,7 +60,7 @@ def get_capture_settings() -> dict:
 _lock = threading.Lock()
 _last_capture_ms = 0
 _last_capture_hash = None
-_activity_timer: Optional[threading.Timer] = None
+_activity_timer: threading.Timer | None = None
 
 
 def _redact_clippy_windows(img: Image.Image, monitor: dict) -> None:
@@ -144,7 +144,7 @@ def _redact_clippy_windows(img: Image.Image, monitor: dict) -> None:
             draw.rectangle([x0, y0, x1, y1], fill=(0, 0, 0))
 
 
-def capture_screenshot(timestamp_ms: int) -> Optional[Path]:
+def capture_screenshot(timestamp_ms: int) -> Path | None:
     settings = get_capture_settings()
     if not settings["capture_screenshots"]:
         return None

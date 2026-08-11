@@ -81,11 +81,11 @@ class NameRequest(BaseModel):
 
 class ProfileUpdateRequest(BaseModel):
 
-    name: Optional[str] = None
+    name: str | None = None
 
-    introduction: Optional[str] = None
+    introduction: str | None = None
 
-    identity: Optional[dict[str, str]] = None
+    identity: dict[str, str] | None = None
 
 
 

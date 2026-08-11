@@ -182,7 +182,7 @@ def fetch_cluster(label: str) -> str:
         return f"Cluster '{label}' exists but has no active facts."
     return "\n".join(f"- {f}" for f in facts)
 
-def save_identity(field: str, value: str = "", op: str = "set", items: Optional[list[str]] = None) -> str:
+def save_identity(field: str, value: str = "", op: str = "set", items: list[str] | None = None) -> str:
     return save_identity_field(field, value=value, source="agent", op=op, items=items)
 
 def save_note(note: str) -> str:

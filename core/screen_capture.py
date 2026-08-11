@@ -4,7 +4,7 @@ import atexit
 import os
 import sys
 from pathlib import Path
-from typing import List, Optional, TypedDict
+from typing import TypedDict
 
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -111,7 +111,7 @@ WINDOW_POLL_INTERVAL_SECONDS = 2.0
 class TypingEvent(TypedDict):
     timestamp: float
     event_type: str
-    key: Optional[str]
+    key: str | None
 
 class TypingBurstMetrics(TypedDict):
     # Temporal metrics describe the rhythm of the burst rather than its text.
@@ -158,12 +158,12 @@ class PasteEvent(TypedDict):
 # switching windows, so a burst never straddles two foreground applications.
 class BurstDetection:
     def __init__(self, on_burst_completed, on_paste_event):
-        self._events: List[TypingEvent] = []
+        self._events: list[TypingEvent] = []
         self._lock = threading.Lock()
-        self._timer: Optional[threading.Timer] = None
+        self._timer: threading.Timer | None = None
         self._on_burst_completed = on_burst_completed
         self._on_paste_event = on_paste_event
-        self.window_metadata: Optional[WindowMetadata] = None
+        self.window_metadata: WindowMetadata | None = None
         self._modifiers: set[str] = set()
 
     @staticmethod
@@ -171,7 +171,7 @@ class BurstDetection:
         return key.char if hasattr(key, "char") and key.char else str(key)
 
     @staticmethod
-    def _modifier_name(key_str: str) -> Optional[str]:
+    def _modifier_name(key_str: str) -> str | None:
         if key_str in ("Key.cmd", "Key.cmd_l", "Key.cmd_r"):
             return "cmd"
         if key_str in ("Key.ctrl", "Key.ctrl_l", "Key.ctrl_r"):
@@ -250,7 +250,7 @@ class BurstDetection:
 
 
 
-def get_window_metadata() -> Optional[WindowMetadata]:
+def get_window_metadata() -> WindowMetadata | None:
     # Keep platform-specific foreground-window discovery behind one adapter.
     return read_window_metadata()
 
@@ -260,7 +260,7 @@ def get_window_metadata() -> Optional[WindowMetadata]:
 
 _last_paste_time = 0.0
 
-def _safe_window_metadata(candidate: Optional[WindowMetadata] = None) -> WindowMetadata:
+def _safe_window_metadata(candidate: WindowMetadata | None = None) -> WindowMetadata:
     if candidate:
         return candidate
     return get_window_metadata() or WindowMetadata(
@@ -302,7 +302,7 @@ def on_paste_event(paste_event: PasteEvent):
     on_activity_event()
 
 
-def get_clipboard_text() -> Optional[str]:
+def get_clipboard_text() -> str | None:
     return read_clipboard_text()
 
 def clipboard_monitor():
@@ -356,7 +356,7 @@ def clipboard_monitor():
 # -------------------------
 # These derived values support baseline/deviation scoring without sending the
 # raw event stream to another process.
-def compute_burst_metrics(events: List[TypingEvent], window_metadata: WindowMetadata) -> TypingBurstMetrics:
+def compute_burst_metrics(events: list[TypingEvent], window_metadata: WindowMetadata) -> TypingBurstMetrics:
     press_events = [event for event in events if event['event_type'] == 'key_press']
     release_events = [event for event in events if event['event_type'] == 'key_release']
 
@@ -543,8 +543,8 @@ t.start()
 # Polling detects app/window changes that do not generate keyboard events and
 # flushes the current burst before attaching the next context.
 last_window_key = None
-metadata: Optional[WindowMetadata] = None
-last_window_context: Optional[WindowMetadata] = None
+metadata: WindowMetadata | None = None
+last_window_context: WindowMetadata | None = None
 last_context_change_time: float = time.time()
 
 while True:

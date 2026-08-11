@@ -26,7 +26,7 @@ _SCREENSHOT_DIR = get_screenshots_dir()
 # DB helpers
 # ─────────────────────────────────────────────────────────────
 
-def _get_nearest_event(screenshot_ts: float) -> Optional[dict]:
+def _get_nearest_event(screenshot_ts: float) -> dict | None:
     row = conn.execute(
         """SELECT event_id, timestamp, event_type,
                   process_name, current_window_title, active_url,
