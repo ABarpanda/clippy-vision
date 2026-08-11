@@ -1,12 +1,12 @@
-import time
 import json
 import math
+import time
 import uuid
-from core.storage import conn, get_summaries
-from core.memory_store import save_identity_field
 from typing import Optional
 
-from core.llm_gateway import gateway, Priority
+from core.llm_gateway import Priority, gateway
+from core.memory_store import save_identity_field
+from core.storage import conn, get_summaries
 
 CLUSTER_THRESHOLD = 0.75
 DISTIL_EVERY_N_SESSIONS = 5 # change to 5 for production

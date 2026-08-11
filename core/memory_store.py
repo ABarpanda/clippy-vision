@@ -1,7 +1,7 @@
-import os
-import sys
-import sqlite3
 import json
+import os
+import sqlite3
+import sys
 import time
 from typing import Optional
 
@@ -12,6 +12,7 @@ if _CORE_DIR not in sys.path:
     sys.path.insert(0, _CORE_DIR)
 
 from storage import conn
+
 
 def save_identity_field( field: str, value: str, source: str="agent", op: str="set", items: Optional[list[str]]=None) -> str:
     key = f"identity.{field}"

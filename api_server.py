@@ -1,57 +1,39 @@
-import sys, os
+import os
+import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 
 
-from contextlib import asynccontextmanager
+import json
 import threading
-
-from fastapi import FastAPI
-
-from pydantic import BaseModel
-
+from contextlib import asynccontextmanager
 from typing import Optional
 
-import uvicorn, json
-
+import uvicorn
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-
-
-
-from agent.react_agent import run, run_stream, USER_MESSAGE_MAX_CHARS
-
 from fastapi.responses import StreamingResponse
-from fastapi import HTTPException
-
-from core.storage import get_user_name, set_user_name
-
-from core.memory_store import (
-
-    get_identity,
-
-    get_introduction,
-
-    set_introduction,
-
-    save_identity_field,
-
-)
-
-from core.intro_builder import start_intro_rebuild_daemon
-
-from core.privacy_settings import list_privacy_targets, set_privacy_enabled
+from pydantic import BaseModel
 
 from agent.conversation import (
-    list_conversations,
-    get_conversation_messages,
-    search_conversations,
     delete_conversation,
+    get_conversation_messages,
+    list_conversations,
+    search_conversations,
 )
-
+from agent.react_agent import USER_MESSAGE_MAX_CHARS, run, run_stream
 from agent.router import load_classifier
-from core.model_residency import warm_for_startup, on_capture_stop
-
+from core.intro_builder import start_intro_rebuild_daemon
+from core.memory_store import (
+    get_identity,
+    get_introduction,
+    save_identity_field,
+    set_introduction,
+)
+from core.model_residency import on_capture_stop, warm_for_startup
+from core.privacy_settings import list_privacy_targets, set_privacy_enabled
+from core.storage import get_user_name, set_user_name
 
 
 @asynccontextmanager

@@ -1,11 +1,12 @@
-from pathlib import Path
 import io
+import threading
+import time
+from pathlib import Path
+from typing import Optional
+
 import imagehash
 import mss
 from PIL import Image, ImageDraw
-import threading
-import time
-from typing import Optional
 
 # Vision owns screenshot scheduling and privacy redaction. Model inference is
 # performed by the downstream processor after a frame has been written.

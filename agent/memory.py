@@ -1,15 +1,18 @@
-import time
 import math
+import time
 from typing import Optional
 
-from core.memory_store import (
-    get_identity, get_introduction, get_all_clusters,
-    get_active_facts, save_identity_field,
-    get_identity_for_semantic_profile, update_field_embedding,
-)
-
 from core.distil import save_note_to_memory
-from core.llm_gateway import gateway, Priority
+from core.llm_gateway import Priority, gateway
+from core.memory_store import (
+    get_active_facts,
+    get_all_clusters,
+    get_identity,
+    get_identity_for_semantic_profile,
+    get_introduction,
+    save_identity_field,
+    update_field_embedding,
+)
 
 EMBED_MODEL      = "nomic-embed-text"
 MEMORY_TOP_K     = 8     # max facts to inject per turn
@@ -33,7 +36,8 @@ def semantic_memory_context_from_vec(q_vec: list) -> str:
     """Same as semantic_memory_context but accepts a pre-computed query vector.
     Use this when the caller has already embedded the query to avoid a second embed call."""
     import json
-    import os, sys
+    import os
+    import sys
     _CORE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "core")
     if _CORE_DIR not in sys.path:
         sys.path.insert(0, _CORE_DIR)
@@ -187,7 +191,9 @@ def save_note(note: str) -> str:
 def delete_note(note_text: str) -> str:
     """Suppress a memory fact whose text matches note_text (case-insensitive substring).
     Marks the fact as valid_to=now so it no longer appears in retrieval."""
-    import json, os, sys
+    import json
+    import os
+    import sys
     _CORE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "core")
     if _CORE_DIR not in sys.path:
         sys.path.insert(0, _CORE_DIR)

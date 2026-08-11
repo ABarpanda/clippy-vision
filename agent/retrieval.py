@@ -1,10 +1,10 @@
+import json
+import math
+import re
 import sqlite3
 import time
-import math
-from core.llm_gateway import gateway, Priority
-import re
-import json
 
+from core.llm_gateway import Priority, gateway
 from core.paths import get_db_path
 
 _DB_PATH = get_db_path()

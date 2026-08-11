@@ -3,35 +3,35 @@ from __future__ import annotations
 import atexit
 import os
 import sys
-from typing import TypedDict, Optional, List
 from pathlib import Path
+from typing import List, Optional, TypedDict
 
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 # The capture process starts the event workers once, then keeps the keyboard,
 # clipboard, and foreground-window loop alive for the lifetime of the app.
+import threading
+import time
+
 from pynput import keyboard
 
-import time
-import threading
-
 try:
-    from core.baseline import update_baseline, compute_deviation
-    from core.events import Event, WindowMetadata, get_session_id, generate_summary
-    from core.storage import store_event, purge_expired
-    from core.vision import start_vision_daemon, on_activity_event
-    from core.summarizer import start_summarizer
-    from core.distil import should_distil, distil
+    from core.baseline import compute_deviation, update_baseline
+    from core.distil import distil, should_distil
+    from core.events import Event, WindowMetadata, generate_summary, get_session_id
     from core.screenshot_processor import start_screenshot_processor
+    from core.storage import purge_expired, store_event
+    from core.summarizer import start_summarizer
+    from core.vision import on_activity_event, start_vision_daemon
 except ImportError:
-    from baseline import update_baseline, compute_deviation
-    from events import Event, WindowMetadata, get_session_id, generate_summary
-    from storage import store_event, purge_expired
-    from vision import start_vision_daemon, on_activity_event
-    from summarizer import start_summarizer
-    from distil import should_distil, distil
+    from baseline import compute_deviation, update_baseline
+    from distil import distil, should_distil
+    from events import Event, WindowMetadata, generate_summary, get_session_id
     from screenshot_processor import start_screenshot_processor
+    from storage import purge_expired, store_event
+    from summarizer import start_summarizer
+    from vision import on_activity_event, start_vision_daemon
 import uuid
 from datetime import datetime
 
@@ -40,13 +40,21 @@ from classifier.worker import start_worker
 try:
     from core.platform_support import (
         get_clipboard_text as read_clipboard_text,
+    )
+    from core.platform_support import (
         get_window_metadata as read_window_metadata,
+    )
+    from core.platform_support import (
         window_key,
     )
 except ImportError:
     from platform_support import (
         get_clipboard_text as read_clipboard_text,
+    )
+    from platform_support import (
         get_window_metadata as read_window_metadata,
+    )
+    from platform_support import (
         window_key,
     )
 def get_capture_settings() -> dict:

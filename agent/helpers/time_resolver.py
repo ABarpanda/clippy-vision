@@ -33,9 +33,9 @@ This is a second, independent layer on top of the router classifier's own
 training on this same distinction (see docs/router_labelling_policy.md).
 """
 
+import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-import re
 
 import parsedatetime
 from rapidfuzz.distance import DamerauLevenshtein

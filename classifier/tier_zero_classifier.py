@@ -1,6 +1,6 @@
 import json
-from typing import Optional, TypedDict
 import math
+from typing import Optional, TypedDict
 
 UNINTERESTING_PROCESSES = {"msiexec.exe", "SearchHost.exe", "unknown"}
 

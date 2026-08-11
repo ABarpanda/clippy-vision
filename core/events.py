@@ -1,5 +1,5 @@
 import uuid
-from typing import TypedDict, Optional
+from typing import Optional, TypedDict
 
 SESSION_ID = str(uuid.uuid4())
 
