@@ -2,6 +2,7 @@ import sys
 import os
 
 
+# Make sure both the project root and core/ are importable
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "core"))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "agent"))

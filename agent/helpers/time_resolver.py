@@ -53,18 +53,22 @@ _TEMPORAL_VOCAB = [
 ]
 _TEMPORAL_VOCAB_SET = set(_TEMPORAL_VOCAB)
 
-_MIN_FUZZY_LENGTH = 4
-_MIN_CANDIDATE_LENGTH = 4
+_MIN_FUZZY_LENGTH = 4  # never fuzzy-correct words shorter than this
+_MIN_CANDIDATE_LENGTH = 4  # never correct TO a vocab word shorter than this ("day", "ago", "may")
 
 
 
+# Common English words within correction distance of a vocab word — never
+# "correct" these. Expand as misfires are found during eval.
 _PROTECTED_WORDS = {
 
+    # near temporal words
     "date", "dates", "least", "yeah", "hear", "near", "wear", "pass",
     "mouth", "south", "worth", "cast", "list", "lost", "must", "doing",
     "money", "monkey", "yours", "ours", "error", "remember", "remembered",
 
 
+    # near intent-cue words (base verb forms, dev vocabulary, misc)
     "sent", "spend", "booked", "plane", "plain", "plant", "plants",
     "build", "write", "complete", "manage", "manager", "hopping",
     "matched", "washed", "patched", "batched", "exited", "cold",
@@ -87,6 +91,8 @@ _WEEKEND_RE = re.compile(
 
 
 
+# parsedatetime treats "last 3 days" as a single future day — handle rolling
+# windows ourselves ("last/past/over the last N days|weeks|months|hours").
 _ROLLING_WINDOW_RE = re.compile(
     r'\b(?:(?:over|in|from)\s+(?:the\s+)?)?'
     r'(?:last|past|previous|prior)\s+'
@@ -97,6 +103,9 @@ _ROLLING_WINDOW_RE = re.compile(
 
 
 
+# "N hours/minutes ago" — parsedatetime resolves these to a point in time and
+# then snaps to day_bounds, losing the sub-day resolution entirely. Handle
+# them here before parsedatetime gets a chance.
 _HOURS_AGO_RE = re.compile(
     r'\b(?P<n>\d+)\s+(?P<unit>hours?|minutes?|mins?)\s+(ago|before)\b',
     re.IGNORECASE,
@@ -123,11 +132,26 @@ _EXACT_NUMERIC_DATETIME_RE = re.compile(
 
 
 
+# ─────────────────────────────────────────────────────────────
+# Future-vs-past intent cues (tense/modal disambiguation)
+# ─────────────────────────────────────────────────────────────
+# These scan the WHOLE query, not just the matched time phrase — modal verbs
+# are often nowhere near the time word ("I was wondering if I should visit my
+# parents this weekend"). Past cues are checked first and win ties: a
+# concrete past-tense verb is stronger, less ambiguous evidence than a modal.
+# Intent-cue words that are ALSO fuzzy-correction targets, so typos like
+# "shoud"/"watchd"/"finshed" still trigger tense detection. Only words of
+# 5+ chars — and corrections TO these are capped at 1 edit (see normalize):
+# their -s/-ed/-ing inflection neighbors sit at distance 2 ("works"→"worked",
+# "watching"→"watched", "happening"→"happened") and the length-scaled budget
+# used for temporal words would silently corrupt them into past-tense cues.
 _INTENT_VOCAB = [
 
+    # modal / future-intent
     "should", "would", "could", "might", "going", "gonna", "wanna", "gotta",
     "hoping", "planning", "thinking", "wondering", "plans", "wants", "excited",
 
+    # past-tense verbs
     "happened", "spent", "worked", "watched", "walked", "talked", "looked",
     "checked", "called", "cooked", "cleaned", "visited", "finished",
     "completed", "enjoyed", "managed", "built", "wrote", "browsed", "searched",
@@ -138,6 +162,10 @@ _INTENT_VOCAB_SET = set(_INTENT_VOCAB)
 
 
 
+# Correctly-spelled cue words too short (or too collision-prone) to be fuzzy
+# targets — recognized as-is by the detection regexes, never corrected, and
+# never corrected TO ("want"→"wants" is 1 edit; without this, the corrector
+# would "fix" a legitimate word).
 _INTENT_PASSTHROUGH = {
     "want", "plan", "hope", "wish", "went", "felt", "will", "shall",
     "did", "was", "were", "had", "met", "saw",
@@ -149,11 +177,17 @@ _PASSTHROUGH_SET = set(_CORRECTION_TARGETS) | _INTENT_PASSTHROUGH
 
 
 
+# Verbs that make a modal a polite REQUEST about existing data, not a future
+# plan: "should I check my activity from monday?" / "could I get a summary of
+# yesterday?" are past queries; "should I go hiking this weekend?" is not.
 _REQUEST_VERBS = r"(?:see|know|check|review|look|get|have|find|view|recall|remember|tell|show|give|summarize|summarise|pull|fetch|list)"
 
 
 
 
+# "should/could/would/might + (pronoun) + have" is a PAST regret/retrospective
+# ("I should have gone out last weekend", "what could I have done better") —
+# the event didn't happen, but the reference is still to the past.
 _PAST_REGRET_RE = re.compile(
     r"\b(?:should|could|would|might|must)(?:\s+(?:i|we|you|he|she|they))?(?:'ve|\s+have|\s+of)\b"
 )
@@ -162,6 +196,10 @@ _PAST_REGRET_RE = re.compile(
 
 
 
+# "I was wondering/thinking/hoping/planning/going/about to..." is a softened
+# present/future hedge — strip it before the past-cue check so the bare
+# "was"/"were" doesn't mask genuine future intent later in the sentence
+# ("I was wondering if I should visit this weekend").
 _HEDGE_RE = re.compile(r"\b(?:was|were)\s+(?:wondering|thinking|hoping|planning|going|gonna|about)\b")
 
 _PAST_CUES_RE = re.compile(
@@ -174,6 +212,8 @@ _PAST_CUES_RE = re.compile(
 _FUTURE_CUES_RE = re.compile(
 
 
+    # deliberative modal + first person ("should I", "will we") — unless
+    # followed by a request verb (then it's a query about existing data)
     r"\b(?:should|shall|will|might)\s+(?:i|we)\b(?!\s+" + _REQUEST_VERBS + r"\b)"
     r"|\b(?:i|we)\s+(?:should|shall|will|might)\b"
     r"|\bi'll\b|\bwe'll\b"
@@ -181,6 +221,10 @@ _FUTURE_CUES_RE = re.compile(
 
 
 
+    # can/could/would + first person: same request-verb guard; "like to"/
+    # "love to" are transparent ("I would like to see..." = request,
+    # "I would like to go hiking..." = future plan); "not" excluded because
+    # "could not finish" is past narration
     r"|\b(?:can|could|would)\s+(?:i|we)\s+(?:like\s+to\s+|love\s+to\s+)?(?!(?:" + _REQUEST_VERBS + r"|not)\b)\w+"
     r"|\b(?:i|we)\s+(?:can|could|would)\s+(?:like\s+to\s+|love\s+to\s+)?(?!(?:" + _REQUEST_VERBS + r"|not)\b)\w+"
     r"|\b(?:gonna|wanna|gotta)\b"
@@ -205,16 +249,19 @@ def _detect_intent_tense(query_lower: str) -> str | None:
 
 @dataclass
 class TemporalRange:
-    phrase: str
-    start_ts: float
-    end_ts: float
-    granularity: str
+    phrase: str  # matched substring, e.g. "last monday"
+    start_ts: float  # inclusive, epoch seconds
+    end_ts: float  # exclusive, epoch seconds
+    granularity: str  # "day" | "week" | "weekend" | "month"
 
 
 
 
 
 
+# ─────────────────────────────────────────────────────────────
+# Typo normalization (vocabulary-scoped, deliberately strict)
+# ─────────────────────────────────────────────────────────────
 def _max_allowed_edits(word_len: int) -> int:
     if word_len <= _MIN_FUZZY_LENGTH:
         return 1
@@ -249,6 +296,9 @@ def normalize_temporal_words(query: str) -> str:
 
 
 
+            # Intent-cue candidates tolerate only 1 edit regardless of word
+            # length (see _INTENT_VOCAB comment); temporal words keep the
+            # length-scaled budget so "tommorrow"/"wednsday" still correct.
             cutoff = 1 if candidate in _INTENT_VOCAB_SET else max_edits
             dist = DamerauLevenshtein.distance(clean, candidate, score_cutoff=cutoff)
             if dist > cutoff:
@@ -256,7 +306,7 @@ def normalize_temporal_words(query: str) -> str:
             if best_dist is None or dist < best_dist:
                 best_word, best_dist, tied = candidate, dist, False
             elif dist == best_dist:
-                tied = True
+                tied = True  # ambiguous — two candidates equally close
 
         if best_word is not None and not tied:
             corrected.append(best_word)
@@ -271,6 +321,10 @@ def normalize_temporal_words(query: str) -> str:
 
 
 
+# ─────────────────────────────────────────────────────────────
+# Calendar bounds helpers (plain datetime math — we deliberately
+# never trust parsedatetime's own week/month arithmetic)
+# ─────────────────────────────────────────────────────────────
 def day_bounds(dt: datetime) -> tuple[datetime, datetime]:
     start = datetime(dt.year, dt.month, dt.day)
     return start, start + timedelta(days=1)
@@ -306,6 +360,8 @@ def _rolling_window_delta(n: int, unit: str) -> tuple[timedelta, str]:
         return timedelta(weeks=n), "week"
 
 
+    # parsedatetime has no month arithmetic; 30-day blocks are close enough
+    # for prefetch windowing — callers still clip to now via _finalize().
     return timedelta(days=30 * n), "month"
 
 
@@ -331,11 +387,11 @@ def weekend_bounds(now: datetime, modifier: str | None, intent: str | None) -> t
     if modifier in ("last", "past", "previous", "prior"):
         start = saturday_this_week - timedelta(weeks=1)
     elif now >= saturday_this_week:
-        start = saturday_this_week
+        start = saturday_this_week  # asked mid-weekend: current one
     elif intent == "past":
-        start = saturday_this_week - timedelta(weeks=1)
+        start = saturday_this_week - timedelta(weeks=1)  # just-passed weekend
     else:
-        return None
+        return None  # weekday, no past evidence: upcoming = future
     return start, start + timedelta(days=2)
 
 
@@ -343,6 +399,9 @@ def weekend_bounds(now: datetime, modifier: str | None, intent: str | None) -> t
 
 
 
+# ─────────────────────────────────────────────────────────────
+# Main entry point
+# ─────────────────────────────────────────────────────────────
 def _finalize(phrase: str, start: datetime, end: datetime, granularity: str, now: datetime) -> "TemporalRange | None":
     """Single choke point every branch routes through. This is a past/present
     activity assistant — it can never have data about the future, so a range
@@ -352,7 +411,7 @@ def _finalize(phrase: str, start: datetime, end: datetime, granularity: str, now
     treat it as unresolved rather than "no activity found"."""
     if start > now:
         return None
-    end = min(end, now)
+    end = min(end, now)  # clip any range that straddles "now" (today, this week, this month)
     return TemporalRange(
         phrase=phrase,
         start_ts=start.timestamp(),
@@ -377,6 +436,12 @@ def resolve_temporal_range(query: str, now: datetime | None = None) -> TemporalR
 
 
 
+    # Tense/modal disambiguation FIRST, before any date-phrase parsing: "what
+    # should I do this weekend?" and "this weekend was so boring" contain the
+    # identical calendar phrase, so nothing below this point can tell them
+    # apart. If the sentence reads as future intent anywhere, reject outright
+    # — there is no data for something that hasn't happened, no matter how
+    # the time phrase itself would otherwise resolve.
     intent = _detect_intent_tense(normalized.lower())
     if intent == "future":
         return None
@@ -412,14 +477,15 @@ def resolve_temporal_range(query: str, now: datetime | None = None) -> TemporalR
         )
 
 
+    # parsedatetime has no "weekend" vocabulary — handle it ourselves first.
     weekend_match = _WEEKEND_RE.search(normalized)
     if weekend_match:
         modifier = (weekend_match.group("modifier") or "").lower() or None
         if modifier in _FUTURE_MODIFIERS:
-            return None
+            return None  # "next weekend" — hasn't happened, no data can exist
         bounds = weekend_bounds(now, modifier, intent)
         if bounds is None:
-            return None
+            return None  # bare/this weekend on a weekday, no past evidence
         start, end = bounds
         return _finalize(weekend_match.group(0).strip(), start, end, "weekend", now)
 
@@ -451,12 +517,20 @@ def resolve_temporal_range(query: str, now: datetime | None = None) -> TemporalR
 
 
 
+    # parsedatetime sometimes drops the modifier from the returned span
+    # ("coming friday" -> matched_text is just "friday") even though it used
+    # the modifier internally to resolve the date — so also check the text
+    # immediately preceding the match, not just the span itself.
     prefix = normalized[:start_idx].strip().lower()
 
 
 
 
 
+    # Any explicit future modifier ("next monday", "next month", "coming
+    # week") means the user is asking about something that hasn't happened
+    # yet — reject immediately rather than let it fall through to a branch
+    # that might resolve it forward anyway.
     if any(mod in phrase for mod in _FUTURE_MODIFIERS) or any(prefix.endswith(mod) for mod in _FUTURE_MODIFIERS):
         return None
 
@@ -482,6 +556,9 @@ def resolve_temporal_range(query: str, now: datetime | None = None) -> TemporalR
 
 
 
+        # Named month ("in March") with no explicit modifier: parsedatetime
+        # may still default to the upcoming occurrence. Snap back a year —
+        # _finalize() is the final safety net if this guess is still wrong.
         start, end = month_bounds(anchor_dt)
         if start > now:
             start, end = month_bounds(anchor_dt, offset_months=-12)
@@ -499,6 +576,18 @@ def resolve_temporal_range(query: str, now: datetime | None = None) -> TemporalR
 
 
 
+        # "3 days ago", "last monday", "tomorrow", a specific date, etc.
+        # parsedatetime bug: a BARE weekday mention with NO modifier at all
+        # ("on Monday") resolves to the NEXT occurrence — wrong default
+        # here, so we snap it back. But if any modifier is present at all
+        # ("this friday", "last monday") the forward/backward resolution is
+        # deliberate, not a parsing bug — trust it, and let _finalize()
+        # below reject it if it's still in the future (e.g. "this friday"
+        # asked on a Thursday genuinely means tomorrow, which has no data)...
+        # UNLESS the sentence carries an explicit PAST tense cue elsewhere
+        # ("this friday I was slammed with work") — that's concrete evidence
+        # the modifier-driven forward resolution is wrong for THIS query, so
+        # override the "trust it" default and snap back regardless.
         has_weekday = any(d in phrase for d in _WEEKDAYS)
         has_modifier = (
             any(mod in phrase for mod in _MODIFIER_WORDS)

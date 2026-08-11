@@ -56,6 +56,7 @@ def _memory_inventory() -> str:
 def _fetch_memory(q_vec: list) -> str:
 
 
+    # Pass 1: cluster gate (compare query to cluster centeroids)
     cluster_rows =  conn.execute("""
     SELECT cluster_id, label, description, centroid FROM memory_clusters
     """).fetchall()
@@ -69,6 +70,7 @@ def _fetch_memory(q_vec: list) -> str:
     for cluster_id, label, description, centroid in cluster_rows:
         if not centroid:
 
+            # No centroid yet - cluster newly created
             surviving_clusters_ids.add(cluster_id)
             continue
         centroid = json.loads(centroid)
@@ -79,6 +81,7 @@ def _fetch_memory(q_vec: list) -> str:
         return "No relevant semantic memory clusters found."
 
 
+    # Pass 2: fact re-rank within surviving clusters
     placeholders = ",".join("?" * len(surviving_clusters_ids))
     fact_rows = conn.execute(f"""
     SELECT f.fact_id, f.text, f.vector_embedding, f.cluster_id, c.label, c.description
@@ -107,6 +110,7 @@ def _fetch_memory(q_vec: list) -> str:
 
 
 
+    # Merge and format results
     scored.sort(key=lambda x: x[0], reverse=True)
     top_k = scored[:MEMORY_TOP_K]
 

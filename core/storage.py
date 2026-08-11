@@ -16,6 +16,9 @@ conn.commit()
 
 
 
+#-------------------------------------#
+#----------- EVENTS TABLE ------------#
+#-------------------------------------#
 conn.execute("""
 CREATE TABLE IF NOT EXISTS events (
     event_id              TEXT PRIMARY KEY,
@@ -79,6 +82,9 @@ conn.commit()
 
 
 
+#-------------------------------------#
+#---------- EVENTS FTS5 INDEX --------#
+#-------------------------------------#
 conn.execute("""
 CREATE VIRTUAL TABLE IF NOT EXISTS events_fts
     USING fts5(
@@ -116,6 +122,9 @@ conn.commit()
 
 
 
+#-------------------------------------#
+#---------- SUMMARY TABLE ------------#
+#-------------------------------------#
 conn.execute("""
 CREATE TABLE IF NOT EXISTS sessions(
     session_id        TEXT NOT NULL,
@@ -182,12 +191,15 @@ try:
     conn.execute("ALTER TABLE sessions ADD COLUMN vision_enriched INTEGER DEFAULT 0")
     conn.commit()
 except sqlite3.OperationalError:
-    pass
+    pass  # column already exists
 
 
 
 
 
+#-------------------------------------#
+#--------- MEMORY TABLES -------------#
+#-------------------------------------#
 conn.execute("""
 CREATE TABLE IF NOT EXISTS memory_clusters (
     cluster_id TEXT PRIMARY KEY,
@@ -229,6 +241,9 @@ conn.commit()
 
 
 
+#-------------------------------------#
+#-------- CONFLICT TABLE ------------#
+#-------------------------------------#
 conn.execute("""
 CREATE TABLE IF NOT EXISTS memory_conflicts (
     conflict_id  TEXT PRIMARY KEY,
@@ -246,6 +261,9 @@ conn.commit()
 
 
 
+#-------------------------------------#
+#------- CONVERSATION TABLE ----------#
+#-------------------------------------#
 conn.execute("""
 CREATE TABLE IF NOT EXISTS conversations (
     chat_id TEXT PRIMARY KEY,
@@ -263,6 +281,9 @@ conn.commit()
 
 
 
+#-------------------------------------#
+#-------- USER PROFILE TABLE ---------#
+#-------------------------------------#
 conn.execute("""
 CREATE TABLE IF NOT EXISTS user_profile (
     id   INTEGER PRIMARY KEY CHECK (id = 1),
@@ -299,6 +320,9 @@ def set_user_name(name: str) -> str:
 
 
 
+###########################################
+####### HELPERS FOR STORING EVENTS ########
+###########################################
 def store_event(event: Event):
 
     from core.app_settings import get_capture_settings
@@ -307,6 +331,10 @@ def store_event(event: Event):
 
 
 
+    #------------------------------------------------------#
+    # Vector embedding is a JSON string for now            #
+    # but should be changed to a binary blob in the future #
+    #------------------------------------------------------#
     prev = event["previous_window_context"]
     conn.execute(
         """INSERT OR IGNORE INTO events (
@@ -350,6 +378,9 @@ def store_event(event: Event):
 
 
 
+###########################################
+####### HELPERS FOR STORING SUMMARY #######
+###########################################
 def store_summary(summary: dict, vision_enriched: bool = False, embedding: list | None = None):
     conn.execute(
         """INSERT OR REPLACE INTO sessions (
@@ -476,6 +507,7 @@ def mark_session_vision_enriched(summary_id: str):
 
 def get_last_summary_time(session_id: str) -> float:
 
+    # Prefer the current session's last window
     row = conn.execute(
         "SELECT MAX(window_end) FROM sessions WHERE session_id = ?",
         (session_id,)
@@ -484,6 +516,8 @@ def get_last_summary_time(session_id: str) -> float:
         return row[0]
 
 
+    # On a fresh session (e.g. after restart), continue from wherever
+    # any previous session left off so we don't re-summarize old events
     row = conn.execute("SELECT MAX(window_end) FROM sessions").fetchone()
     return row[0] if row and row[0] else time.time() - 3600
 
@@ -491,6 +525,9 @@ def get_last_summary_time(session_id: str) -> float:
 
 
 
+###########################################
+########### DELETE EXPIRED DATA ###########
+###########################################
 def purge_expired():
     from core.app_settings import get_capture_settings
 

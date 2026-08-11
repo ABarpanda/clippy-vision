@@ -10,9 +10,9 @@ from core.llm_gateway import gateway, Priority
 from core.local_embeddings import embed_text, embed_texts
 
 CLUSTER_THRESHOLD = 0.75
-DISTIL_EVERY_N_SESSIONS = 5
-SESSION_GAP_SECONDS    = 30 * 60
-SESSION_MAX_SUMMARIES  = 20
+DISTIL_EVERY_N_SESSIONS = 5  # change to 5 for production
+SESSION_GAP_SECONDS    = 30 * 60  # change to 30 * 60 for production
+SESSION_MAX_SUMMARIES  = 20  # change to 20 for production
 
 MODEL                  = "qwen3:8b"
 
@@ -26,6 +26,7 @@ def count_sessions_since_last_distil() -> int:
         return 0
 
 
+    # Start at 1 — the first summary is itself the start of the first session
     sessions_count = 1
     previous_window_end = summaries[0]["window_end"]
     summaries_in_session = 1
@@ -39,6 +40,7 @@ def count_sessions_since_last_distil() -> int:
         else:
             summaries_in_session += 1
 
+        # Always advance the pointer regardless of whether there was a gap
         previous_window_end = summary["window_end"]
 
     return sessions_count
@@ -97,6 +99,9 @@ def distil() -> None:
 
     embeddings = embed_texts(facts)
 
+    # Compute all embeddings upfront so we can pre-cluster the whole batch
+    # before touching existing clusters. This prevents the cold-start cascade
+    # where fact N blindly joins a cluster that fact N-1 just created.
     groups = _cluster_batch(embeddings)
     print(f"  [DISTIL] {len(groups)} topic group(s) from {len(facts)} facts")
 
@@ -106,6 +111,8 @@ def distil() -> None:
 
 
 
+        # Route the group by its centroid so one outlier fact can't
+        # drag the whole group into the wrong existing cluster.
         dim = len(group_embs[0])
         group_centroid = [
             sum(e[d] for e in group_embs) / len(group_embs)
@@ -121,6 +128,8 @@ def distil() -> None:
             else:
 
 
+                # First fact in the group spawns the new cluster;
+                # the rest merge into it.
                 target = _create_cluster(fact, emb)
 
     version = _get_meta("profile_version", 0) + 1
@@ -255,6 +264,7 @@ def _merge_into_cluster(cluster_id: str, fact: str, embedding: list, source: str
     ).fetchall()
 
 
+    # if cluster somehow has no active facts, just add directly
     if not rows:
         _insert_fact(cluster_id, fact, embedding, fact_id=None, source=source)
         _recompute_centroid(cluster_id)
@@ -282,9 +292,11 @@ def _merge_into_cluster(cluster_id: str, fact: str, embedding: list, source: str
     if action == "CONFLICT" and isinstance(target, int) and 0 <= target < len(rows):
         conflicting_fact_id = rows[target][0]
 
+        # Store the incoming fact as a new active fact — do NOT suppress either side
         new_fact_id = str(uuid.uuid4())
         _insert_fact(cluster_id, fact, embedding, fact_id=new_fact_id, source=source)
 
+        # Record the conflict for later user resolution
         conn.execute(
             """INSERT INTO memory_conflicts
                (conflict_id, fact_id_a, fact_id_b, cluster_id, created_at)
@@ -301,17 +313,20 @@ def _merge_into_cluster(cluster_id: str, fact: str, embedding: list, source: str
         new_fact_id = str(uuid.uuid4())
         new_emb     = embed_text(text)
 
+        # supersede the old fact
         conn.execute(
             "UPDATE memory_facts SET valid_to = ?, superseded_by = ? WHERE fact_id = ?",
             (time.time(), new_fact_id, old_fact_id)
         )
 
 
+        # insert the replacement
         _insert_fact(cluster_id, text, new_emb, fact_id=new_fact_id, source=source)
         _recompute_centroid(cluster_id)
         return
 
 
+    # ADD
     _insert_fact(cluster_id, fact, embedding, fact_id=None, source=source)
     _recompute_centroid(cluster_id)
     return
@@ -350,6 +365,9 @@ def _recompute_centroid(cluster_id: str) -> None:
 
 
 
+# ─────────────────────────────────────────────
+# Agent conversation ingestion
+# ─────────────────────────────────────────────
 _GATE_SYSTEM = (
     "Decide whether this user message contains at least one durable, personal fact "
     "about the writer — something about who they are, what they are building, their goals, "
@@ -484,6 +502,7 @@ def ingest_conversation(user_message: str, agent_reply: str) -> None:
     turn_text = f"USER: {user_message}"
 
 
+    # Gate: skip turns with no personal content
     gate_body = gateway.chat(
         [{"role": "system", "content": _GATE_SYSTEM},
          {"role": "user",   "content": turn_text}],
@@ -498,9 +517,12 @@ def ingest_conversation(user_message: str, agent_reply: str) -> None:
 
 
 
+    # Always try to update the long-term user profile with any biographical info.
+    # Runs regardless of whether atomic facts are also found.
     _update_profile_from_message(user_message)
 
 
+    # Extract atomic facts and route into semantic clusters
     extract_body = gateway.chat(
         [{"role": "system", "content": _CONVO_EXTRACT_SYSTEM},
          {"role": "user",   "content": turn_text}],

@@ -18,6 +18,8 @@ _META_KEY = "settings.privacy_redact"
 
 
 
+# Curated targets shown in Settings → Access control.
+# Match by process name and/or case-insensitive window title substrings.
 PRIVACY_TARGETS: list[dict] = [
     {
         "id": "incognito",
@@ -86,6 +88,8 @@ _TARGET_IDS = {t["id"] for t in PRIVACY_TARGETS}
 
 
 
+# Always redact Clippy Vision itself (never user-toggleable).
+# electron.exe = npm start; packaged builds use the product exe name.
 ALWAYS_REDACT_PROCESSES = frozenset({
     "clippy vision.exe",
     "clippy-vision.exe",
@@ -174,6 +178,7 @@ def get_active_redact_rules() -> dict:
             titles.append(pat.lower())
 
 
+    # Dedupe titles while preserving order
     seen: set[str] = set()
     unique_titles: list[str] = []
     for t in titles:
@@ -186,6 +191,7 @@ def get_active_redact_rules() -> dict:
 
 
 
+# ---- Cached rules for the capture process (avoids DB hit every EnumWindows) ----
 _cache_rules: Optional[dict] = None
 _cache_at: float = 0.0
 _CACHE_TTL_SECS = 5.0

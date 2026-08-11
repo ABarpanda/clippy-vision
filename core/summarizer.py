@@ -23,7 +23,7 @@ from core.local_embeddings import embed_text
 
 MODEL        = "qwen3:8b"
 INTERVAL_SEC = 60
-MIN_EVENTS   = 3
+MIN_EVENTS   = 3  # don't summarize if fewer than 3 interesting events
 RAW_LOOKBACK_SECONDS = 7 * 24 * 60 * 60
 MAX_SESSION_GROUPS_PER_TICK = 3
 SUMMARY_SCHEMA = {
@@ -86,12 +86,13 @@ def summarize_window(events: list[dict], session_id: str) -> dict | None:
     summary_text = result.get("summary", "")
 
 
+    # Embed the summary for semantic search at query time
     embedding = None
     if summary_text:
         try:
             embedding = embed_text(summary_text)
         except Exception:
-            pass
+            pass  # best-effort; retrieval.py will back-fill on first query
 
     summary = {
         "summary_id":   str(uuid.uuid4()),
@@ -119,7 +120,7 @@ def _refresh_vision_enriched_sessions(session_id: str):
         print(f"  [SUMMARIZER] Re-summarizing session {s['summary_id'][:8]}... with vision data ({len(events)} events)")
         summary = summarize_window(events, session_id)
         if summary:
-            summary["summary_id"] = s["summary_id"]
+            summary["summary_id"] = s["summary_id"]  # overwrite in-place via INSERT OR REPLACE
             if should_distil():
                 distil()
             store_summary(summary, vision_enriched=True, embedding=summary.pop("embedding", None))
@@ -144,6 +145,9 @@ def summarizer_loop():
 
             ready = [items for items in grouped.values() if len(items) >= MIN_EVENTS]
             ready.sort(key=lambda items: items[0]["timestamp"])
+
+            # Pass 1: work through pending session groups in bounded batches so
+            # restarts or long gaps catch up without monopolizing a single tick.
             for session_events in ready[:MAX_SESSION_GROUPS_PER_TICK]:
                 source_session_id = session_events[0]["session_id"]
                 print(f"  [SUMMARIZER] Summarizing {len(session_events)} events from session {source_session_id[:8]}")
@@ -158,6 +162,7 @@ def summarizer_loop():
                 print(f"  [SUMMARIZER] {pending} event(s) remain in short sessions below the {MIN_EVENTS}-event threshold")
 
 
+            # Pass 2: re-summarize all past sessions now that vision has enriched them
             _refresh_vision_enriched_sessions(session_id)
 
         except Exception as e:
@@ -165,6 +170,8 @@ def summarizer_loop():
 
 
 
+        # Sleep only for the time remaining in the interval so the tick cadence
+        # stays fixed regardless of how long the work took.
         elapsed  = time.time() - tick_start
         sleep_for = max(0.0, INTERVAL_SEC - elapsed)
         if elapsed > 1:

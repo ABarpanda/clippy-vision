@@ -10,11 +10,12 @@ import json
 from core.storage import conn
 from agent.helpers.time_resolver import resolve_temporal_range
 
+# Add summary_embedding column to sessions if it doesn't exist yet (Fix 3)
 try:
     conn.execute("ALTER TABLE sessions ADD COLUMN summary_embedding TEXT")
     conn.commit()
 except sqlite3.OperationalError:
-    pass
+    pass  # already exists
 
 MAX_RESULT_ROWS = 20
 MAX_RESULT_CHARS = 4000
@@ -34,6 +35,9 @@ OUTPUT_SCHEMA = {
 
 
 
+# ─────────────────────────────────────────────────────────────
+# Two focused prompts — model only sees the table it will use
+# ─────────────────────────────────────────────────────────────
 _SESSIONS_PROMPT = """
 You generate SQLite SELECT queries against a sessions table.
 
@@ -128,6 +132,9 @@ Rules:
 
 
 
+# ─────────────────────────────────────────────────────────────
+# Safety
+# ─────────────────────────────────────────────────────────────
 _BLOCKED = re.compile(
     r'\b(DROP|DELETE|UPDATE|INSERT|ALTER|CREATE|ATTACH|DETACH|PRAGMA|REPLACE|TRUNCATE)\b',
     re.IGNORECASE,
@@ -141,6 +148,9 @@ def _is_safe(sql: str) -> bool:
 
 
 
+# ─────────────────────────────────────────────────────────────
+# Core helpers
+# ─────────────────────────────────────────────────────────────
 def _generate_sql(system_prompt: str, user_content: str) -> str:
     body = gateway.chat(
         [{"role": "system", "content": system_prompt},
@@ -175,6 +185,9 @@ def _run_sql(sql: str) -> tuple[list, int]:
 
 
 
+# ─────────────────────────────────────────────────────────────
+# Cosine similarity helpers (Fix 3 — semantic session search)
+# ─────────────────────────────────────────────────────────────
 def _cosine(a: list, b: list) -> float:
     dot = sum(x * y for x, y in zip(a, b))
     norm_a = math.sqrt(sum(x * x for x in a))
@@ -221,6 +234,7 @@ def _semantic_sessions(question: str, date_sql_filter: str, limit: int = MAX_RES
         scored.append((score, summary_id, ws, summary, active_task, entities))
 
 
+    # Back-fill missing embeddings in the background (non-blocking)
     if unembedded_ids:
         _backfill_session_embeddings(unembedded_ids)
 
@@ -255,7 +269,7 @@ def _backfill_session_embeddings(pairs: list[tuple[str, str]]) -> None:
             )
         conn.commit()
     except Exception:
-        pass
+        pass  # best-effort; will retry next query
 
 
 def _truncate_result(text: str) -> str:
@@ -281,6 +295,10 @@ def _rows_are_useful(rows: list) -> bool:
 
 
 
+# ─────────────────────────────────────────────────────────────
+# Helper: extract the date-filter fragment from a full SQL query
+# so we can pass it to the semantic ranker (Fix 3).
+# ─────────────────────────────────────────────────────────────
 def _extract_where_fragment(sql: str) -> str | None:
     """Return everything after WHERE up to ORDER BY / LIMIT / end, or None."""
     m = re.search(r'\bWHERE\b(.+?)(?:\bORDER\s+BY\b|\bLIMIT\b|$)', sql, re.IGNORECASE | re.DOTALL)
@@ -293,6 +311,9 @@ def _extract_where_fragment(sql: str) -> str | None:
 
 
 
+# ─────────────────────────────────────────────────────────────
+# Public entry points
+# ─────────────────────────────────────────────────────────────
 def search_sessions(question: str) -> str:
     """Search session summaries. Best for: broad time windows, daily/weekly
     overviews, project topics, what-did-I-work-on questions."""
@@ -311,12 +332,14 @@ def search_sessions(question: str) -> str:
         return "search_sessions: unsafe query blocked."
 
 
+    # Fix 3: use semantic re-ranking when we can extract a date filter
     where_fragment = _extract_where_fragment(sql)
     if where_fragment:
         try:
             rows, total = _semantic_sessions(question, where_fragment)
         except Exception:
 
+            # Fall back to plain SQL on any embedding failure
             try:
                 rows, total = _run_sql(sql)
             except Exception as e:
@@ -336,6 +359,7 @@ def search_sessions(question: str) -> str:
         )
 
 
+    # Fix 1: include total count so the agent knows if it's seeing a partial view
     shown = len(rows)
     if total > shown:
         header = (
@@ -403,6 +427,7 @@ def search_events(question: str) -> str:
         )
 
 
+    # Fix 1: include total count
     shown = len(rows)
     if total > shown:
         header = (

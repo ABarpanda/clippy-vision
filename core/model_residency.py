@@ -81,14 +81,14 @@ def load_residency() -> dict:
         _policy = "idle"
         return {"vision": _policy}
 
-    vision = data.get("vision") or data.get("mode")
+    vision = data.get("vision") or data.get("mode")  # mode: legacy dual/single
     if vision == "dual":
         vision = "pinned"
     elif vision == "single":
         vision = "on_demand"
     if vision not in ("idle", "pinned", "on_demand"):
         vision = "idle"
-    _policy = vision
+    _policy = vision  # type: ignore[assignment]
     data["vision"] = _policy
     return data
 
@@ -146,6 +146,7 @@ def _warm(model: str, keep_alive: str | int = KEEP_ALIVE_PINNED, timeout: float 
         model = model_for("vision", VL_MODEL)
     elif model == TEXT_MODEL:
         model = model_for("chat", TEXT_MODEL)
+    # Non-empty prompt: empty prompt hangs on some Ollama builds
     print(f"[residency] warm {model} (keep_alive={keep_alive!r})")
     _ollama_post(
         "/api/generate",
@@ -273,6 +274,7 @@ def on_capture_stop() -> dict:
 
 
 
+# Seed from disk for gateway imports (capture or API process)
 load_residency()
 
 

@@ -18,10 +18,10 @@ from core.screenshot_enrichment import enrich_screenshot
 
 
 POLL_SECS = 10
-PHASH_THRESHOLD = 2
+PHASH_THRESHOLD = 2  # bit distance: 0-2 = identical, 10+ = very different
 BURST_COLLAPSE_WINDOW_MS = 30_000
-NEAREST_EVENT_WINDOW_SECS = 10
-RECENT_THRESHOLD_SECS = 60
+NEAREST_EVENT_WINDOW_SECS = 10  # ±10s to find a nearby event
+RECENT_THRESHOLD_SECS = 60  # screenshots within this window are processed first
 HASH_CACHE_MAX = 512
 
 try:
@@ -44,6 +44,9 @@ def _screenshot_timestamp_ms(path: Path) -> int | None:
 
 
 
+# ─────────────────────────────────────────────────────────────
+# DB helpers
+# ─────────────────────────────────────────────────────────────
 def _get_nearest_event(screenshot_ts: float) -> Optional[dict]:
     row = conn.execute(
         """SELECT event_id, timestamp, event_type,
@@ -125,6 +128,7 @@ def _create_screenshot_event(screenshot_ts: float) -> dict:
     )
     store_event(event)
 
+    # Lock out of text classifier — vision-only, set to done by apply_vision_verdict
     conn.execute(
         "UPDATE events SET classification_status='screenshot_only' WHERE event_id=?",
         (event_id,)
@@ -149,6 +153,9 @@ def _create_screenshot_event(screenshot_ts: float) -> dict:
 
 
 
+# ─────────────────────────────────────────────────────────────
+# Screenshot discovery
+# ─────────────────────────────────────────────────────────────
 def _get_unprocessed_screenshots() -> list[Path]:
     """All unprocessed screenshots sorted oldest-first."""
     candidates = [
@@ -173,6 +180,9 @@ def _mark_as_processed(path: Path):
 
 
 
+# ─────────────────────────────────────────────────────────────
+# Hash + grouping
+# ─────────────────────────────────────────────────────────────
 def _compute_all_hashes(paths: list[Path]) -> dict[str, imagehash.ImageHash]:
     """Compute perceptual hash for each screenshot. Skips unreadable files."""
     hashes: dict[str, imagehash.ImageHash] = {}
@@ -217,6 +227,7 @@ def _group_by_similarity(
     valid = [p for p in paths if p.stem in hashes]
 
 
+    # Union-Find
     parent = {p.stem: p.stem for p in valid}
     group_bounds = {
         p.stem: (
@@ -228,7 +239,7 @@ def _group_by_similarity(
 
     def find(x: str) -> str:
         while parent[x] != x:
-            parent[x] = parent[parent[x]]
+            parent[x] = parent[parent[x]]  # path compression
             x = parent[x]
         return x
 
@@ -246,6 +257,7 @@ def _group_by_similarity(
         return True
 
 
+    # O(n²) pairwise — fast enough for typical screenshot counts (<200)
     for i, pa in enumerate(valid):
         for pb in valid[i + 1:]:
             pa_ts = _screenshot_timestamp_ms(pa)
@@ -258,12 +270,14 @@ def _group_by_similarity(
                 union(pa.stem, pb.stem)
 
 
+    # Collect groups
     groups: dict[str, list[Path]] = {}
     for p in valid:
         root = find(p.stem)
         groups.setdefault(root, []).append(p)
 
 
+    # Sort each group oldest → newest so group[-1] is always the representative
     for g in groups.values():
         g.sort(key=lambda p: _screenshot_timestamp_ms(p) or 0)
 
@@ -274,6 +288,9 @@ def _group_by_similarity(
 
 
 
+# ─────────────────────────────────────────────────────────────
+# Processing
+# ─────────────────────────────────────────────────────────────
 def _process_group(group: list[Path]) -> bool:
     """
     Compute the image embedding once for the representative while extracting
@@ -283,7 +300,7 @@ def _process_group(group: list[Path]) -> bool:
     Returns True if successful (all members marked processed).
     Returns False if the representative failed (no members marked processed).
     """
-    representative = group[-1]
+    representative = group[-1]  # most recent = best context
     rep_ts = (_screenshot_timestamp_ms(representative) or 0) / 1000.0
 
     rep_event = _get_nearest_event(rep_ts)
@@ -326,6 +343,7 @@ def _process_group(group: list[Path]) -> bool:
     print(f"  [screenshot_processor] {verdict['verdict']} | {activity}")
 
 
+    # Copy verdict to all other group members (different timestamps, same screen content)
     for path in group[:-1]:
         ts = (_screenshot_timestamp_ms(path) or 0) / 1000.0
         other_event = _get_nearest_event(ts)
@@ -356,6 +374,9 @@ def _process_group(group: list[Path]) -> bool:
 
 
 
+# ─────────────────────────────────────────────────────────────
+# Main loop
+# ─────────────────────────────────────────────────────────────
 def screenshot_processor_loop():
     print("[screenshot_processor] Started")
 
@@ -370,6 +391,7 @@ def screenshot_processor_loop():
         groups = _group_by_similarity(all_unprocessed, hashes)
 
 
+        # Sort groups: most recent representative first
         groups.sort(key=lambda g: _screenshot_timestamp_ms(g[-1]) or 0, reverse=True)
 
         now_ms = int(time.time() * 1000)
@@ -387,6 +409,7 @@ def screenshot_processor_loop():
         if not recent_groups and old_groups:
 
             try:
+                # Process the oldest group first when idle
                 _process_group(old_groups[-1])
             except Exception as exc:
                 print(f"  [screenshot_processor] Group failed: {exc}")

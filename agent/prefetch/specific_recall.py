@@ -2,6 +2,7 @@ import json
 import re
 import time
 
+# Ensure events / events_fts tables exist before we touch the index
 from core.storage import conn
 from core.screenshot_search import resolve_screenshot_filename
 
@@ -59,6 +60,7 @@ def extract_urls_from_entities(entities_json: str) -> list[str]:
     return [e for e in entities if isinstance(e, str) and URL_RE.search(e)]
 
 
+# Track A: Session-level search for URLs
 def search_sessions_for_url(query:str,  query_vec, keywords: list[str], temporal_range=None, recency_hint=None) -> list | None:
 
     if temporal_range:
@@ -85,6 +87,7 @@ def search_sessions_for_url(query:str,  query_vec, keywords: list[str], temporal
         return None
 
 
+    # Only keep sessions that have at least one URL-like entity
     candidates = [
         (ws, summary, active_task, entities, emb_json)
         for (ws, summary, active_task, entities, emb_json) in rows
@@ -109,6 +112,7 @@ def search_sessions_for_url(query:str,  query_vec, keywords: list[str], temporal
             score += cosine_similarity(query_vec, json.loads(summary_embedding))
         else:
 
+            # Fallback to keyword-based similarity
             combined_keywords = f"{summary or ''} {entities or ''} {active_task or ''}".lower()
             score += sum(1 for kw in keywords if kw in combined_keywords) / max(len(keywords), 1)
 
@@ -123,6 +127,7 @@ def search_sessions_for_url(query:str,  query_vec, keywords: list[str], temporal
 
 
 
+# Track B: Event-level search for URLs
 def _sanitize_for_fts(keyword: str) -> str:
     """Strip FTS5 special chars, wrap in quotes for safe exact-token matching."""
     clean = re.sub(r'[^\w]', '', keyword)
@@ -142,10 +147,11 @@ def _extract_payload_text(payload: str) -> str | None:
         obj = json.loads(payload)
         if isinstance(obj, dict):
 
+            # grab first non-null string value
             for v in obj.values():
                 if isinstance(v, str) and v.strip():
                     return v.strip()
-            return None
+            return None  # all values were null / empty
         if isinstance(obj, str):
             return obj.strip() or None
     except (json.JSONDecodeError, TypeError):
@@ -172,6 +178,7 @@ def search_events_for_url(keywords: list[str], temporal_range=None, recency_hint
     fts_query = " OR ".join(fts_keywords)
 
 
+    # Use parameterized MATCH — handles any remaining edge cases safely
     sql = f"""
         SELECT e.timestamp, e.active_url, e.current_window_title, e.summary, events_fts.rank
         FROM events_fts
@@ -193,6 +200,7 @@ def search_events_for_url(keywords: list[str], temporal_range=None, recency_hint
         return []
 
 
+    # fts.rank is negative — more negative = more relevant
     timestamps = [r[0] for r in rows]
     newest_ts  = max(timestamps)
     oldest_ts  = min(timestamps)
@@ -201,8 +209,8 @@ def search_events_for_url(keywords: list[str], temporal_range=None, recency_hint
 
     scores = []
     for (ts, url, window_title, summary, rank) in rows:
-        relevance = -rank
-        recency   = (ts - oldest_ts) / ts_range
+        relevance = -rank  # flip: now positive, higher -> more relevant
+        recency   = (ts - oldest_ts) / ts_range  # 0.0 oldest -> 1.0 newest
         score     = relevance + recency_weight * recency
         scores.append((score, ts, url, window_title, summary))
 
@@ -244,6 +252,7 @@ def search_events_for_artifact(
     recency_weight = 0.4 if recency_hint in ("soft", "window") else 0.2
 
 
+    # --- clipboard / paste: primary field is payload ---
     if artifact_type in ("clipboard", "paste"):
         if fts_keywords:
             fts_query = " OR ".join(fts_keywords)
@@ -266,6 +275,7 @@ def search_events_for_artifact(
             rows = []
 
 
+        # Pure-recency fallback — only when there were no keywords to begin with
         if not rows and not fts_keywords:
             sql = f"""
                 SELECT e.timestamp, e.payload, e.current_window_title, e.process_name, 0 AS rank
@@ -304,6 +314,9 @@ def search_events_for_artifact(
 
 
 
+    # --- screen: primary field is vision_ocr_text ---
+    # Do NOT filter by event_type — vision data is attached to whichever event
+    # happened to be nearest when the screenshot was captured.
     if artifact_type == "screen":
         if fts_keywords:
             fts_query = " OR ".join(fts_keywords)
@@ -366,6 +379,8 @@ def search_events_for_artifact(
 
 
 
+    # --- generic: broad search across all text fields ---
+    # Exclude pure noise event types, but keep them if vision data is attached.
     NOISE_FILTER = (
         "(e.event_type NOT IN ('typing_burst', 'deviation', 'context_change') "
         "OR e.vision_ocr_text IS NOT NULL)"
@@ -603,6 +618,7 @@ def specific_recall(query: str, temporal_range=None, q_vec: list | None = None) 
         return _format_screen_results(results)
 
 
+    # generic fallback
     results = search_events_for_artifact("generic", keywords, temporal_range, recency_hint)
     return _format_generic_results(results)
 

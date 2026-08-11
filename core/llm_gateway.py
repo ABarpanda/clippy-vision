@@ -22,20 +22,27 @@ OLLAMA_URL = "http://127.0.0.1:11434/api/chat"
 
 
 
-_BASELINE_SAMPLES   = 4
-_PAUSE_HEADROOM     = 30
-_RESUME_HEADROOM    = 12
-_CPU_PAUSE_CEIL     = 92.0
-_CPU_RESUME_CEIL    = 80.0
-_CHECK_INTERVAL_S   = 1.0
-_BG_INTER_JOB_SLEEP = 2.0
-_MAX_WAIT_SECS      = 180
+# --- Throttle configuration (relative to per-device baseline) ---
+# Thresholds are NOT hardcoded — they are derived at startup from a short CPU
+# baseline measurement, so the gate adapts to each machine's idle load.
+#
+# "Pressured" = CPU has risen _PAUSE_HEADROOM points above the idle baseline.
+# "Recovered" = CPU has fallen back to within _RESUME_HEADROOM of the baseline.
+# Hard ceilings prevent the thresholds from being set too high on a busy device.
+_BASELINE_SAMPLES   = 4  # number of 1-second samples used to measure idle CPU
+_PAUSE_HEADROOM     = 30  # CPU points above baseline that trigger a pause
+_RESUME_HEADROOM    = 12  # CPU points above baseline considered "recovered"
+_CPU_PAUSE_CEIL     = 92.0  # hard ceiling: never pause above this regardless of baseline
+_CPU_RESUME_CEIL    = 80.0  # hard ceiling: resume threshold cap
+_CHECK_INTERVAL_S   = 1.0  # seconds between CPU re-checks while paused
+_BG_INTER_JOB_SLEEP = 2.0  # seconds to breathe between consecutive BACKGROUND jobs
+_MAX_WAIT_SECS      = 180  # escape hatch: force-run after waiting this long regardless
 
 
 class Priority:
-    INTERACTIVE = 0
-    FOREGROUND = 10
-    BACKGROUND = 20
+    INTERACTIVE = 0  # chat agent - user is waiting for a response
+    FOREGROUND = 10  # classifiers - image/text processing
+    BACKGROUND = 20  # summarization/distillation - background tasks
 
 
 class Job:
@@ -97,7 +104,7 @@ class LLMGateway:
     def _measure_cpu_baseline() -> float:
         """Sample CPU% at startup to establish this device's idle baseline.
         The first psutil call always returns 0.0, so we discard it."""
-        psutil.cpu_percent()
+        psutil.cpu_percent()  # discard the initialisation call
         samples = [psutil.cpu_percent(interval=1.0) for _ in range(_BASELINE_SAMPLES)]
         return sum(samples) / len(samples)
 
@@ -113,14 +120,15 @@ class LLMGateway:
         deadline = job.enqueued_at + _MAX_WAIT_SECS
 
         if not self._is_pressured():
-            return
+            return  # fast path: system is healthy, no wait needed
 
         while time.monotonic() < deadline:
             time.sleep(_CHECK_INTERVAL_S)
             if self._is_recovered():
-                return
+                return  # CPU settled, proceed
 
 
+        # Deadline reached — log and run anyway to drain the backlog
         waited = time.monotonic() - job.enqueued_at
         print(f"[gateway] escape hatch triggered after {waited:.0f}s wait — running despite pressure")
 
@@ -345,7 +353,7 @@ class LLMGateway:
         except Exception as e:
             job.error = e
         finally:
-            job.chunks.put(None)
+            job.chunks.put(None)  # sentinel — stream finished
             job.event.set()
 
     def _worker_loop(self):
@@ -353,6 +361,7 @@ class LLMGateway:
             priority, seq, job = self.queue.get()
 
 
+            # Health gate for all non-interactive jobs
             if priority > Priority.INTERACTIVE:
                 self._health_gate(job)
 
@@ -376,6 +385,8 @@ class LLMGateway:
 
 
 
+            # Give the CPU breathing room between consecutive background jobs.
+            # This sleep is after event.set() so the caller is already unblocked.
             if priority >= Priority.BACKGROUND:
                 time.sleep(_BG_INTER_JOB_SLEEP)
 

@@ -24,6 +24,7 @@ class RouterDecision:
     temporal_hint: str | None = None
     needs_memory_fetch: bool = False
 
+    # Label → softmax score for secondaries (used by should_prefetch thresholds)
     secondary_scores: dict[str, float] = field(default_factory=dict)
 
 CATEGORIES = [
@@ -44,6 +45,7 @@ _PREFETCH_THRESHOLDS: dict[str, float] = {
     "specific_recall": 0.30,
     "topic_search":    0.25,
 
+    # Categories not listed here are not prefetched
 }
 
 _classification_model = None
@@ -238,12 +240,14 @@ def classify_query(query: str) -> tuple[RouterDecision|None, float|None]:
 
 def should_prefetch(decision: RouterDecision, confidence: float) -> bool:
 
+    # Generative / chat turns: never pull activity/memory context via secondaries.
     if decision.primary == "casual":
         return False
 
     threshold = _PREFETCH_THRESHOLDS.get(decision.primary)
     primary_ok = threshold is not None and confidence >= threshold
 
+    # Secondaries must clear that route's own prefetch threshold (not just 0.20).
     secondary_ok = any(
         s in _PREFETCH_THRESHOLDS
         and decision.secondary_scores.get(s, 0.0) >= _PREFETCH_THRESHOLDS[s]

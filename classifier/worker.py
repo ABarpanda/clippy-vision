@@ -10,7 +10,7 @@ from core.storage import conn
 
 POLL_SECS = 2
 VISION_POLL_SECS = 5
-MAX_VISION_WAIT_SECS   = 300
+MAX_VISION_WAIT_SECS   = 300  # skip vision enrichment if event has been waiting longer than this
 
 DEFAULT_SCREENSHOT_VERDICT = {
     "verdict": "not_interesting",
@@ -31,11 +31,12 @@ OCR_ONLY_VERDICT = {
 }
 
 
+# One-time migration: add classification_status if the DB existed before this column
 try:
     conn.execute("ALTER TABLE events ADD COLUMN classification_status TEXT DEFAULT 'pending'")
     conn.commit()
 except sqlite3.OperationalError:
-    pass
+    pass  # column already exists
 
 
 for col in ("vision_ocr_text", "vision_activity", "vision_suggested_action"):
@@ -48,6 +49,9 @@ for col in ("vision_ocr_text", "vision_activity", "vision_suggested_action"):
 
 
 
+#-----------------------------------------------------#
+#------------------- Print functions -----------------#
+#-----------------------------------------------------#
 def _print_verdict(tier: int, event: dict, verdict: dict):
     verdict_str  = verdict["verdict"].upper()
     score        = verdict["score"]
@@ -94,6 +98,7 @@ def apply_vision_verdict(
     screenshot_filename: str | None = None,
 ):
 
+    # Vision verdict is authoritative — it can see the screen, so it overrides text-tier classification
     interesting = 0 if verdict["verdict"] == "not_interesting" else 1
     cursor = conn.execute(
         """UPDATE events
@@ -173,6 +178,7 @@ def _row_to_event(row) -> dict:
 
 def classify_event(event: dict):
 
+    # Tier 0 — rules (instant, no I/O)
     verdict = tier_zero_classifier(event)
     if verdict:
         _print_verdict(0, event, verdict)
@@ -180,6 +186,7 @@ def classify_event(event: dict):
         return
 
 
+    # Tier 1 — feature scoring + personal baseline (cheap)
     verdict = tier1_score(event, conn)
     if verdict:
         _print_verdict(1, event, verdict)
@@ -187,6 +194,7 @@ def classify_event(event: dict):
         return
 
 
+    # Tier 2 — LLM with last-3-event context window
     recent = conn.execute(
         """SELECT * FROM (
                SELECT event_type, process_name, summary, timestamp FROM events
@@ -208,7 +216,7 @@ def classify_event(event: dict):
     except Exception as e:
         print(f"  [TIER-2] Failed: {e} — backing off 30s before retry")
         time.sleep(30)
-        return
+        return  # leave as 'pending', retry next cycle
 
     _print_verdict(2, event, verdict)
     apply_verdict(event["event_id"], verdict)
@@ -221,6 +229,7 @@ def classify_capture_text_event(event: dict):
         return
 
 
+    # Show timing context before sending to the model
     event_ts   = time.strftime("%H:%M:%S", time.localtime(event["timestamp"]))
     shot_ts_ms = int(screenshots[0].stem.split("_", 1)[0])
     shot_ts    = time.strftime("%H:%M:%S", time.localtime(shot_ts_ms / 1000))
@@ -284,6 +293,7 @@ def capture_text_worker_loop():
             age_secs = time.time() - event["timestamp"]
             if age_secs > MAX_VISION_WAIT_SECS:
 
+                # Event is too stale for vision enrichment to be useful — mark done and move on
                 conn.execute(
                     "UPDATE events SET classification_status='done' WHERE event_id=?",
                     (event["event_id"],)

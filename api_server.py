@@ -65,8 +65,10 @@ from core.screenshot_search import search_screenshots
 @asynccontextmanager
 async def lifespan(app: FastAPI):
 
+    # Weekly intro rebuild: immediate check + periodic background loop
     start_intro_rebuild_daemon()
 
+    # Preload router classifier so the first chat does not pay the load cost
     threading.Thread(target=load_classifier, daemon=True, name="router-classifier-warmup").start()
 
 
@@ -75,6 +77,8 @@ async def lifespan(app: FastAPI):
 
 
     try:
+        # Model warm is triggered explicitly by Electron (setup / normal launch)
+        # via POST /residency/startup — avoids racing a background warm with setup UI.
         yield
     finally:
         stop_event_indexer(wait=True)
@@ -278,6 +282,7 @@ def write_user_profile(req: ProfileUpdateRequest):
 
 
 
+            # User edits from Settings always win over agent/distiller values.
             save_identity_field(field, value=value, source="user", op="override")
 
     return get_profile()

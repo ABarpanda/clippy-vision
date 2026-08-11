@@ -15,6 +15,11 @@ _baseline_lock = threading.Lock()
 
 
 
+#--------------------------------#
+# Change the alpha value in------#
+# Future to be adaptive for------#
+# each context-------------------#
+#--------------------------------#
 ALPHA = 0.05
 MIN_SAMPLES = 30
 
@@ -92,7 +97,7 @@ def compute_deviation(metrics: dict, context_key:str) -> Optional[dict]:
     if context_data["sample_count"] < MIN_SAMPLES:
         return None
 
-    z_scores = {}
+    z_scores = {}  # deviation scores for each metric
 
     for m in TRACKED_METRICS:
         if m not in metrics or m not in context_data["metrics"]:

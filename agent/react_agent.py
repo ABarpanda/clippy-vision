@@ -30,9 +30,12 @@ MAX_STEPS = 10
 
 
 
+# Soft cap on user turns. Prefetch/history/profile already consume most of the
+# context window; ~4k chars (~1k tokens) leaves room for unknown retrieval size.
 USER_MESSAGE_MAX_CHARS = 4000
 
 
+# Routes that have real prefetch implementations
 _PREFETCHABLE = {"time_anchored", "topic_search", "specific_recall", "memory_query"}
 MAX_PREFETCH_CONTEXT_CHARS = 8000
 _SHORT_FOLLOW_UP_RE = re.compile(
@@ -129,6 +132,7 @@ def _build_conversation_history(conversation_id: str, q_vec: list|None=None) -> 
 
 
 
+    # Tier 2 — semantically relevant older summaries (only when history is deep)
     if q_vec:
         try:
             deep = get_relevant_summaries(conversation_id, q_vec)
@@ -138,11 +142,13 @@ def _build_conversation_history(conversation_id: str, q_vec: list|None=None) -> 
             pass
 
 
+    # Tier 1a — recent rolling summaries
     recent_summaries = get_recent_summaries(conversation_id)
     if recent_summaries:
         parts.append("[Recent summary]\n" + "\n\n".join(recent_summaries))
 
 
+    # Tier 1b — last N raw turns
     recent_turns = get_recent_chats(conversation_id)
     if recent_turns:
         lines = []
@@ -199,7 +205,7 @@ def _build_system_prompt(
 
 def _fetch_single_route(
     route: str,
-    temporal_range,
+    temporal_range,  # pre-resolved, may be None
     query: str,
     combined: str,
     q_vec: list,
@@ -232,6 +238,7 @@ def _run_prefetch(decision, query: str, combined: str, q_vec: list) -> str:
       do NOT run a separate time_anchor_fetch (the range narrows, not supplements).
     """
 
+    # ── Resolve temporal range once ───────────────────────────────────────────
     all_routes = {decision.primary} | set(decision.secondary)
     needs_time = "time_anchored" in all_routes
     temporal_range = resolve_temporal_range(combined) if needs_time else None
@@ -239,6 +246,9 @@ def _run_prefetch(decision, query: str, combined: str, q_vec: list) -> str:
 
 
 
+    # ── Build the list of routes to run ───────────────────────────────────────
+    # time_anchored as secondary = filter only; don't run it as a standalone fetch
+    # Non-prefetchable primaries (e.g. casual) are skipped; their secondaries still run.
     primary_routes = [decision.primary] if decision.primary in _PREFETCHABLE else []
     secondary_routes = [
         s for s in decision.secondary
@@ -248,6 +258,7 @@ def _run_prefetch(decision, query: str, combined: str, q_vec: list) -> str:
     print(f"[prefetch] routes: {routes_to_run}")
 
 
+    # ── Single route — no thread overhead ────────────────────────────────────
     if len(routes_to_run) == 1:
         return _limit_prefetch_context(
             _fetch_single_route(routes_to_run[0], temporal_range, query, combined, q_vec)
@@ -255,6 +266,7 @@ def _run_prefetch(decision, query: str, combined: str, q_vec: list) -> str:
 
 
     results: dict[str, str] = {}
+    # ── Multiple routes — run in parallel ────────────────────────────────────
     with ThreadPoolExecutor(max_workers=len(routes_to_run)) as ex:
         future_to_route = {
             ex.submit(_fetch_single_route, r, temporal_range, query, combined, q_vec): r
@@ -468,6 +480,7 @@ def run_stream(user_message: str, conversation_id: str):
         content = ""
         raw_msg = None
 
+        # Buffer content until we know this step is the final answer (no tool calls).
         content_started = False
 
         for kind, payload in _stream_ollama(messages, prefetch_active=prefetch_active):
@@ -477,6 +490,7 @@ def run_stream(user_message: str, conversation_id: str):
             elif kind == "content":
                 content += payload
 
+                # Speculatively stream content; cleared if this turns out to be a tool step
                 content_started = True
                 yield {"type": "content", "delta": payload}
             elif kind == "final":
@@ -500,6 +514,7 @@ def run_stream(user_message: str, conversation_id: str):
             return
 
 
+        # Tool step — drop any speculative answer text from the UI
         if content_started:
             yield {"type": "reset_content"}
         yield {"type": "status", "text": "Using tools"}
@@ -543,7 +558,7 @@ def run(user_message: str, conversation_id: str) -> str:
 
 if __name__ == "__main__":
     print("Clippy Vision Agent (type 'exit' to quit)\n")
-    conversation_id = str(uuid.uuid4())
+    conversation_id = str(uuid.uuid4())  # one ID for the whole session
     while True:
         user_input = input("You: ").strip()
         if not user_input:

@@ -35,7 +35,7 @@ MIN_GAP_SECONDS = 8
 
 BACKGROUND_INTERVALS_SECS = 60
 # Retain only a bounded local window of visual context.
-SCREENSHOT_TTL_MS = 24 * 60 * 60 * 1000
+SCREENSHOT_TTL_MS = 24 * 60 * 60 * 1000  # 24 hours
 JPEG_QUALITY = 75
 
 # Coalesce typing, paste, and context-change notifications into one capture.
@@ -45,6 +45,7 @@ ACTIVITY_DEBOUNCE_SECONDS = 2.0
 try:
     from core.privacy_settings import is_clippy_window, should_redact_window
 except ImportError:
+    # Redaction rules (Clippy window + user privacy toggles) live in privacy_settings.
     from privacy_settings import is_clippy_window, should_redact_window
 try:
     from core.app_settings import get_capture_settings
@@ -120,8 +121,8 @@ def _redact_clippy_windows(img: Image.Image, monitor: dict) -> None:
                 return
 
             if is_clippy_window(name, title):
-                # Only obscure Clippy when the user is looking at it. A hidden
-                # or minimized window does not occupy the pixels being saved.
+                # Only obscure Clippy when the user is actually looking at it
+                # A hidden or minimized window does not occupy the saved pixels.
                 if hwnd != foreground_hwnd:
                     return
             elif not should_redact_window(name, title):
@@ -272,6 +273,8 @@ def get_screenshots_near(
 
         # Allow a small future window for camera lag, but never attach a frame
         # captured substantially after the event being explained.
+        # Only consider screenshots taken up to window_secs before the event
+        # or up to 10 s after (camera lag), never far-future shots.
         offset = ts_ms - target_ms
         if -window_ms <= offset <= 10_000:
             candidates.append((abs(offset), path))

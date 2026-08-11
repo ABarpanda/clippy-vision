@@ -98,6 +98,7 @@ def should_rebuild_introduction(inputs: dict | None = None) -> bool:
     now = time.time()
 
 
+    # First intro: rebuild when any identity or facts exist
     if not value or updated_at <= 0:
         return bool(data["identity"] or data["clusters"] or data["fact_delta"])
 
@@ -182,6 +183,7 @@ def rebuild_introduction(inputs: dict | None = None) -> str | None:
         text = text[: MAX_INTRO_CHARS - 1].rsplit(" ", 1)[0] + "…"
 
 
+    # Re-fetch source after LLM so a mid-flight Settings save is not overwritten
     if (get_introduction_meta().get("source") or "").strip().lower() == "user":
         print("\n  [INTRO] skipped write — user-authored introduction protected")
         return None

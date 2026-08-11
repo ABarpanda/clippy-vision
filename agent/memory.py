@@ -13,14 +13,15 @@ from core.distil import save_note_to_memory
 from core.local_embeddings import embed_text
 from core.storage import conn
 
-MEMORY_TOP_K     = 8
-MEMORY_MIN_SIM   = 0.55
-MAX_MEMORY_CHARS = 2000
+MEMORY_TOP_K     = 8  # max facts to inject per turn
+MEMORY_MIN_SIM   = 0.55  # floor — below this a fact is unrelated (was 0.30; raised to reduce noise)
+MAX_MEMORY_CHARS = 2000  # token budget guard
 
 
-_PROFILE_ALWAYS_ON = {"name", "location"}
-_PROFILE_TOP_K     = 5
-_PROFILE_MIN_SIM   = 0.25
+# Profile semantic slicing
+_PROFILE_ALWAYS_ON = {"name", "location"}  # injected regardless of query
+_PROFILE_TOP_K     = 5  # max additional fields after always-on
+_PROFILE_MIN_SIM   = 0.25  # lower than fact threshold — fields are shorter and more general
 
 
 def _cosine_sim(a: list, b: list) -> float:
@@ -99,6 +100,7 @@ def get_autobiographical_context(q_vec: list | None = None) -> str:
     user_name = profile["name"]
 
 
+    # ── Fallback: no query vector → return everything ─────────────────────────
     if q_vec is None:
         identity = profile["identity"]
         if not identity and not intro and not user_name:
@@ -113,11 +115,13 @@ def get_autobiographical_context(q_vec: list | None = None) -> str:
         return "\n".join(lines)
 
 
+    # ── Semantic slicing path ─────────────────────────────────────────────────
     fields = get_identity_for_semantic_profile()
     if not fields and not intro and not user_name:
         return "No profile data yet. Ask the user to share more about themselves."
 
 
+    # Re-embed any dirty fields (newly written) and cache immediately
     for f in fields:
         if f["embedding"] is None:
             try:
