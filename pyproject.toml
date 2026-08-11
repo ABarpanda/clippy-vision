@@ -15,4 +15,13 @@ include = ["core*", "classifier*", "agent*"]  # Explicitly include these directo
 line-length = 88
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B"]
+select = ["I", "UP", "E", "F", "B"]
+
+ignore = [
+    "E501", # Line too long
+    "E402", # Module level import not at top of file
+    "F401", # {Module} imported but unused
+    "F541", # f-string without any placeholders
+    "B905", # `zip()` without an explicit `strict=` parameter
+    "B007", # Loop control variable {var} not used within loop body
+]

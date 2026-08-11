@@ -3,6 +3,7 @@ import os
 import sqlite3
 import sys
 import time
+from pathlib import Path
 
 from agent.prefetch.topic_search import cosine_similarity
 from core.llm_gateway import Priority, gateway

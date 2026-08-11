@@ -70,7 +70,7 @@ _PROTECTED_WORDS = {
     "matched", "washed", "patched", "batched", "exited", "cold",
     "world", "wound", "wandering", "tasked", "locked", "worker",
     "forked", "browse", "browser", "searches", "cleaner",
-    "cast", "vast", "fast", "winner", "winners", "miner", "coping", "nest"
+    "vast", "fast", "winner", "winners", "miner", "coping", "nest"
     "text", "sext", "neft", "jute", "pearl", "nearly", "roaming"
 }
 

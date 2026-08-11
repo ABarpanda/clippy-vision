@@ -180,7 +180,6 @@ def decode_prediction(logits: torch.Tensor, threshold: float = SECONDARY_THRESHO
 # ─────────────────────────────────────────────────────────────
 
 def compute_class_weights(examples: list[dict]) -> torch.Tensor:
-    from collections import Counter
     counts  = Counter(ex["primary"] for ex in examples)
     total   = sum(counts.values())
     weights = torch.zeros(len(CATEGORIES))
@@ -303,7 +302,6 @@ def evaluate(model, loader, device, threshold: float = SECONDARY_THRESHOLD):
                         sec_fired += 1
                 sec_possible += 1
 
-    from sklearn.metrics import classification_report
     acc    = sum(p == l for p, l in zip(all_preds, all_labels)) / len(all_labels)
     report = classification_report(
         all_labels, all_preds,

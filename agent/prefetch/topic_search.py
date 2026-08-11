@@ -3,7 +3,7 @@ import math
 import re
 import sqlite3
 import time
-from typing import Optional
+from pathlib import Path
 
 from agent.helpers.keywords import content_keywords, keywords_from_query
 from core.llm_gateway import Priority, gateway

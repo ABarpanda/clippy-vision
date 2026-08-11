@@ -7,6 +7,7 @@ Tier 2 --> Distiller (beyond 7 days)
 import json
 import sqlite3
 import time
+from pathlib import Path
 
 from agent.helpers.time_resolver import TemporalRange, resolve_temporal_range
 from agent.prefetch.topic_search import cosine_similarity
