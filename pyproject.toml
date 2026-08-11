@@ -10,3 +10,9 @@ version = "0.1.0"
 [tool.setuptools.packages.find]
 where = ["."]  # Look in the root directory
 include = ["core*", "classifier*", "agent*"]  # Explicitly include these directories
+
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
