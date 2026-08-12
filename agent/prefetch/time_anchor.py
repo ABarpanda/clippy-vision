@@ -4,11 +4,12 @@ Tier 1 --> Sessions/summaries (< 7 days)
 Tier 2 --> Distiller (beyond 7 days)
 """
 
+import json
 import sqlite3
 import time
-import json
+from pathlib import Path
 
-from agent.helpers.time_resolver import resolve_temporal_range, TemporalRange
+from agent.helpers.time_resolver import TemporalRange, resolve_temporal_range
 from agent.prefetch.topic_search import cosine_similarity
 from core.paths import get_db_path
 

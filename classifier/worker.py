@@ -1,12 +1,16 @@
-import sqlite3, json, time, threading
+import json
+import sqlite3
+import threading
+import time
 from pathlib import Path
 
-from .tier_zero_classifier import tier_zero_classifier
+from core.storage import conn
+from core.vision import get_screenshots_near
+
 from .tier_one_classifier import tier1_score
 from .tier_two_classifier import classify_with_llm
+from .tier_zero_classifier import tier_zero_classifier
 from .vision_classifier import classify_with_vision
-from core.vision import get_screenshots_near
-from core.storage import conn
 
 POLL_SECS = 2
 VISION_POLL_SECS = 5

@@ -3,7 +3,7 @@ import json
 import re
 import urllib.request
 
-from core.llm_gateway import gateway, Priority
+from core.llm_gateway import Priority, gateway
 
 MODEL = "qwen3-vl:4b"
 

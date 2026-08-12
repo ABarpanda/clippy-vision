@@ -1,7 +1,8 @@
+import json
 import os
 import sqlite3
-import json
 import time
+
 from core.events import Event
 from core.paths import get_db_path
 

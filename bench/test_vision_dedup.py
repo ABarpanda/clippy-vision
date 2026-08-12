@@ -11,11 +11,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # Change to parent directory so relative imports work
 import os
+
 os.chdir(Path(__file__).parent.parent)
 
 import imagehash
 from PIL import Image
-
 
 PHASH_THRESHOLD = 2  # same as production
 SCREENSHOT_DIR = Path(__file__).parent.parent / "core" / "data" / "screenshots"

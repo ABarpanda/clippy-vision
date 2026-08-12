@@ -1,17 +1,16 @@
-import time
 import threading
+import time
 import uuid
 from pathlib import Path
 from typing import Optional
 
 import imagehash
+from events import Event, WindowMetadata, get_session_id
 from PIL import Image
-
 from storage import conn, store_event
-from events import get_session_id, Event, WindowMetadata
+
 from classifier.vision_classifier import classify_with_vision
 from classifier.worker import apply_vision_verdict
-
 
 POLL_SECS = 10
 PHASH_THRESHOLD = 2              # bit distance: 0-2 = identical, 10+ = very different
@@ -27,7 +26,7 @@ _SCREENSHOT_DIR = get_screenshots_dir()
 # DB helpers
 # ─────────────────────────────────────────────────────────────
 
-def _get_nearest_event(screenshot_ts: float) -> Optional[dict]:
+def _get_nearest_event(screenshot_ts: float) -> dict | None:
     row = conn.execute(
         """SELECT event_id, timestamp, event_type,
                   process_name, current_window_title, active_url,

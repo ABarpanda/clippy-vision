@@ -1,12 +1,12 @@
-import time
 import json
 import math
+import time
 import uuid
-from core.storage import conn, get_summaries
-from core.memory_store import save_identity_field
 from typing import Optional
 
-from core.llm_gateway import gateway, Priority
+from core.llm_gateway import Priority, gateway
+from core.memory_store import save_identity_field
+from core.storage import conn, get_summaries
 
 CLUSTER_THRESHOLD = 0.75
 DISTIL_EVERY_N_SESSIONS = 5 # change to 5 for production
@@ -215,7 +215,7 @@ def load_centroids() -> list[dict]:
     ).fetchall()
     return [{"cluster_id": r[0], "label": r[1], "centroid": json.loads(r[2])} for r in rows]
 
-def _route_fact(embedding: list) -> tuple[str, Optional[float]]:
+def _route_fact(embedding: list) -> tuple[str, float | None]:
     clusters = load_centroids()
 
     if not clusters:
@@ -320,7 +320,7 @@ def _merge_into_cluster(cluster_id: str, fact: str, embedding: list, source: str
     return
 
 
-def _insert_fact(cluster_id: str, fact: str, embedding: list, fact_id: Optional[str] = None, source: str = "distiller") -> None:
+def _insert_fact(cluster_id: str, fact: str, embedding: list, fact_id: str | None = None, source: str = "distiller") -> None:
     now = time.time()
     conn.execute(
         """INSERT INTO memory_facts

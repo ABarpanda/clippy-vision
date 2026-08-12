@@ -1,7 +1,7 @@
-import os
-import sys
-import sqlite3
 import json
+import os
+import sqlite3
+import sys
 import time
 from typing import Optional
 
@@ -13,7 +13,8 @@ if _CORE_DIR not in sys.path:
 
 from storage import conn
 
-def save_identity_field( field: str, value: str, source: str="agent", op: str="set", items: Optional[list[str]]=None) -> str:
+
+def save_identity_field( field: str, value: str, source: str="agent", op: str="set", items: list[str] | None=None) -> str:
     key = f"identity.{field}"
     existing_row = conn.execute(
         "SELECT value FROM memory_meta WHERE key = ?",

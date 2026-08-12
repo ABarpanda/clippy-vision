@@ -1,6 +1,7 @@
-import json, urllib.request
+import json
+import urllib.request
 
-from core.llm_gateway import gateway, Priority
+from core.llm_gateway import Priority, gateway
 
 MODEL      = "qwen3:8b"
 

@@ -1,11 +1,11 @@
-import uuid
-import time
-import math
 import json
+import math
 import threading
+import time
+import uuid
 
+from core.llm_gateway import Priority, gateway
 from core.storage import conn
-from core.llm_gateway import gateway, Priority
 
 EMBED_MODEL        = "nomic-embed-text"
 SUMMARY_MIN_TURNS  = 5    # build first summary after this many turns

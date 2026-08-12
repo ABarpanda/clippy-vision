@@ -3,8 +3,9 @@ import queue
 import threading
 import time
 import urllib.request
-import psutil
 from itertools import count
+
+import psutil
 
 from core.model_residency import keep_alive_for
 

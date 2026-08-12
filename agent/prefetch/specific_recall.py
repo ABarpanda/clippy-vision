@@ -5,13 +5,11 @@ import time
 
 # Ensure events / events_fts tables exist before we touch the index
 import core.storage  # noqa: F401
-
-from agent.prefetch.topic_search import cosine_similarity
-from agent.helpers.time_resolver import resolve_temporal_range
 from agent.helpers.detect_recency import detect_recency_hint
-from agent.helpers.keywords import keywords_from_query, content_keywords, STOPWORDS
+from agent.helpers.keywords import STOPWORDS, content_keywords, keywords_from_query
+from agent.helpers.time_resolver import resolve_temporal_range
+from agent.prefetch.topic_search import cosine_similarity
 from core.paths import get_db_path
-
 
 DB_PATH = get_db_path()
 conn = sqlite3.connect(str(DB_PATH), check_same_thread=False, timeout=30.0)

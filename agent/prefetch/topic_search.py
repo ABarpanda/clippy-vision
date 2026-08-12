@@ -1,12 +1,12 @@
+import json
+import math
 import re
 import sqlite3
 import time
-from typing import Optional
-import math
-import json
+from pathlib import Path
 
-from core.llm_gateway import gateway, Priority
-from agent.helpers.keywords import keywords_from_query, content_keywords
+from agent.helpers.keywords import content_keywords, keywords_from_query
+from core.llm_gateway import Priority, gateway
 from core.paths import get_db_path
 
 _DB_PATH = get_db_path()

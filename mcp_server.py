@@ -1,5 +1,5 @@
-import sys
 import os
+import sys
 
 # Make sure both the project root and core/ are importable
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -8,8 +8,14 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "age
 
 from mcp.server.fastmcp import FastMCP
 
-from agent.retrieval import search_sessions, search_events
-from agent.memory import recall_memory, fetch_cluster, save_identity, save_note, delete_note
+from agent.memory import (
+    delete_note,
+    fetch_cluster,
+    recall_memory,
+    save_identity,
+    save_note,
+)
+from agent.retrieval import search_events, search_sessions
 
 mcp = FastMCP("Clippy-Vision MCP")
 

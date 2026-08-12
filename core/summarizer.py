@@ -1,17 +1,21 @@
 import json
-import time
-import uuid
 import threading
+import time
 import urllib.request
+import uuid
 
+from distil import distil, should_distil
 from events import get_session_id
 from storage import (
-    store_summary, get_last_summary_time, get_unsummarized_events,
-    get_events_for_window, get_sessions_needing_refresh, mark_session_vision_enriched,
+    get_events_for_window,
+    get_last_summary_time,
+    get_sessions_needing_refresh,
+    get_unsummarized_events,
+    mark_session_vision_enriched,
+    store_summary,
 )
 
-from distil import should_distil, distil
-from core.llm_gateway import gateway, Priority
+from core.llm_gateway import Priority, gateway
 
 MODEL        = "qwen3:8b"
 INTERVAL_SEC = 300   # run every 5 minutes

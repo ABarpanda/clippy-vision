@@ -3,20 +3,21 @@ Quick test script to verify Clippy Vision installation
 Run this after setup to ensure everything is working correctly
 """
 
-import sys
 import os
+import sys
+
 
 def test_imports():
     """Test if all required Python packages are installed"""
     print("\n[1/5] Testing Python imports...")
     try:
-        import win32gui
-        import win32api
+        import imagehash
         import mss
+        import psutil
+        import win32api
+        import win32gui
         from PIL import Image
         from pynput import keyboard
-        import psutil
-        import imagehash
         print("  ✓ All Python packages imported successfully")
         return True
     except ImportError as e:

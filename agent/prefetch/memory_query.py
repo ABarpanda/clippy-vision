@@ -1,13 +1,13 @@
 import json
-import sys
 import os
 import sqlite3
+import sys
 import time
+from pathlib import Path
 
 from agent.prefetch.topic_search import cosine_similarity
-from core.llm_gateway import gateway, Priority
+from core.llm_gateway import Priority, gateway
 from core.paths import get_db_path
-
 
 DB_PATH = get_db_path()
 conn = sqlite3.connect(str(DB_PATH), check_same_thread=False, timeout=30.0)

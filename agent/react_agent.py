@@ -1,27 +1,28 @@
 import json
+import threading
 import time
 import uuid
-import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from agent.tools import TOOLS, TOOL_SCHEMAS, WRITE_TOOLS, WRITE_TOOL_SCHEMAS
-from agent.memory import get_autobiographical_context
-from agent.router import classify_query, should_prefetch
 
-
-from core.llm_gateway import gateway, Priority
-from core.distil import ingest_conversation
 from agent.conversation import (
-    save_chat, maybe_summarize,
-    get_recent_chats, get_recent_summaries, get_relevant_summaries,
+    get_recent_chats,
+    get_recent_summaries,
+    get_relevant_summaries,
+    maybe_summarize,
+    save_chat,
 )
-from core.memory_store import get_unresolved_conflicts
-
-from core.storage import get_user_name
-from agent.prefetch.topic_search import topic_search
+from agent.helpers.time_resolver import resolve_temporal_range
+from agent.memory import get_autobiographical_context
+from agent.prefetch.memory_query import memory_query
 from agent.prefetch.specific_recall import specific_recall
 from agent.prefetch.time_anchor import time_anchor_fetch
-from agent.prefetch.memory_query import memory_query
-from agent.helpers.time_resolver import resolve_temporal_range
+from agent.prefetch.topic_search import topic_search
+from agent.router import classify_query, should_prefetch
+from agent.tools import TOOL_SCHEMAS, TOOLS, WRITE_TOOL_SCHEMAS, WRITE_TOOLS
+from core.distil import ingest_conversation
+from core.llm_gateway import Priority, gateway
+from core.memory_store import get_unresolved_conflicts
+from core.storage import get_user_name
 
 MODEL     = "qwen3:8b"
 MAX_STEPS = 10
