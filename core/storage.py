@@ -1,7 +1,8 @@
+import json
 import os
 import sqlite3
-import json
 import time
+
 from core.events import Event
 from core.paths import get_db_path
 
@@ -558,7 +559,6 @@ def get_data_stats() -> dict:
             existing_screenshots += 1
         except OSError:
             continue
-    db_path = get_data_dir() / "events.db"
     database_bytes = 0
     for suffix in ("", "-wal", "-shm"):
         path = get_data_dir() / f"events.db{suffix}"
@@ -576,10 +576,9 @@ def get_data_stats() -> dict:
 
 def export_data() -> dict:
     from core.app_settings import get_capture_settings
-    from core.llm_config import public_llm_config
     from core.memory_store import get_profile
-    from core.privacy_settings import get_privacy_enabled
     from core.paths import get_screenshots_dir
+    from core.privacy_settings import get_privacy_enabled
 
     def decode_payload(value):
         if not value:
@@ -631,7 +630,6 @@ def export_data() -> dict:
         "settings": {
             "capture": get_capture_settings(),
             "privacy": get_privacy_enabled(),
-            "provider": public_llm_config(),
         },
         "events": [
             {

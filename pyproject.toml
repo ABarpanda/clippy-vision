@@ -6,6 +6,22 @@ build-backend = "setuptools.build_meta"
 name = "Clippy_Vision"
 version = "1.0.1"
 
+# Handle the repository's flat package layout.
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["core*", "classifier*", "agent*"]
+
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.lint]
+select = ["I", "UP", "E", "F", "B"]
+
+ignore = [
+    "E501", # Line too long
+    "E402", # Module level import not at top of file
+    "F401", # Imported but unused
+    "F541", # f-string without placeholders
+    "B905", # zip() without an explicit strict parameter
+    "B007", # Unused loop control variable
+]

@@ -19,3 +19,4 @@ numpy
 httpx
 rapidfuzz
 parsedatetime>=2.6
+ruff

@@ -4,14 +4,11 @@ import importlib.util
 import platform
 import sys
 
-from core.capture_state import get_capture_status
 from core.app_settings import get_capture_settings
-from core.llm_config import get_llm_config, public_llm_config
-from core.llm_gateway import gateway
+from core.capture_state import get_capture_status
 from core.local_embeddings import embedding_status
 from core.platform_support import IS_MACOS, get_window_metadata, platform_label
 from core.storage import get_data_stats
-
 
 _REQUIRED_IMPORTS = {
     "mss": "screen capture",
@@ -50,7 +47,6 @@ def _permission_status() -> dict:
 
 
 def get_diagnostics() -> dict:
-    config = get_llm_config()
     return {
         "platform": platform_label(),
         "python": sys.version.split()[0],
@@ -60,7 +56,5 @@ def get_diagnostics() -> dict:
         "capture": get_capture_status(),
         "capture_settings": get_capture_settings(),
         "storage": get_data_stats(),
-        "llm": public_llm_config(config),
-        "provider": gateway.capabilities(config),
         "embeddings": embedding_status(),
     }

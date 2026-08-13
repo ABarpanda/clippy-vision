@@ -6,7 +6,6 @@ from typing import Any
 
 from core.storage import conn
 
-
 _META_KEY = "settings.capture"
 _IMAGE_MODES = {"auto", "cached", "fallback", "off"}
 _DEFAULTS: dict[str, Any] = {

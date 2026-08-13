@@ -2,14 +2,14 @@ import json
 import re
 import time
 
-# Ensure events / events_fts tables exist before we touch the index
-from core.storage import conn
+from agent.helpers.detect_recency import detect_recency_hint
+from agent.helpers.keywords import STOPWORDS, content_keywords, keywords_from_query
+from agent.helpers.time_resolver import resolve_temporal_range
+from agent.prefetch.topic_search import cosine_similarity
 from core.screenshot_search import resolve_screenshot_filename
 
-from agent.prefetch.topic_search import cosine_similarity
-from agent.helpers.time_resolver import resolve_temporal_range
-from agent.helpers.detect_recency import detect_recency_hint
-from agent.helpers.keywords import keywords_from_query, content_keywords, STOPWORDS
+# Ensure events / events_fts tables exist before we touch the index
+from core.storage import conn
 
 MAX_RESULTS = 5
 DEFAULT_LOOKBACK_DAYS = 7
@@ -342,7 +342,8 @@ def search_events_for_artifact(
             rows = []
 
 
-        if not rows:
+        # Keyword misses should stay empty instead of injecting unrelated recent frames.
+        if not rows and not fts_keywords:
             sql = f"""
                 SELECT e.timestamp, e.vision_ocr_text, e.vision_activity,
                        e.current_window_title, e.process_name, e.summary,

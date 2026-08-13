@@ -7,9 +7,8 @@ import os
 import re
 import threading
 import time
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable
-
 
 # The bundled model is the preferred path. The deterministic hash encoder keeps
 # keyword-like retrieval available when PyTorch or the model cannot be loaded.
@@ -82,7 +81,7 @@ def _hash_embedding(text: str) -> list[float]:
         sign = 1.0 if digest[4] & 1 else -1.0
         vector[index] += sign
     for left, right in zip(tokens, tokens[1:]):
-        digest = hashlib.blake2b(f"{left} {right}".encode("utf-8"), digest_size=16).digest()
+        digest = hashlib.blake2b(f"{left} {right}".encode(), digest_size=16).digest()
         index = int.from_bytes(digest[:4], "big") % MODEL_DIMENSION
         sign = 1.0 if digest[4] & 1 else -1.0
         vector[index] += 0.5 * sign

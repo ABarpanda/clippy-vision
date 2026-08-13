@@ -192,7 +192,7 @@ def get_active_redact_rules() -> dict:
 
 
 # ---- Cached rules for the capture process (avoids DB hit every EnumWindows) ----
-_cache_rules: Optional[dict] = None
+_cache_rules: dict | None = None
 _cache_at: float = 0.0
 _CACHE_TTL_SECS = 5.0
 

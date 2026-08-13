@@ -6,12 +6,11 @@ import re
 import time
 from pathlib import Path
 
-from core.image_embeddings import embed_text as embed_image_text
 from core.app_settings import get_capture_settings
+from core.image_embeddings import embed_text as embed_image_text
 from core.local_embeddings import embed_text
 from core.paths import get_screenshots_dir
 from core.storage import conn
-
 
 _WORD_RE = re.compile(r"[a-z0-9][a-z0-9_.:/-]{2,}", re.IGNORECASE)
 _STOPWORDS = {
@@ -134,15 +133,6 @@ def _rows(start_ts: float | None = None, end_ts: float | None = None) -> list[di
 def _display_record(row: dict, score: float | None = None) -> dict:
     filename = resolve_screenshot_filename(row["timestamp"], row.get("screenshot_filename"))
     ocr = (row.get("vision_ocr_text") or "").strip()
-    text = " | ".join(
-        str(row.get(key) or "").strip()
-        for key in (
-            "process_name", "current_window_title", "active_url", "summary",
-            "interest_reason", "vision_activity", "vision_suggested_action",
-            "vision_ocr_text",
-        )
-        if row.get(key)
-    )
     return {
         "event_id": row["event_id"],
         "timestamp": row["timestamp"],

@@ -8,7 +8,6 @@ from PIL import Image, ImageOps
 
 from core.paths import get_data_dir
 
-
 DEFAULT_IMAGE_MODEL = "openai/clip-vit-base-patch32"
 # Enabling the capture setting should be sufficient to attempt semantic image
 # embeddings. The default stays local-only and never downloads CLIP weights.

@@ -5,7 +5,6 @@ from collections import deque
 
 from core.platform_support import IS_MACOS, IS_WINDOWS, _run_command
 
-
 MAX_TEXT_CHARS = 4000
 MIN_USEFUL_CHARS = 40
 MAX_UI_NODES = 250

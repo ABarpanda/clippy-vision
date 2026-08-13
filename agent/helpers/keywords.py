@@ -1,9 +1,5 @@
 import re
 
-
-
-
-
 # Standard English stopwords — too common to be useful as FTS/keyword search terms.
 # Including them inflates BM25 scores for ANY document containing normal prose,
 # causing high-word-count events (pastes, OCR text, seed files) to rank above
@@ -25,7 +21,7 @@ STOPWORDS: frozenset[str] = frozenset({
     "into", "through", "during", "until", "while", "since", "between",
 
     # query meta-words that carry zero content signal
-    "related", "show", "tell", "find", "search", "give", "describe",
+    "related", "show", "tell", "find", "search", "describe",
     "exactly", "specific", "recent", "days", "last", "first", "ago",
     "screen", "seeing", "looking", "viewed", "opened",
     "working", "doing",

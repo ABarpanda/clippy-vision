@@ -3,11 +3,13 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
+from core.accessibility_text import (
+    is_useful_accessibility_text,
+    normalize_accessibility_text,
+)
+from core.app_settings import get_capture_settings
 from core.image_embeddings import embed_image
 from core.ocr import extract_text
-from core.app_settings import get_capture_settings
-from core.accessibility_text import is_useful_accessibility_text, normalize_accessibility_text
-
 
 _cache: dict[str, tuple[int, int, str, list[float] | None, str | None, bool, bool]] = {}
 _accessibility_cache: dict[str, tuple[int, int, str]] = {}

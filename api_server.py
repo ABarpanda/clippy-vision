@@ -1,65 +1,45 @@
-import sys, os
+import json
+import os
+import sys
+import threading
+from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Optional
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-
-
-from contextlib import asynccontextmanager
-import threading
-
-from fastapi import FastAPI, Query
-
+import uvicorn
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
-from typing import Optional
-
-import uvicorn, json
-
-from fastapi.middleware.cors import CORSMiddleware
-
-
-
-from agent.react_agent import run, run_stream, USER_MESSAGE_MAX_CHARS
-
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
-from fastapi import HTTPException
-
-from core.storage import clear_data, export_data, get_data_stats, get_user_name, set_user_name
-
-from core.memory_store import (
-
-    set_introduction,
-
-    save_identity_field,
-    get_profile,
-
-)
-
-from core.intro_builder import start_intro_rebuild_daemon
-
-from core.privacy_settings import list_privacy_targets, set_privacy_enabled
-
 from agent.conversation import (
-    list_conversations,
-    get_conversation_messages,
-    search_conversations,
     delete_conversation,
+    get_conversation_messages,
+    list_conversations,
+    search_conversations,
 )
-
+from agent.react_agent import USER_MESSAGE_MAX_CHARS, run, run_stream
 from agent.router import load_classifier
-from core.model_residency import warm_for_startup, on_capture_stop
-from core.capture_state import get_capture_status
-from core.paths import get_data_dir
-from core.platform_support import platform_label
-from core.llm_config import get_llm_config, public_llm_config, save_llm_config
-from core.llm_gateway import gateway
-from core.rag import start_event_indexer, stop_event_indexer
 from core.app_settings import get_capture_settings, set_capture_settings
+from core.capture_state import get_capture_status
 from core.diagnostics import get_diagnostics
-from core.paths import get_screenshots_dir
+from core.intro_builder import start_intro_rebuild_daemon
+from core.memory_store import get_profile, save_identity_field, set_introduction
+from core.model_residency import on_capture_stop, warm_for_startup
+from core.paths import get_data_dir, get_screenshots_dir
+from core.platform_support import platform_label
+from core.privacy_settings import list_privacy_targets, set_privacy_enabled
+from core.rag import start_event_indexer, stop_event_indexer
 from core.screenshot_search import search_screenshots
-
+from core.storage import (
+    clear_data,
+    export_data,
+    get_data_stats,
+    get_user_name,
+    set_user_name,
+)
 
 
 @asynccontextmanager
@@ -90,11 +70,7 @@ app.add_middleware(
 
     CORSMiddleware,
 
-    allow_origins=[
-        "http://localhost:8000",
-        "http://127.0.0.1:8000",
-        "null",
-    ],
+    allow_origins=["null"],
 
     allow_methods=["*"],
 
@@ -118,11 +94,11 @@ class NameRequest(BaseModel):
 
 class ProfileUpdateRequest(BaseModel):
 
-    name: Optional[str] = None
+    name: str | None = None
 
-    introduction: Optional[str] = None
+    introduction: str | None = None
 
-    identity: Optional[dict[str, str]] = None
+    identity: dict[str, str] | None = None
 
 
 
@@ -131,30 +107,19 @@ class PrivacyUpdateRequest(BaseModel):
     enabled: dict[str, bool]
 
 
-class ProviderUpdateRequest(BaseModel):
-
-    provider: Optional[str] = None
-    base_url: Optional[str] = None
-    api_key: Optional[str] = None
-    cli_command: Optional[str] = None
-    chat_model: Optional[str] = None
-    vision_model: Optional[str] = None
-    embedding_model: Optional[str] = None
-
-
 class CaptureSettingsRequest(BaseModel):
-    capture_screenshots: Optional[bool] = None
-    capture_all_monitors: Optional[bool] = None
-    capture_clipboard: Optional[bool] = None
-    ocr_enabled: Optional[bool] = None
-    image_embeddings_enabled: Optional[bool] = None
-    rag_enabled: Optional[bool] = None
-    min_gap_seconds: Optional[float] = None
-    background_interval_seconds: Optional[float] = None
-    activity_debounce_seconds: Optional[float] = None
-    raw_retention_days: Optional[int] = None
-    screenshot_retention_days: Optional[int] = None
-    launch_at_login: Optional[bool] = None
+    capture_screenshots: bool | None = None
+    capture_all_monitors: bool | None = None
+    capture_clipboard: bool | None = None
+    ocr_enabled: bool | None = None
+    image_embeddings_enabled: bool | None = None
+    rag_enabled: bool | None = None
+    min_gap_seconds: float | None = None
+    background_interval_seconds: float | None = None
+    activity_debounce_seconds: float | None = None
+    raw_retention_days: int | None = None
+    screenshot_retention_days: int | None = None
+    launch_at_login: bool | None = None
 
 
 class DataClearRequest(BaseModel):
@@ -306,30 +271,6 @@ def write_privacy_settings(req: PrivacyUpdateRequest):
     return {"targets": list_privacy_targets()}
 
 
-@app.get("/settings/provider")
-def read_provider_settings():
-    return public_llm_config(get_llm_config())
-
-
-@app.put("/settings/provider")
-def write_provider_settings(req: ProviderUpdateRequest):
-    try:
-        config = save_llm_config(req.dict(exclude_unset=True))
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return public_llm_config(config)
-
-
-@app.post("/settings/provider/test")
-def test_provider_settings():
-    return gateway.test_connection()
-
-
-@app.get("/settings/provider/capabilities")
-def provider_capabilities():
-    return gateway.capabilities()
-
-
 @app.get("/settings/capture")
 def read_capture_settings():
     return get_capture_settings()
@@ -376,8 +317,8 @@ def diagnostics():
 @app.get("/screenshots")
 def screenshot_search(
     q: str = "",
-    since: Optional[float] = None,
-    until: Optional[float] = None,
+    since: float | None = None,
+    until: float | None = None,
     limit: int = Query(40, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
@@ -424,15 +365,6 @@ def conversation_messages(conversation_id: str):
 
 
 @app.delete("/conversations/{conversation_id}")
-def remove_conversation(conversation_id: str):
-    deleted = delete_conversation(conversation_id)
-    if not deleted:
-        raise HTTPException(status_code=404, detail="Conversation not found.")
-    return {"conversation_id": conversation_id, "deleted": deleted}
-
-
-
-@app.delete("/conversations/{conversation_id}")
 
 def conversation_delete(conversation_id: str):
 
@@ -463,7 +395,6 @@ def status():
         "data_dir": str(get_data_dir()),
         "capture": get_capture_status(),
         "residency": load_residency(),
-        "llm": public_llm_config(),
     }
 
 
@@ -472,7 +403,7 @@ def status():
 
 def residency_startup():
 
-    """Pin text + embed for app launch; vision stays idle until capture starts."""
+    """Pin text for app launch; bundled embeddings load on demand."""
 
     return warm_for_startup()
 

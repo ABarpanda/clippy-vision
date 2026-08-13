@@ -1,58 +1,78 @@
 from __future__ import annotations
 
-import os
 import json
+import os
 import sys
 import tempfile
 import time
-from pathlib import Path
 import unittest
 from datetime import datetime
+from pathlib import Path
 from unittest.mock import patch
-
 
 os.environ.setdefault("CLIPPY_DATA_DIR", tempfile.mkdtemp(prefix="clippy-tests-"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from PIL import Image
 import imagehash
+from PIL import Image
 
-from classifier.worker import apply_verdict, apply_vision_verdict
+from agent.helpers.time_resolver import resolve_temporal_range
+from agent.memory import get_autobiographical_context
+from agent.prefetch.memory_query import memory_query
+from agent.prefetch.specific_recall import (
+    detect_artifact_type,
+    search_events_for_artifact,
+    specific_recall,
+)
+from agent.prefetch.topic_search import topic_search
+from agent.router import _deterministic_route, classify_query
 from classifier.tier_two_classifier import VERDICT_SCHEMA
-from core.events import Event, WindowMetadata
-from core.paths import get_data_dir, get_screenshots_dir
-from core.screenshot_search import search_screenshots
-from core.screenshot_processor import _get_nearest_event, _group_by_similarity, _process_group
-from core.screenshot_enrichment import enrich_screenshot, remember_accessibility_text
-from core.accessibility_text import is_useful_accessibility_text, normalize_accessibility_text
+from classifier.worker import apply_verdict, apply_vision_verdict
 from core import rag
-from core.cli_providers import _build_command, _extract_output
-from core.llm_config import normalize_config
-from core.local_embeddings import MODEL_DIMENSION, MODEL_ID, embed_text, embedding_status
+from core.accessibility_text import (
+    is_useful_accessibility_text,
+    normalize_accessibility_text,
+)
+from core.app_settings import (
+    get_capture_settings,
+    normalize_capture_settings,
+    set_capture_settings,
+)
+from core.events import Event, WindowMetadata
+from core.intro_builder import gather_intro_inputs
 from core.llm_gateway import gateway
+from core.local_embeddings import (
+    MODEL_DIMENSION,
+    MODEL_ID,
+    embed_text,
+    embedding_status,
+)
+from core.memory_store import save_identity_field, set_introduction
+from core.paths import get_data_dir, get_screenshots_dir
+from core.privacy_settings import (
+    get_privacy_enabled,
+    set_privacy_enabled,
+    should_redact_window,
+)
+from core.screenshot_enrichment import enrich_screenshot, remember_accessibility_text
+from core.screenshot_processor import (
+    _get_nearest_event,
+    _group_by_similarity,
+    _process_group,
+)
+from core.screenshot_search import search_screenshots
 from core.storage import (
     clear_data,
     conn,
     export_data,
     get_data_stats,
     get_user_name,
+    set_user_name,
     store_event,
     store_summary,
-    set_user_name,
 )
-from core.vision import _foreground_accessibility_text, get_screenshots_near
 from core.summarizer import _build_prompt
-from agent.router import classify_query
-from agent.helpers.time_resolver import resolve_temporal_range
-from agent.prefetch.specific_recall import detect_artifact_type, specific_recall
-from agent.prefetch.topic_search import topic_search
-from agent.prefetch.memory_query import memory_query
-from agent.memory import get_autobiographical_context
-from core.memory_store import save_identity_field, set_introduction
-from core.app_settings import get_capture_settings, normalize_capture_settings, set_capture_settings
-from core.intro_builder import gather_intro_inputs
-from core.llm_config import get_llm_config, public_llm_config, save_llm_config
-from core.privacy_settings import get_privacy_enabled, set_privacy_enabled, should_redact_window
+from core.vision import _foreground_accessibility_text, get_screenshots_near
 
 
 def make_event(event_id: str, event_type: str = "typing_burst", timestamp: float | None = None) -> Event:
@@ -167,12 +187,7 @@ class RuntimeRegressionTests(unittest.TestCase):
         self.assertEqual(conn.execute("SELECT COUNT(*) FROM memory_facts").fetchone()[0], 0)
         self.assertEqual(conn.execute("SELECT COUNT(*) FROM memory_clusters").fetchone()[0], 0)
 
-    def test_memory_and_screenshot_queries_route_without_classifier_checkpoint(self):
-        memory_decision, memory_confidence = classify_query("what do you know about me right now?")
-        self.assertEqual(memory_decision.primary, "memory_query")
-        self.assertIn("topic_search", memory_decision.secondary)
-        self.assertEqual(memory_confidence, 1.0)
-
+    def test_only_artifact_queries_bypass_the_classifier(self):
         screenshot_decision, screenshot_confidence = classify_query(
             "What was I doing in the screenshot from 8/4/2026, 1:12:29 PM?"
         )
@@ -180,10 +195,37 @@ class RuntimeRegressionTests(unittest.TestCase):
         self.assertIn("time_anchored", screenshot_decision.secondary)
         self.assertEqual(screenshot_confidence, 1.0)
 
-        dated_decision, dated_confidence = classify_query("Show me last Tuesday")
-        self.assertEqual(dated_decision.primary, "time_anchored")
-        self.assertIn("topic_search", dated_decision.secondary)
-        self.assertEqual(dated_confidence, 1.0)
+        artifact = _deterministic_route("what was the link I copied?")
+        self.assertEqual(artifact.primary, "specific_recall")
+        self.assertIsNone(_deterministic_route("what do you know about me right now?"))
+        self.assertIsNone(_deterministic_route("show me last Tuesday"))
+        self.assertIsNone(_deterministic_route("what was I working on?"))
+
+    def test_memory_prefetch_does_not_duplicate_the_profile(self):
+        with patch(
+            "agent.prefetch.memory_query._fetch_memory",
+            return_value="semantic memory facts",
+        ):
+            result = memory_query("what do you know about me?", q_vec=[1.0])
+        self.assertEqual(result, "semantic memory facts")
+
+    def test_screen_keyword_miss_does_not_fall_back_to_recent_frames(self):
+        event = make_event("unrelated-screen", event_type="screenshot_analysis")
+        event["summary"] = "an unrelated captured frame"
+        store_event(event)
+
+        def cleanup_event():
+            conn.execute("DELETE FROM events WHERE event_id=?", (event["event_id"],))
+            conn.commit()
+
+        self.addCleanup(cleanup_event)
+
+        results = search_events_for_artifact(
+            "screen",
+            ["review_token_that_does_not_exist_1739"],
+        )
+
+        self.assertEqual(results, [])
 
     def test_exact_numeric_datetime_resolves_to_instant(self):
         result = resolve_temporal_range(
@@ -235,17 +277,21 @@ class RuntimeRegressionTests(unittest.TestCase):
         self.assertIn("event-level activity fallback", result)
         self.assertIn("quasarneedle", result)
 
-    def test_memory_overview_reports_explicit_and_observed_storage_separately(self):
+    def test_profile_context_is_not_duplicated_in_memory_prefetch(self):
         set_user_name("Profile Test User")
         set_introduction("I build local-first desktop tools.", source="user")
         save_identity_field("location", "Dubai", source="user", op="override")
-        result = memory_query("what do you have stored in your local memory for me?")
-        self.assertIn("personal memory inventory", result)
-        self.assertIn("display_name: Profile Test User", result)
-        self.assertIn('"location": "Dubai"', result)
-        self.assertIn("explicit_semantic_facts:", result)
-        self.assertIn("activity_events_stored:", result)
-        self.assertIn("screenshot_events_stored:", result)
+        with patch(
+            "agent.prefetch.memory_query._fetch_memory",
+            return_value="semantic memory facts",
+        ):
+            result = memory_query(
+                "what do you have stored in your local memory for me?",
+                q_vec=[1.0],
+            )
+        self.assertEqual(result, "semantic memory facts")
+        self.assertNotIn("Profile Test User", result)
+        self.assertNotIn("Dubai", result)
         profile = get_autobiographical_context()
         self.assertIn("name: Profile Test User", profile)
         self.assertIn("I build local-first desktop tools.", profile)
@@ -311,7 +357,6 @@ class RuntimeRegressionTests(unittest.TestCase):
         self.assertEqual(exported["profile"]["name"], "Export User")
         self.assertIn("capture", exported["settings"])
         self.assertIn("privacy", exported["settings"])
-        self.assertIn("provider", exported["settings"])
         self.assertIn("session_summaries", exported)
         self.assertIn("facts", exported["memory"])
         match = next(item for item in exported["events"] if item["event_id"] == event["event_id"])
@@ -325,16 +370,6 @@ class RuntimeRegressionTests(unittest.TestCase):
                 expected += path.stat().st_size
         self.assertEqual(get_data_stats()["database_bytes"], expected)
 
-    def test_provider_save_returns_effective_environment_override(self):
-        original = get_llm_config()
-        try:
-            with patch.dict(os.environ, {"CLIPPY_LLM_PROVIDER": "codex"}):
-                effective = save_llm_config({"provider": "ollama"})
-                self.assertEqual(effective["provider"], "codex_cli")
-                self.assertIn("provider", public_llm_config()["environment_overrides"])
-        finally:
-            save_llm_config(original)
-
     def test_privacy_setting_round_trip_changes_runtime_redaction(self):
         original = get_privacy_enabled()
         try:
@@ -345,72 +380,6 @@ class RuntimeRegressionTests(unittest.TestCase):
             self.assertFalse(should_redact_window("Slack", "Workspace"))
         finally:
             set_privacy_enabled(original)
-
-    def test_subscription_provider_configs_use_local_embeddings(self):
-        for provider, chat_model, vision_model in (
-            ("codex", "default", "default"),
-            ("claude", "sonnet", "sonnet"),
-        ):
-            config = normalize_config({"provider": provider})
-            self.assertEqual(config["provider"], f"{provider}_cli")
-            self.assertEqual(config["base_url"], "cli://local")
-            self.assertEqual(config["chat_model"], chat_model)
-            self.assertEqual(config["vision_model"], vision_model)
-            self.assertEqual(config["embedding_model"], "local:sentence-transformers/all-MiniLM-L6-v2")
-
-    def test_legacy_gemini_cli_config_migrates_to_supported_api(self):
-        config = normalize_config({
-            "provider": "gemini_cli",
-            "base_url": "cli://local",
-            "chat_model": "auto",
-            "vision_model": "auto",
-        })
-        self.assertEqual(config["provider"], "gemini_api")
-        self.assertEqual(config["base_url"], "https://generativelanguage.googleapis.com/v1beta/openai")
-        self.assertEqual(config["chat_model"], "gemini-2.5-flash")
-        self.assertEqual(config["vision_model"], "gemini-2.5-flash")
-        self.assertEqual(config["embedding_model"], "local:sentence-transformers/all-MiniLM-L6-v2")
-
-        fresh = normalize_config({"provider": "gemini_api"})
-        self.assertEqual(fresh["base_url"], "https://generativelanguage.googleapis.com/v1beta/openai")
-        self.assertEqual(fresh["chat_model"], "gemini-2.5-flash")
-
-    def test_subscription_cli_output_parsers_keep_final_answers(self):
-        claude = _extract_output("claude_cli", '{"type":"result","result":"Claude answer"}')
-        codex = _extract_output(
-            "codex_cli",
-            '\n'.join([
-                '{"type":"thread.started","thread_id":"test"}',
-                '{"type":"item.completed","item":{"type":"agent_message","text":"Codex answer"}}',
-            ]),
-        )
-        self.assertEqual(claude, "Claude answer")
-        self.assertEqual(codex, "Codex answer")
-
-    def test_subscription_cli_commands_are_read_only_and_support_images(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            command = _build_command(
-                "codex_cli",
-                ["codex"],
-                "default",
-                root,
-                [root / "frame.jpg"],
-                None,
-            )
-        self.assertIn("--sandbox", command)
-        self.assertIn("read-only", command)
-        self.assertIn("--image", command)
-
-    def test_gateway_routes_subscription_chat_to_cli_adapter(self):
-        config = normalize_config({"provider": "claude"})
-        expected = {"message": {"role": "assistant", "content": "ok"}}
-        with patch("core.llm_gateway.get_llm_config", return_value=config), patch(
-            "core.llm_gateway.run_cli_chat", return_value=expected
-        ) as run_cli:
-            result = gateway.chat([{"role": "user", "content": "hello"}], "sonnet")
-        self.assertEqual(result, expected)
-        run_cli.assert_called_once()
 
     def test_fts_tracks_event_and_session_changes(self):
         stamp = time.time()

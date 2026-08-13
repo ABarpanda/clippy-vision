@@ -1,4 +1,7 @@
 import json
+import os
+import sqlite3
+import sys
 import time
 from typing import Optional
 
@@ -9,7 +12,7 @@ except ImportError:
     # is imported as 'storage' (from core/) or as 'core.memory_store' (from root).
     from storage import conn
 
-def save_identity_field( field: str, value: str, source: str="agent", op: str="set", items: Optional[list[str]]=None) -> str:
+def save_identity_field( field: str, value: str, source: str="agent", op: str="set", items: list[str] | None=None) -> str:
     field = (field or "").strip().lower().replace(" ", "_")
     if not field:
         return "Identity field cannot be empty."

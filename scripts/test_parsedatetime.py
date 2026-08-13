@@ -1,5 +1,6 @@
-import parsedatetime
 from datetime import datetime
+
+import parsedatetime
 
 _cal = parsedatetime.Calendar()
 

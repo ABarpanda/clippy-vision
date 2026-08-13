@@ -1,10 +1,11 @@
-from dataclasses import dataclass, field
-import sys
-import os
 import json
+import os
 import re
+import sys
 import threading
+from dataclasses import dataclass, field
 from pathlib import Path
+
 import torch
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -12,10 +13,10 @@ if str(PROJECT_ROOT) not in sys.path:
   sys.path.insert(0, str(PROJECT_ROOT))
 
 try:
-  from core.llm_gateway import gateway, Priority
+  from core.llm_gateway import Priority, gateway
 except ImportError:
   sys.path.append(os.path.join(os.path.dirname(__file__), "..", "core"))
-  from llm_gateway import gateway, Priority
+  from llm_gateway import Priority, gateway
 
 @dataclass
 class RouterDecision:
@@ -56,21 +57,9 @@ _SCREENSHOT_QUERY_RE = re.compile(
   r"\b(?:screenshot|screen[- ]?shot|screen capture|captured screen|captured frame)\b",
   re.IGNORECASE,
 )
-_MEMORY_OVERVIEW_RE = re.compile(
-  r"\b(?:what (?:do|did) you know about me|what do you remember about me|"
-  r"what (?:is|do you have) stored|local memory|your memory (?:for|about) me|who am i|"
-  r"my (?:profile|preferences|skills|goals|interests))\b",
-  re.IGNORECASE,
-)
 _ARTIFACT_QUERY_RE = re.compile(
   r"\b(?:url|link|clipboard|copied|pasted|error message|command|file name|filename|"
   r"exact text|what did it say)\b",
-  re.IGNORECASE,
-)
-_ACTIVITY_QUERY_RE = re.compile(
-  r"\b(?:what (?:was|were) i doing|what did i do|what did i work on|"
-  r"what (?:have|had) i been doing|where was i|which app|activity|work history|"
-  r"worked on|working on|browsing|watching|reading)\b",
   re.IGNORECASE,
 )
 _TIME_QUERY_RE = re.compile(
@@ -81,12 +70,6 @@ _TIME_QUERY_RE = re.compile(
     r"january|february|march|april|may|june|july|august|september|october|november|december|"
     r"\d+\s+(?:minutes?|hours?|days?|weeks?|months?)\s+ago)\b",
     re.IGNORECASE,
-)
-_HISTORY_RECALL_RE = re.compile(
-  r"\b(?:do you remember|can you remember|recall (?:my|what|when|where)|"
-  r"find (?:my|what i|when i|where i)|search (?:my|our) (?:history|activity|memory)|"
-  r"earlier activity|past activity|recent activity)\b",
-  re.IGNORECASE,
 )
 
 
@@ -105,14 +88,6 @@ def _deterministic_route(query: str) -> RouterDecision | None:
       secondary_scores={route: 1.0 for route in secondary},
     )
 
-  if _MEMORY_OVERVIEW_RE.search(text):
-    return RouterDecision(
-      primary="memory_query",
-      secondary=["topic_search"],
-      needs_memory_fetch=True,
-      secondary_scores={"topic_search": 1.0},
-    )
-
   if _ARTIFACT_QUERY_RE.search(text):
     secondary = ["time_anchored"] if _TIME_QUERY_RE.search(text) else []
     return RouterDecision(
@@ -121,33 +96,6 @@ def _deterministic_route(query: str) -> RouterDecision | None:
       temporal_hint=text if secondary else None,
       needs_memory_fetch=True,
       secondary_scores={route: 1.0 for route in secondary},
-    )
-
-  if _ACTIVITY_QUERY_RE.search(text):
-    primary = "time_anchored" if _TIME_QUERY_RE.search(text) else "topic_search"
-    secondary = ["topic_search"] if primary == "time_anchored" else []
-    return RouterDecision(
-      primary=primary,
-      secondary=secondary,
-      temporal_hint=text if primary == "time_anchored" else None,
-      needs_memory_fetch=True,
-      secondary_scores={route: 1.0 for route in secondary},
-    )
-
-  if _TIME_QUERY_RE.search(text):
-    return RouterDecision(
-      primary="time_anchored",
-      secondary=["topic_search"],
-      temporal_hint=text,
-      needs_memory_fetch=True,
-      secondary_scores={"topic_search": 1.0},
-    )
-
-  if _HISTORY_RECALL_RE.search(text):
-    return RouterDecision(
-      primary="topic_search",
-      secondary=[],
-      needs_memory_fetch=True,
     )
 
   return None

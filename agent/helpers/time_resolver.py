@@ -33,9 +33,9 @@ This is a second, independent layer on top of the router classifier's own
 training on this same distinction (see docs/router_labelling_policy.md).
 """
 
+import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-import re
 
 import parsedatetime
 from rapidfuzz.distance import DamerauLevenshtein
@@ -74,7 +74,7 @@ _PROTECTED_WORDS = {
     "matched", "washed", "patched", "batched", "exited", "cold",
     "world", "wound", "wandering", "tasked", "locked", "worker",
     "forked", "browse", "browser", "searches", "cleaner",
-    "cast", "vast", "fast", "winner", "winners", "miner", "coping", "nest",
+    "vast", "fast", "winner", "winners", "miner", "coping", "nest",
     "text", "sext", "neft", "jute", "pearl", "nearly", "roaming"
 }
 

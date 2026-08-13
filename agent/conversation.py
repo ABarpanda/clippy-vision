@@ -1,12 +1,12 @@
-import uuid
-import time
-import math
 import json
+import math
 import threading
+import time
+import uuid
 
-from core.storage import conn
-from core.llm_gateway import gateway, Priority
+from core.llm_gateway import Priority, gateway
 from core.local_embeddings import embed_text
+from core.storage import conn
 
 SUMMARY_MIN_TURNS  = 5  # build first summary after this many turns
 SUMMARY_EVERY_N    = 5  # build a new summary every N turns thereafter
@@ -150,19 +150,6 @@ def list_conversations() -> list[dict]:
         }
         for cid, last_ts, first_user, first_any in rows
     ]
-
-
-def delete_conversation(conversation_id: str) -> int:
-    """Delete every turn and rolling summary belonging to one conversation."""
-    cid = (conversation_id or "").strip()
-    if not cid:
-        return 0
-    cursor = conn.execute(
-        "DELETE FROM conversations WHERE conversation_id = ?",
-        (cid,),
-    )
-    conn.commit()
-    return max(0, int(cursor.rowcount or 0))
 
 
 def search_conversations(query: str, limit: int = 20) -> list[dict]:

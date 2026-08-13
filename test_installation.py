@@ -3,23 +3,23 @@ Quick test script to verify Clippy Vision installation
 Run this after setup to ensure everything is working correctly
 """
 
-import sys
 import os
 import platform
+import sys
+
 
 def test_imports():
     """Test if all required Python packages are installed"""
     print("\n[1/5] Testing Python imports...")
     try:
         if platform.system() == "Windows":
-            import win32gui
-            import win32api
             import uiautomation
+            import win32api
+            import win32gui
         import mss
+        import psutil
         from PIL import Image
         from pynput import keyboard
-        import psutil
-        import imagehash
         print("  ✓ All Python packages imported successfully")
         return True
     except ImportError as e:
@@ -43,16 +43,19 @@ def test_ollama_connection():
         return False
 
 def test_models():
-    """Test the configured local provider without assuming a local CLI."""
-    print("\n[3/5] Checking configured chat model...")
+    """Check that the local Ollama chat model is installed."""
+    print("\n[3/5] Checking local chat model...")
     try:
-        from core.llm_gateway import gateway
-        result = gateway.test_connection()
-        chat = result.get("capabilities", {}).get("chat", {})
-        if result.get("ok") and chat.get("available") is not False:
-            print(f"  ✓ {chat.get('model') or 'Configured chat model'}")
+        import json
+        import urllib.request
+
+        with urllib.request.urlopen("http://127.0.0.1:11434/api/tags", timeout=10) as response:
+            payload = json.loads(response.read())
+        models = [str(item.get("name") or "") for item in payload.get("models", [])]
+        if any(name == "qwen3:8b" or name.startswith("qwen3:8b-") for name in models):
+            print("  ✓ qwen3:8b")
             return True
-        print(f"  ✗ {result.get('error') or 'Configured chat model is unavailable'}")
+        print("  ✗ qwen3:8b is not installed")
         return False
     except Exception as e:
         print(f"  ✗ Error checking models: {e}")

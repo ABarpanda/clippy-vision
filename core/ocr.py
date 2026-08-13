@@ -4,7 +4,6 @@ import re
 import threading
 from pathlib import Path
 
-
 OCR_MIN_CONFIDENCE = 0.55
 OCR_MAX_CHARS = 4000
 

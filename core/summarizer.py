@@ -1,24 +1,32 @@
 import json
-import time
-import uuid
 import threading
+import time
 import urllib.request
+import uuid
 
 try:
+    from core.distil import distil, should_distil
     from core.events import get_session_id
     from core.storage import (
-        store_summary, get_last_summary_time, get_unsummarized_events,
-        get_events_for_window, get_sessions_needing_refresh, mark_session_vision_enriched,
+        get_events_for_window,
+        get_last_summary_time,
+        get_sessions_needing_refresh,
+        get_unsummarized_events,
+        mark_session_vision_enriched,
+        store_summary,
     )
-    from core.distil import should_distil, distil
 except ImportError:
+    from distil import distil, should_distil
     from events import get_session_id
     from storage import (
-        store_summary, get_last_summary_time, get_unsummarized_events,
-        get_events_for_window, get_sessions_needing_refresh, mark_session_vision_enriched,
+        get_events_for_window,
+        get_last_summary_time,
+        get_sessions_needing_refresh,
+        get_unsummarized_events,
+        mark_session_vision_enriched,
+        store_summary,
     )
-    from distil import should_distil, distil
-from core.llm_gateway import gateway, Priority
+from core.llm_gateway import Priority, gateway
 from core.local_embeddings import embed_text
 
 MODEL        = "qwen3:8b"
@@ -54,7 +62,6 @@ Respond ONLY with valid JSON, no other text."""
 def _build_prompt(events: list[dict]) -> str:
     lines = []
     for e in events:
-        ts = time.strftime("%H:%M", time.localtime(e["timestamp"]))
         line = f"{e['summary']}"
         if e.get("vision_activity"):
             line += f" | vision: {e['vision_activity']}"

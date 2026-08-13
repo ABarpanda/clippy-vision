@@ -1,4 +1,8 @@
-import json, math, os, time, threading
+import json
+import math
+import os
+import threading
+import time
 from typing import Optional
 
 try:
@@ -34,7 +38,7 @@ TRACKED_METRICS =[
 
 def _read_baseline_file() -> dict:
     if os.path.exists(BASELINE_PATH):
-        with open(BASELINE_PATH, 'r') as f:
+        with open(BASELINE_PATH) as f:
             return json.load(f)
     return {}
 
@@ -87,7 +91,7 @@ def update_baseline(metrics : dict, context_key : str):
 
         save_baseline(baseline)
 
-def compute_deviation(metrics: dict, context_key:str) -> Optional[dict]:
+def compute_deviation(metrics: dict, context_key:str) -> dict | None:
     baseline = load_baseline()
     if context_key not in baseline:
         return None

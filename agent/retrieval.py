@@ -1,14 +1,14 @@
-import time
+import json
 import math
+import re
 import sqlite3
-from core.llm_gateway import gateway, Priority
+import time
+
+from agent.helpers.time_resolver import resolve_temporal_range
+from core.llm_gateway import Priority, gateway
 from core.local_embeddings import embed_text, embed_texts
 from core.rag import search_event_rag
-import re
-import json
-
 from core.storage import conn
-from agent.helpers.time_resolver import resolve_temporal_range
 
 # Add summary_embedding column to sessions if it doesn't exist yet (Fix 3)
 try:

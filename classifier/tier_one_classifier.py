@@ -1,4 +1,7 @@
-import sqlite3, json, time, math
+import json
+import math
+import sqlite3
+import time
 
 from core.baseline import load_baseline
 

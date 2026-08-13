@@ -1,5 +1,4 @@
 import json
-import re
 import sys
 import time
 from pathlib import Path
@@ -10,48 +9,10 @@ if __package__ in (None, ""):
 from agent.prefetch.topic_search import cosine_similarity
 from core.local_embeddings import embed_text
 from core.storage import conn
-from core.memory_store import get_profile
 
 MEMORY_TOP_K     = 8
 MEMORY_MIN_SIM   = 0.55
 CLUSTER_GATE_SIM = 0.38
-_MEMORY_OVERVIEW_RE = re.compile(
-    r"\b(?:what (?:do|did) you know about me|what do you remember about me|"
-    r"what (?:is|do you have) stored|local memory|your memory (?:for|about) me|"
-    r"who am i|my (?:profile|preferences|skills|goals|interests)|nothing else|anything else)\b",
-    re.IGNORECASE,
-)
-
-
-def _memory_inventory() -> str:
-    profile = get_profile()
-    identity = profile["identity"]
-    introduction = profile["introduction"]
-    user_name = profile["name"]
-    facts = conn.execute("SELECT COUNT(*) FROM memory_facts WHERE valid_to IS NULL").fetchone()[0]
-    conversations = conn.execute("SELECT COUNT(*) FROM conversations").fetchone()[0]
-    events = conn.execute("SELECT COUNT(*) FROM events").fetchone()[0]
-    screenshots = conn.execute(
-        "SELECT COUNT(*) FROM events WHERE event_type = 'screenshot_analysis'"
-    ).fetchone()[0]
-    sessions = conn.execute("SELECT COUNT(*) FROM sessions").fetchone()[0]
-    lines = [
-        "[personal memory inventory]",
-        f"explicit_profile_fields: {len(identity) + (1 if user_name else 0) + (1 if introduction else 0)}",
-        f"explicit_semantic_facts: {facts}",
-        f"conversation_turns_stored: {conversations}",
-        f"activity_events_stored: {events}",
-        f"screenshot_events_stored: {screenshots}",
-        f"session_summaries_stored: {sessions}",
-        "interpretation: Explicit profile facts are user-provided identity or preferences. Activity and screenshots are observed episodic history, not personal facts.",
-    ]
-    if user_name:
-        lines.append(f"display_name: {user_name}")
-    if identity:
-        lines.append("explicit_profile: " + json.dumps(identity, ensure_ascii=False))
-    if introduction:
-        lines.append(f"stored_introduction: {introduction}")
-    return "\n".join(lines)
 
 def _fetch_memory(q_vec: list) -> str:
 
@@ -151,8 +112,6 @@ def memory_query(query: str = "", q_vec: list | None = None) -> str:
         except Exception as e:
             return f"memory_query: embedding failed — {e}"
     result = _fetch_memory(q_vec)
-    if _MEMORY_OVERVIEW_RE.search(query or ""):
-        return _memory_inventory() + "\n\n" + result
     return result if result else "No relevant memory facts found."
 
 

@@ -1,17 +1,17 @@
+import json
+import math
 import re
-import time
 import sys
+import time
 from pathlib import Path
 from typing import Optional
-import math
-import json
 
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from agent.helpers.keywords import content_keywords, keywords_from_query
 from core.local_embeddings import embed_text
 from core.rag import search_event_rag
-from agent.helpers.keywords import keywords_from_query, content_keywords
 from core.storage import conn as _conn
 
 MAX_RESULTS = 5

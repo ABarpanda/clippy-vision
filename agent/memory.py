@@ -1,16 +1,20 @@
 import json
-import time
 import math
+import time
 from typing import Optional
-
-from core.memory_store import (
-    get_identity, get_introduction, get_all_clusters, get_profile,
-    get_active_facts, save_identity_field,
-    get_identity_for_semantic_profile, update_field_embedding,
-)
 
 from core.distil import save_note_to_memory
 from core.local_embeddings import embed_text
+from core.memory_store import (
+    get_active_facts,
+    get_all_clusters,
+    get_identity,
+    get_identity_for_semantic_profile,
+    get_introduction,
+    get_profile,
+    save_identity_field,
+    update_field_embedding,
+)
 from core.storage import conn
 
 MEMORY_TOP_K     = 8  # max facts to inject per turn
@@ -178,7 +182,7 @@ def fetch_cluster(label: str) -> str:
         return f"Cluster '{label}' exists but has no active facts."
     return "\n".join(f"- {f}" for f in facts)
 
-def save_identity(field: str, value: str = "", op: str = "set", items: Optional[list[str]] = None) -> str:
+def save_identity(field: str, value: str = "", op: str = "set", items: list[str] | None = None) -> str:
     return save_identity_field(field, value=value, source="agent", op=op, items=items)
 
 def save_note(note: str) -> str:

@@ -1,5 +1,5 @@
-import time
 import threading
+import time
 import uuid
 from pathlib import Path
 from typing import Optional
@@ -8,14 +8,13 @@ import imagehash
 from PIL import Image
 
 try:
+    from core.events import Event, WindowMetadata, get_session_id
     from core.storage import conn, store_event
-    from core.events import get_session_id, Event, WindowMetadata
 except ImportError:
+    from events import Event, WindowMetadata, get_session_id
     from storage import conn, store_event
-    from events import get_session_id, Event, WindowMetadata
 from classifier.worker import apply_vision_verdict, build_capture_text_verdict
 from core.screenshot_enrichment import enrich_screenshot
-
 
 POLL_SECS = 10
 PHASH_THRESHOLD = 2  # bit distance: 0-2 = identical, 10+ = very different
@@ -47,7 +46,7 @@ def _screenshot_timestamp_ms(path: Path) -> int | None:
 # ─────────────────────────────────────────────────────────────
 # DB helpers
 # ─────────────────────────────────────────────────────────────
-def _get_nearest_event(screenshot_ts: float) -> Optional[dict]:
+def _get_nearest_event(screenshot_ts: float) -> dict | None:
     row = conn.execute(
         """SELECT event_id, timestamp, event_type,
                   process_name, current_window_title, active_url,

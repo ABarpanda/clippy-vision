@@ -1,6 +1,6 @@
 import json
-from typing import Optional, TypedDict
 import math
+from typing import Optional, TypedDict
 
 UNINTERESTING_PROCESSES = {"msiexec.exe", "SearchHost.exe", "unknown"}
 
@@ -12,7 +12,7 @@ class TierZeroClassification(TypedDict):
     score: int
     reason: str
 
-def tier_zero_classifier(event: dict) -> Optional[TierZeroClassification]:
+def tier_zero_classifier(event: dict) -> TierZeroClassification | None:
     event_type       = event["event_type"]
     payload          = json.loads(event["payload"]) if event["payload"] else {}
     window_context   = event["window_context"]

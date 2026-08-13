@@ -1,6 +1,5 @@
-from agent.retrieval import search_sessions, search_events
-from agent.memory import save_identity, save_note, delete_note
-
+from agent.memory import delete_note, save_identity, save_note
+from agent.retrieval import search_events, search_sessions
 
 TOOLS = {
     "search_sessions": search_sessions,

@@ -15,15 +15,14 @@ import math
 import re
 import threading
 import time
-from typing import Iterable
+from collections.abc import Iterable
 
-from core.image_embeddings import embed_text as embed_image_text
 from core.app_settings import get_capture_settings
-from core.local_embeddings import embed_text, embed_texts
+from core.image_embeddings import embed_text as embed_image_text
 from core.llm_gateway import Priority
+from core.local_embeddings import embed_text, embed_texts
 from core.screenshot_search import resolve_screenshot_filename
 from core.storage import conn
-
 
 MAX_CANDIDATES = 900
 INLINE_BACKFILL = 32

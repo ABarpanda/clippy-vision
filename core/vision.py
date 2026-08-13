@@ -1,11 +1,12 @@
-from pathlib import Path
 import io
+import threading
+import time
+from pathlib import Path
+from typing import Optional
+
 import imagehash
 import mss
 from PIL import Image, ImageDraw
-import threading
-import time
-from typing import Optional
 
 # Vision owns screenshot scheduling and privacy redaction. Model inference is
 # performed by the downstream processor after a frame has been written.
@@ -48,18 +49,18 @@ except ImportError:
     # Redaction rules (Clippy window + user privacy toggles) live in privacy_settings.
     from privacy_settings import is_clippy_window, should_redact_window
 try:
-    from core.app_settings import get_capture_settings
     from core.accessibility_text import extract_accessibility_text
+    from core.app_settings import get_capture_settings
     from core.screenshot_enrichment import remember_accessibility_text
 except ImportError:
-    from app_settings import get_capture_settings
     from accessibility_text import extract_accessibility_text
+    from app_settings import get_capture_settings
     from screenshot_enrichment import remember_accessibility_text
 
 _lock = threading.Lock()
 _last_capture_ms = 0
 _last_capture_hash = None
-_activity_timer: Optional[threading.Timer] = None
+_activity_timer: threading.Timer | None = None
 
 
 def _foreground_accessibility_text() -> str:
@@ -169,7 +170,7 @@ def _redact_clippy_windows(img: Image.Image, monitor: dict) -> None:
             draw.rectangle([x0, y0, x1, y1], fill=(0, 0, 0))
 
 
-def capture_screenshot(timestamp_ms: int) -> Optional[Path]:
+def capture_screenshot(timestamp_ms: int) -> Path | None:
     settings = get_capture_settings()
     if not settings["capture_screenshots"]:
         return None

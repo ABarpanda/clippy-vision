@@ -1,6 +1,6 @@
 """Text model residency for the local assistant.
 
-Startup (API): pin the text model when the local provider is active.
+Startup (API): pin the local Ollama text model.
 Capture: accessibility text and OCR run without loading a vision model.
 
 Persists to <data>/model_residency.json. Gateway reads policy via keep_alive_for().
@@ -22,10 +22,6 @@ try:
     from core.paths import get_data_dir
 except ImportError:
     from paths import get_data_dir
-try:
-    from core.llm_config import get_llm_config, is_external_provider, model_for
-except ImportError:
-    from llm_config import get_llm_config, is_external_provider, model_for
 
 TEXT_MODEL = "qwen3:8b"
 VL_MODEL = "qwen3-vl:4b"
@@ -108,11 +104,6 @@ def _persist(vision: VisionPolicy, **extra: Any) -> dict:
 
 
 def keep_alive_for(model: str) -> str | int:
-    if is_external_provider():
-
-
-
-        return KEEP_ALIVE_UNLOAD
     if "vl" not in (model or "").lower():
         return KEEP_ALIVE_PINNED
     if _policy == "pinned":
@@ -123,13 +114,8 @@ def keep_alive_for(model: str) -> str | int:
 
 
 def _ollama_post(path: str, body: dict, timeout: float = 90) -> None:
-    base = get_llm_config().get("base_url", _OLLAMA).rstrip("/")
-    if base.endswith("/api"):
-        base = base[:-4]
-    elif base.endswith("/v1"):
-        base = base[:-3]
     req = urllib.request.Request(
-        f"{base}{path}",
+        f"{_OLLAMA}{path}",
         data=json.dumps(body).encode(),
         headers={"Content-Type": "application/json"},
     )
@@ -138,14 +124,6 @@ def _ollama_post(path: str, body: dict, timeout: float = 90) -> None:
 
 
 def _warm(model: str, keep_alive: str | int = KEEP_ALIVE_PINNED, timeout: float = 90) -> None:
-    config = get_llm_config()
-    if config["provider"] != "ollama":
-        print(f"[residency] skip warm for external provider ({config['provider']})")
-        return
-    if model == VL_MODEL:
-        model = model_for("vision", VL_MODEL)
-    elif model == TEXT_MODEL:
-        model = model_for("chat", TEXT_MODEL)
     # Non-empty prompt: empty prompt hangs on some Ollama builds
     print(f"[residency] warm {model} (keep_alive={keep_alive!r})")
     _ollama_post(
@@ -156,15 +134,12 @@ def _warm(model: str, keep_alive: str | int = KEEP_ALIVE_PINNED, timeout: float 
 
 
 def _unload_vision() -> None:
-    if is_external_provider():
-        return
-    vision_model = model_for("vision", VL_MODEL)
-    print(f"[residency] unload {vision_model}")
+    print(f"[residency] unload {VL_MODEL}")
     try:
         _ollama_post(
             "/api/generate",
             {
-                "model": vision_model,
+                "model": VL_MODEL,
                 "prompt": "ping",
                 "stream": False,
                 "keep_alive": KEEP_ALIVE_UNLOAD,
@@ -214,13 +189,6 @@ def warm_for_startup() -> dict:
     """
     with _lock:
         _stop_monitor()
-        if is_external_provider():
-            return _persist(
-                "idle",
-                reason="external_provider",
-                provider=get_llm_config()["provider"],
-                model_warm_skipped=True,
-            )
         before = _available()
         print(f"[residency] startup warm (text only)  free~{before / _GB:.1f}GB")
 

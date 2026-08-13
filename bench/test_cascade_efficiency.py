@@ -3,8 +3,8 @@ Benchmark: Classification Cascade Efficiency
 Measures how much the 3-tier cascade reduces LLM inference calls.
 """
 
-import sys
 import json
+import sys
 from pathlib import Path
 
 # Add parent directory to path
@@ -12,10 +12,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # Change to parent directory so relative imports work
 import os
+
 os.chdir(Path(__file__).parent.parent)
 
-from classifier.tier_zero_classifier import tier_zero_classifier
 from classifier.tier_one_classifier import tier1_score
+from classifier.tier_zero_classifier import tier_zero_classifier
 from core.storage import conn
 
 
