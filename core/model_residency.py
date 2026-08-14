@@ -1,9 +1,7 @@
-"""Vision model residency tied to screen capture — not app launch.
+"""Text model residency for the local assistant.
 
-Startup (API):     pin text + embed only; vision idle / unloaded.
-Capture start:     pin vision if RAM allows, else on-demand (short keep_alive).
-Capture stop:      unload vision.
-While pinned:      if free RAM drops below the floor, demote to on-demand.
+Startup (API): pin the local Ollama text model.
+Capture: accessibility text and OCR run without loading a vision model.
 
 Persists to <data>/model_residency.json. Gateway reads policy via keep_alive_for().
 """
@@ -27,7 +25,6 @@ except ImportError:
 
 TEXT_MODEL = "qwen3:8b"
 VL_MODEL = "qwen3-vl:4b"
-EMBED_MODEL = "nomic-embed-text"
 
 VisionPolicy = Literal["idle", "pinned", "on_demand"]
 
@@ -40,7 +37,7 @@ KEEP_ALIVE_PINNED = "1h"
 KEEP_ALIVE_VL_EPHEMERAL = "5m"
 KEEP_ALIVE_UNLOAD = 0
 
-_OLLAMA = "http://localhost:11434"
+_OLLAMA = "http://127.0.0.1:11434"
 _STATE_NAME = "model_residency.json"
 
 _policy: VisionPolicy = "idle"
@@ -127,20 +124,13 @@ def _ollama_post(path: str, body: dict, timeout: float = 90) -> None:
 
 
 def _warm(model: str, keep_alive: str | int = KEEP_ALIVE_PINNED, timeout: float = 90) -> None:
+    # Non-empty prompt: empty prompt hangs on some Ollama builds
     print(f"[residency] warm {model} (keep_alive={keep_alive!r})")
-    if model == EMBED_MODEL:
-        _ollama_post(
-            "/api/embed",
-            {"model": model, "input": "warmup", "keep_alive": keep_alive},
-            timeout=timeout,
-        )
-    else:
-        # Non-empty prompt: empty prompt hangs on some Ollama builds
-        _ollama_post(
-            "/api/generate",
-            {"model": model, "prompt": "ping", "stream": False, "keep_alive": keep_alive},
-            timeout=timeout,
-        )
+    _ollama_post(
+        "/api/generate",
+        {"model": model, "prompt": "ping", "stream": False, "keep_alive": keep_alive},
+        timeout=timeout,
+    )
 
 
 def _unload_vision() -> None:
@@ -193,14 +183,14 @@ def _start_monitor() -> None:
 
 
 def warm_for_startup() -> dict:
-    """App/API launch: pin text + embed only. Do not load vision.
+    """App/API launch: pin text only. Do not load vision.
 
     Always ends in vision=idle so setup UI cannot hang on a partial warm.
     """
     with _lock:
         _stop_monitor()
         before = _available()
-        print(f"[residency] startup warm (text+embed only)  free~{before / _GB:.1f}GB")
+        print(f"[residency] startup warm (text only)  free~{before / _GB:.1f}GB")
 
         _state_path().write_text(
             json.dumps(
@@ -214,21 +204,11 @@ def warm_for_startup() -> dict:
         err = None
         try:
             try:
-                _warm(EMBED_MODEL, timeout=60)
-            except Exception as e:
-                print(f"[residency] embed warm failed (continuing): {e}")
-
-            try:
                 _warm(TEXT_MODEL, timeout=90)
             except Exception as e:
                 print(f"[residency] text warm failed: {e}")
                 reason = "text_warmup_failed"
                 err = str(e)
-
-            try:
-                _unload_vision()
-            except Exception as e:
-                print(f"[residency] vision unload skipped: {e}")
 
             payload = dict(
                 reason=reason,
@@ -248,45 +228,18 @@ def warm_for_startup() -> dict:
 
 
 def on_capture_start() -> dict:
-    """Screen capture turned on: pin vision if RAM allows, else on-demand."""
+    """Keep capture model-free; accessibility and OCR handle screen text."""
     with _lock:
-        free = _available()
-        print(f"[residency] capture start  free~{free / _GB:.1f}GB")
-
-        if _can_pin_vision(free):
-            try:
-                _warm(VL_MODEL, KEEP_ALIVE_PINNED)
-            except Exception as e:
-                print(f"[residency] vision pin failed - on_demand: {e}")
-                _stop_monitor()
-                return _persist("on_demand", reason="vl_warm_failed", error=str(e),
-                                available_before_mb=_mb(free))
-
-            after = _available()
-            if after < _FREE_FLOOR:
-                print(f"[residency] after VL pin free~{after / _GB:.1f}GB - on_demand")
-                _unload_vision()
-                _stop_monitor()
-                return _persist("on_demand", reason="post_pin_below_floor",
-                                available_before_mb=_mb(free), available_after_mb=_mb(after))
-
-            result = _persist("pinned", reason="capture_pin",
-                              available_before_mb=_mb(free), available_after_mb=_mb(after))
-            _start_monitor()
-            return result
-
         _stop_monitor()
-        return _persist("on_demand", reason="insufficient_ram_to_pin",
-                        available_before_mb=_mb(free))
+        return _persist("idle", reason="capture_text_only", vision_warm_skipped=True)
 
 
 def on_capture_stop() -> dict:
-    """Screen capture turned off: unload vision and return to idle."""
+    """Record the idle state; capture never loads a vision model."""
     with _lock:
-        print("[residency] capture stop - unloading vision")
         _stop_monitor()
-        _unload_vision()
         return _persist("idle", reason="capture_stop")
+
 
 
 # Seed from disk for gateway imports (capture or API process)

@@ -57,13 +57,10 @@ except ImportError:
     from platform_support import (
         window_key,
     )
-def get_capture_settings() -> dict:
-    return {"capture_clipboard": True}
-
 try:
-    from core.model_residency import on_capture_start, on_capture_stop
+    from core.app_settings import get_capture_settings
 except ImportError:
-    from model_residency import on_capture_start, on_capture_stop
+    from app_settings import get_capture_settings
 try:
     from core.capture_state import set_capture_status
 except ImportError:
@@ -77,7 +74,6 @@ except ImportError:
 
 def _capture_shutdown() -> None:
     set_capture_status(False, None)
-    on_capture_stop()
 
 
 def _capture_heartbeat() -> None:
@@ -86,7 +82,6 @@ def _capture_heartbeat() -> None:
         time.sleep(60)
 
 
-on_capture_start()
 set_capture_status(True, os.getpid())
 atexit.register(_capture_shutdown)
 threading.Thread(target=_capture_heartbeat, daemon=True, name="capture-heartbeat").start()

@@ -129,7 +129,7 @@ The app will open the setup wizard on first launch and walk you through dependen
 - **Passive screen awareness** - captures foreground windows, clipboard, typing bursts, and screenshots in the background
 - **Privacy-first redaction** - Clippy Vision's own window is blacked out in every screenshot before the AI ever sees it
 - **Three-tier event classification** - rule-based → feature-based → LLM fallback, so only meaningful events are stored
-- **Vision classification** - OCR and activity inference on screenshots using `qwen3-vl:4b`
+- **Low-cost screen text** - accessibility/UI text first with RapidOCR fallback; no vision model in capture
 - **Hierarchical memory** - events → session summaries → distilled long-term facts; memory never resets
 - **Smart query router** - a fine-tuned MiniLM classifier routes every question to the right retrieval strategy before the LLM is even called
 - **ReAct agent** - structured reasoning with tools: SQL generation, memory recall, fact saving
@@ -141,7 +141,7 @@ The app will open the setup wizard on first launch and walk you through dependen
 
 ## Where this is going
 
-Clippy is reactive today: you ask, it answers. The next bet is making it proactive, so it can act on what it sees instead of waiting to be asked. Two other priorities sit alongside that: getting the hardware requirements down by reading window text through accessibility APIs before falling back to the vision model, and a timeline view so you can see and delete exactly what was captured.
+Clippy is reactive today: you ask, it answers. The next bet is making it proactive, so it can act on what it sees instead of waiting to be asked. Capture now reads window text through accessibility APIs and falls back to local OCR without loading a vision model. A timeline view remains another priority so you can see and delete exactly what was captured.
 
 No dates attached to any of it. [PROJECT_VISION.md](PROJECT_VISION.md) has the current thinking, the priority order, and an honest list of what does not work yet. If you want to shape any of it, the [open issues](https://github.com/protocorn/clippy-vision/issues) are the place to start.
 
@@ -155,8 +155,8 @@ No dates attached to any of it. [PROJECT_VISION.md](PROJECT_VISION.md) has the c
 | Backend | Python / FastAPI / Uvicorn |
 | Local LLM runtime | [Ollama](https://ollama.com) |
 | Main reasoning model | `qwen3:8b` |
-| Vision / OCR model | `qwen3-vl:4b` |
-| Embedding model | `nomic-embed-text` |
+| Screenshot text | Accessibility APIs + RapidOCR fallback |
+| Embedding model | Bundled `all-MiniLM-L6-v2` (event RAG is opt-in) |
 | Query classifier | Fine-tuned MiniLM-L3 |
 | Database | SQLite (WAL mode) |
 | Screen capture | `mss`, `pywin32`, `pynput` |
@@ -184,10 +184,10 @@ Fast rules that immediately flag obvious signals: too few keystrokes → not int
 Scoring starts at 5. Multiple features add or subtract: typing deviation, context novelty (how many times this app was seen in 7 days), typing intensity z-score, clipboard content length. Events below 4 are dropped; above 7 are kept; 4-7 go to Tier 2.
 
 **Tier 2 - LLM fallback**
-The last 3 events + current event are sent to `qwen3:8b` for context-aware classification. Output: `INTERESTING`, `NOT_INTERESTING`, or `NEEDS_VISION`.
+The last 3 events + current event are sent to `qwen3:8b` for context-aware classification. Output is `INTERESTING` or `NOT_INTERESTING`; classification never queues a vision model.
 
-**Tier 2.5 - Vision classification**
-Screenshots are pre-captured (3 exposures, exponentially delayed) on every activity burst. A background processor (`core/screenshot_processor.py`) groups visually identical screenshots using perceptual hashing (Union-Find, pHash bit distance ≤ 2), runs `qwen3-vl:4b` once per group, and propagates the verdict. Each screenshot is matched to the nearest database event (±10 s); if none exists, a `screenshot_analysis` event is created automatically.
+**Screen text enrichment**
+Each captured frame records bounded text from the foreground accessibility/UI API. RapidOCR runs only when that text is empty or too sparse. A background processor (`core/screenshot_processor.py`) groups visually identical screenshots using perceptual hashing and stores the resulting text with the nearest event (±10 s); if none exists, it creates a `screenshot_analysis` event. Image embeddings and event-level RAG are disabled by default.
 
 ---
 
@@ -195,8 +195,8 @@ Screenshots are pre-captured (3 exposures, exponentially delayed) on every activ
 
 A background summarizer runs every 5 minutes and groups recent interesting events into session summaries using `qwen3:8b`. It runs in two passes per tick:
 
-- **Pass 1:** Summarizes pending events immediately without waiting for vision
-- **Pass 2:** Re-summarizes sessions where vision has since completed, overwriting with richer data
+- **Pass 1:** Summarizes pending events immediately
+- **Pass 2:** Refreshes sessions when delayed screenshot text becomes available
 
 ---
 

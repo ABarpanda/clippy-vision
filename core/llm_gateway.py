@@ -7,11 +7,10 @@ from itertools import count
 
 import psutil
 
+from core.local_embeddings import embed_text, embed_texts
 from core.model_residency import keep_alive_for
 
 OLLAMA_URL = "http://localhost:11434/api/chat"
-EMBED_URL  = "http://localhost:11434/api/embed"
-EMBED_MODEL = "nomic-embed-text"
 
 # --- Throttle configuration (relative to per-device baseline) ---
 # Thresholds are NOT hardcoded — they are derived at startup from a short CPU
@@ -217,23 +216,10 @@ class LLMGateway:
         if job.error:
             raise job.error
 
-    def embed(self, text, *, embed_model, priority=Priority.FOREGROUND, timeout=60, keep_alive=None):
-        """Embed a string (or list of strings) through the same serialized queue.
-        Returns a single vector for a string input, or a list of vectors for a list."""
-        payload = {
-            "model": embed_model,
-            "input": text,
-            "keep_alive": keep_alive_for(embed_model) if keep_alive is None else keep_alive,
-        }
-        job = Job(EMBED_URL, payload, timeout)
-        self.queue.put((priority, next(self._seq), job))
-
-        job.event.wait()
-        if job.error:
-            raise job.error
-        embeddings = job.result.get("embeddings", [])
+    def embed(self, text, *, embed_model=None, priority=Priority.FOREGROUND, timeout=60, keep_alive=None):
+        """Embed text with the bundled MiniLM model, independent of Ollama."""
         if isinstance(text, str):
-            return embeddings[0] if embeddings else []
-        return embeddings
+            return embed_text(text)
+        return embed_texts(text)
 
 gateway = LLMGateway()

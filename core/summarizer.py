@@ -4,22 +4,36 @@ import time
 import urllib.request
 import uuid
 
-from distil import distil, should_distil
-from events import get_session_id
-from storage import (
-    get_events_for_window,
-    get_last_summary_time,
-    get_sessions_needing_refresh,
-    get_unsummarized_events,
-    mark_session_vision_enriched,
-    store_summary,
-)
-
+try:
+    from core.distil import distil, should_distil
+    from core.events import get_session_id
+    from core.storage import (
+        get_events_for_window,
+        get_last_summary_time,
+        get_sessions_needing_refresh,
+        get_unsummarized_events,
+        mark_session_vision_enriched,
+        store_summary,
+    )
+except ImportError:
+    from distil import distil, should_distil
+    from events import get_session_id
+    from storage import (
+        get_events_for_window,
+        get_last_summary_time,
+        get_sessions_needing_refresh,
+        get_unsummarized_events,
+        mark_session_vision_enriched,
+        store_summary,
+    )
 from core.llm_gateway import Priority, gateway
+from core.local_embeddings import embed_text
 
 MODEL        = "qwen3:8b"
-INTERVAL_SEC = 300   # run every 5 minutes
-MIN_EVENTS   = 3     # don't summarize if fewer than 3 interesting events
+INTERVAL_SEC = 60
+MIN_EVENTS   = 3  # don't summarize if fewer than 3 interesting events
+RAW_LOOKBACK_SECONDS = 7 * 24 * 60 * 60
+MAX_SESSION_GROUPS_PER_TICK = 3
 SUMMARY_SCHEMA = {
     "type": "object",
     "properties": {
@@ -48,10 +62,12 @@ Respond ONLY with valid JSON, no other text."""
 def _build_prompt(events: list[dict]) -> str:
     lines = []
     for e in events:
-        ts = time.strftime("%H:%M", time.localtime(e["timestamp"]))
         line = f"{e['summary']}"
         if e.get("vision_activity"):
             line += f" | vision: {e['vision_activity']}"
+        if e.get("vision_ocr_text"):
+            captured_text = " ".join(str(e["vision_ocr_text"]).split())[:1200]
+            line += f" | screen text: {captured_text}"
         lines.append(line)
     return "Events:\n" + "\n".join(lines)
 
@@ -76,11 +92,12 @@ def summarize_window(events: list[dict], session_id: str) -> dict | None:
     now = time.time()
     summary_text = result.get("summary", "")
 
+
     # Embed the summary for semantic search at query time
     embedding = None
     if summary_text:
         try:
-            embedding = gateway.embed(summary_text, embed_model="nomic-embed-text", priority=Priority.BACKGROUND)
+            embedding = embed_text(summary_text)
         except Exception:
             pass  # best-effort; retrieval.py will back-fill on first query
 
@@ -126,31 +143,39 @@ def summarizer_loop():
     while True:
         tick_start = time.time()
         try:
-            # Pass 1: keep summarizing until fully caught up
-            # (multiple windows may be pending after a restart or long gap)
-            while True:
-                since  = get_last_summary_time(session_id)
-                events = get_unsummarized_events(since)
 
-                if len(events) < MIN_EVENTS:
-                    if len(events) > 0:
-                        print(f"  [SUMMARIZER] {len(events)} event(s) pending, need {MIN_EVENTS} to summarize — waiting for more")
-                    break
 
-                print(f"  [SUMMARIZER] Summarizing {len(events)} events since {time.strftime('%H:%M', time.localtime(since))}")
-                summary = summarize_window(events, session_id)
+            events = get_unsummarized_events(time.time() - RAW_LOOKBACK_SECONDS)
+            grouped: dict[str, list[dict]] = {}
+            for event in events:
+                grouped.setdefault(event["session_id"], []).append(event)
+
+            ready = [items for items in grouped.values() if len(items) >= MIN_EVENTS]
+            ready.sort(key=lambda items: items[0]["timestamp"])
+
+            # Pass 1: work through pending session groups in bounded batches so
+            # restarts or long gaps catch up without monopolizing a single tick.
+            for session_events in ready[:MAX_SESSION_GROUPS_PER_TICK]:
+                source_session_id = session_events[0]["session_id"]
+                print(f"  [SUMMARIZER] Summarizing {len(session_events)} events from session {source_session_id[:8]}")
+                summary = summarize_window(session_events, source_session_id)
                 if summary:
                     store_summary(summary, vision_enriched=False, embedding=summary.pop("embedding", None))
                     print(f"  [SUMMARIZER] Done — {summary['active_task']}")
                     print(f"               {summary['summary'][:120]}...")
-                else:
-                    break  # LLM returned nothing, don't spin
+
+            pending = sum(len(items) for items in grouped.values() if len(items) < MIN_EVENTS)
+            if pending:
+                print(f"  [SUMMARIZER] {pending} event(s) remain in short sessions below the {MIN_EVENTS}-event threshold")
+
 
             # Pass 2: re-summarize all past sessions now that vision has enriched them
             _refresh_vision_enriched_sessions(session_id)
 
         except Exception as e:
             print(f"  [SUMMARIZER] Error: {e}")
+
+
 
         # Sleep only for the time remaining in the interval so the tick cadence
         # stays fixed regardless of how long the work took.
