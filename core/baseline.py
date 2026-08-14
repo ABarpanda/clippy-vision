@@ -92,21 +92,21 @@ def compute_deviation(metrics: dict, context_key:str) -> dict | None:
 
     if context_data["sample_count"] < MIN_SAMPLES:
         return None
-    
+
     z_scores = {} # deviation scores for each metric
 
     for m in TRACKED_METRICS:
         if m not in metrics or m not in context_data["metrics"]:
             continue
-        
+
         mean = context_data["metrics"][m]["mean"]
         variance = context_data["metrics"][m]["variance"]
         if variance > 1e-6:
              z_scores[m] = round((metrics[m] - mean) / math.sqrt(variance), 2)
-        
+
     if not z_scores:
         return None
-    
+
     overall_deviation =  round(math.sqrt(sum(z**2 for z in z_scores.values()) / len(z_scores)), 2)
 
     return {
@@ -115,5 +115,5 @@ def compute_deviation(metrics: dict, context_key:str) -> dict | None:
         "anomaly": overall_deviation > 2.0,
         "z_scores": z_scores
     }
-    
+
 

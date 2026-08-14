@@ -89,7 +89,7 @@ def tier1_score(event: dict, conn: sqlite3.Connection) -> dict | None:
     if event["event_type"] in ("clipboard_change", "paste"):
         content = payload.get("content") or payload.get("pasted_content") or ""
         word_count = len(content.split())
-        
+
         # Long content = likely meaningful (copying code, error messages, URLs)
         if word_count > 50:
             score += 2

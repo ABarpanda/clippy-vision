@@ -182,7 +182,7 @@ def rebuild_introduction(inputs: dict | None = None) -> str | None:
     if (get_introduction_meta().get("source") or "").strip().lower() == "user":
         print("\n  [INTRO] skipped write — user-authored introduction protected")
         return None
-        
+
     set_introduction(text, source="distiller")
     print(f"\n  [INTRO] rebuilt ({len(text)} chars)")
     return text

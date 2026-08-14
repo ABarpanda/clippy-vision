@@ -28,7 +28,7 @@ def _fetch_memory(q_vec: list) -> str:
     if not cluster_rows:
         return "No semantic memory clusters found."
 
-    
+
     surviving_clusters_ids = set()
 
     for cluster_id, label, description, centroid in cluster_rows:
@@ -39,7 +39,7 @@ def _fetch_memory(q_vec: list) -> str:
         centroid = json.loads(centroid)
         if cosine_similarity(q_vec, centroid) >= CLUSTER_GATE_SIM:
             surviving_clusters_ids.add(cluster_id)
-        
+
     if not surviving_clusters_ids:
         return "No relevant semantic memory clusters found."
 
@@ -65,11 +65,11 @@ def _fetch_memory(q_vec: list) -> str:
 
         if sim >= MEMORY_MIN_SIM:
             scored.append((sim, text, cluster_id, label, description))
-        
+
     if not scored:
         return ""
 
-    
+
     # Merge and format results
 
     scored.sort(key=lambda x: x[0], reverse=True)
@@ -85,11 +85,11 @@ def _fetch_memory(q_vec: list) -> str:
                 "max_sim": sim,
             }
         seen_clusters[cluster_id]["facts"].append((sim, text))
-    
+
     clusters_ordered = sorted(
         seen_clusters.values(), key=lambda x: x["max_sim"], reverse=True)
 
-    
+
     sections = []
     chars = 0
     for c in clusters_ordered:

@@ -61,19 +61,19 @@ def save_identity_field( field: str, value: str, source: str="agent", op: str="s
         )
         conn.commit()
         return f"Saved {field}: {value}"
-    
+
     # LIST ADD
 
     elif op == "add_items":
         # Robustness: fail if no items are provided
         if not items:
             return f"add_items called for '{field}' with no items."
-        
+
         if existing.get("type") == "list":
             current_items = existing.get("items", {})
         else:
             current_items = {}
-        
+
         ## NOTE: Think about fuzzy matching for items later
 
         for item in items:
@@ -97,9 +97,9 @@ def save_identity_field( field: str, value: str, source: str="agent", op: str="s
         )
         conn.commit()
         return f"Added to {field}: {', '.join(items)}"
-    
+
     # LIST REMOVE
-    
+
     elif op == "remove_items":
         if not items or existing.get("type") != "list":
             return f"Nothing to remove from '{field}'."

@@ -36,13 +36,13 @@ RECENCY_SOFT_HINT = (
 def detect_recency_hint(query: str) -> str | None:
     """Returns 'soft' for vague recency, 'window' for semi-specific, None otherwise."""
     q = query.lower()
-    
+
     # Semi-specific: implies ~7 day window
     if re.search(RECENCY_WINDOW_HINT, q):
         return "window"
-    
+
     # Vague: boost recency score but no hard filter
     if re.search(RECENCY_SOFT_HINT, q):
         return "soft"
-    
+
     return None

@@ -52,18 +52,18 @@ def test_models():
             text=True,
             check=True
         )
-        
+
         models_output = result.stdout
         required_models = ["qwen3:8b", "qwen3-vl:4b", "nomic-embed-text"]
         missing = []
-        
+
         for model in required_models:
             if model in models_output:
                 print(f"  ✓ {model}")
             else:
                 print(f"  ✗ {model} (missing)")
                 missing.append(model)
-        
+
         if missing:
             print(f"\n  To install missing models:")
             for model in missing:
@@ -82,7 +82,7 @@ def test_directories():
         "core/data/screenshots",
         "logs"
     ]
-    
+
     all_exist = True
     for dir_path in dirs:
         if os.path.exists(dir_path):
@@ -90,7 +90,7 @@ def test_directories():
         else:
             print(f"  ✗ {dir_path} (missing)")
             all_exist = False
-    
+
     if not all_exist:
         print("  Run setup script to create missing directories")
     return all_exist
@@ -100,26 +100,26 @@ def test_database():
     print("\n[5/5] Testing database...")
     try:
         from core.storage import conn
-        
+
         # Check if main tables exist
         cursor = conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table'"
         )
         tables = [row[0] for row in cursor.fetchall()]
-        
+
         required_tables = ["events", "sessions", "memory_clusters", "memory_facts", "conversations"]
         missing_tables = [t for t in required_tables if t not in tables]
-        
+
         if missing_tables:
             print(f"  ✗ Missing tables: {missing_tables}")
             return False
-        
+
         print(f"  ✓ Database initialized with {len(tables)} tables")
-        
+
         # Check event count
         event_count = conn.execute("SELECT COUNT(*) FROM events").fetchone()[0]
         print(f"  ✓ Database contains {event_count} events")
-        
+
         return True
     except Exception as e:
         print(f"  ✗ Database error: {e}")
@@ -129,25 +129,25 @@ def main():
     print("=" * 50)
     print("  Clippy Vision - Installation Test")
     print("=" * 50)
-    
+
     results = []
-    
+
     results.append(("Python Imports", test_imports()))
     results.append(("Ollama Connection", test_ollama_connection()))
     results.append(("AI Models", test_models()))
     results.append(("Directories", test_directories()))
     results.append(("Database", test_database()))
-    
+
     print("\n" + "=" * 50)
     print("  Test Summary")
     print("=" * 50)
-    
+
     for test_name, passed in results:
         status = "✓ PASS" if passed else "✗ FAIL"
         print(f"  {status}  {test_name}")
-    
+
     all_passed = all(passed for _, passed in results)
-    
+
     if all_passed:
         print("\n✓ All tests passed! Clippy Vision is ready to use.")
         print("\nNext steps:")

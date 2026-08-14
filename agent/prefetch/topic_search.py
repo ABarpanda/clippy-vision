@@ -62,7 +62,7 @@ def topic_search(query: str, q_vec: list | None, temporal_range=None) -> str:
     except Exception as e:
         return f"Error querying sessions: {e}"
 
-    
+
     if not rows:
         return "No sessions found"
 
@@ -72,7 +72,7 @@ def topic_search(query: str, q_vec: list | None, temporal_range=None) -> str:
     for (summary_id, window_start, summary, active_task, entities, summary_embedding) in rows:
         if summary_embedding:
             score = cosine_similarity(q_vec, json.loads(summary_embedding))
-        
+
         if entities:
             score+= entity_boost(keywords, entities)
 
@@ -93,7 +93,7 @@ def topic_search(query: str, q_vec: list | None, temporal_range=None) -> str:
             parts.append(f"entities: {entities}")
         response.append(" ".join(p for p in parts if p))
 
-    
+
     shown_results = len(response)
     if total > shown_results:
         header = f"Showing {shown_results} of {total} results - for more specific or finer detail call search_events"

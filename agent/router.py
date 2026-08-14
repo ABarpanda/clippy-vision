@@ -84,17 +84,17 @@ def load_classifier():
     except Exception as e:
       print(f"[router] Failed to load classifier: {e}")
       return None, None
-  
+
 def classify_query(query: str) -> tuple[RouterDecision|None, float|None]:
   model, tokenizer = load_classifier()
 
   if model is None:
     return None, 0.0
 
-  enc = tokenizer(query, 
-  return_tensors="pt", 
-  padding="max_length", 
-  truncation=True, 
+  enc = tokenizer(query,
+  return_tensors="pt",
+  padding="max_length",
+  truncation=True,
   max_length=128)
 
   with torch.no_grad():

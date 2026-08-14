@@ -41,7 +41,7 @@ ARTIFACT_ROUTES = {
 "paste":     {"fields": ["payload", "summary"],
                   "event_types": ["paste"], "app_filter": None},
 "clipboard": {"fields": ["payload", "summary"],
-                  "event_types": ["clipboard_change"], "app_filter": None},                 
+                  "event_types": ["clipboard_change"], "app_filter": None},
 "generic":   {"fields": ["summary", "vision_activity", "current_window_title", "vision_ocr_text", "active_url"],
                   "event_types": None, "app_filter": None}
 }
@@ -66,7 +66,7 @@ def extract_urls_from_entities(entities_json: str) -> list[str]:
     except Exception as e:
         print(f"Error loading entities: {e}")
         return []
-    
+
     return [e for e in entities if isinstance(e, str) and URL_RE.search(e)]
 
 # Track A: Session-level search for URLs
@@ -81,7 +81,7 @@ def search_sessions_for_url(query:str,  query_vec, keywords: list[str], temporal
         time_filter = f"window_start >= {time.time() - 7 * 86400}"
     else:
         time_filter = "1=1"
-    
+
     sql = f"""
     SELECT window_start, summary, active_task, entities, summary_embedding
     FROM sessions
@@ -122,7 +122,7 @@ def search_sessions_for_url(query:str,  query_vec, keywords: list[str], temporal
             # Fallback to keyword-based similarity
             combined_keywords = f"{summary or ''} {entities or ''} {active_task or ''}".lower()
             score += sum(1 for kw in keywords if kw in combined_keywords) / max(len(keywords), 1)
-        
+
         score+= recency_weight * recency_score
         scores.append((score, window_start, summary, active_task, urls))
 
@@ -194,7 +194,7 @@ def search_events_for_url(keywords: list[str], temporal_range=None, recency_hint
         ORDER BY events_fts.rank
         LIMIT 20
     """
-    
+
     try:
         rows = conn.execute(sql, (fts_query,)).fetchall()
     except Exception:
@@ -215,14 +215,14 @@ def search_events_for_url(keywords: list[str], temporal_range=None, recency_hint
         relevance = -rank                              # flip: now positive, higher -> more relevant
         recency   = (ts - oldest_ts) / ts_range       # 0.0 oldest -> 1.0 newest
         score     = relevance + recency_weight * recency
-        scores.append((score, ts, url, window_title, summary)) 
+        scores.append((score, ts, url, window_title, summary))
 
     if not scores:
         return []
 
     scores.sort(key=lambda x: x[0], reverse=True)
     return scores[:MAX_RESULTS]
-  
+
 def search_events_for_artifact(
     artifact_type: str,
     keywords: list[str],
@@ -530,7 +530,7 @@ def _format_url_results(session_results, event_results) -> str:
             "summaries — try topic_search for broader context."
         )
     return "\n\n---\n".join(parts)
-    
+
 def specific_recall(query: str, temporal_range=None, q_vec: list | None = None) -> str:
     from concurrent.futures import ThreadPoolExecutor
 
@@ -562,7 +562,7 @@ def specific_recall(query: str, temporal_range=None, q_vec: list | None = None) 
     # generic fallback
     results = search_events_for_artifact("generic", keywords, temporal_range, recency_hint)
     return _format_generic_results(results)
-    
+
 
 if __name__ == "__main__":
     while True:

@@ -18,8 +18,8 @@ EMBED_MODEL            = "nomic-embed-text"
 
 
 def count_sessions_since_last_distil() -> int:
-    
-    last_distilled_at = _get_meta("last_distilled_at", 0) 
+
+    last_distilled_at = _get_meta("last_distilled_at", 0)
     summaries = get_summaries(last_distilled_at)
 
     if not summaries:
@@ -220,7 +220,7 @@ def _route_fact(embedding: list) -> tuple[str, float | None]:
 
     if not clusters:
         return None, 0.0
-    
+
     best, best_sim = None, -1.0
     for c in clusters:
         sim = _cosine_similarity(embedding, c["centroid"])
@@ -298,7 +298,7 @@ def _merge_into_cluster(cluster_id: str, fact: str, embedding: list, source: str
         _recompute_centroid(cluster_id)
         print(f"  [DISTIL] CONFLICT flagged — '{rows[target][1]}' ↔ '{fact}'")
         return
-    
+
     if action == "UPDATE" and isinstance(target, int) and 0 <= target < len(rows):
         old_fact_id = rows[target][0]
         new_fact_id = str(uuid.uuid4())
@@ -464,7 +464,7 @@ def _update_profile_from_message(user_message: str) -> None:
         op    = (item.get("op")    or "set").strip().lower()
         items = item.get("items") or []
         value = (item.get("value") or "").strip()
-        
+
         if op in ("set", "override") and value:
             save_identity_field(field, value=value, source="distiller", op=op)
             saved.append(field)

@@ -54,7 +54,7 @@ def tier_zero_classifier(event: dict) -> TierZeroClassification | None:
             score=0,
             reason="Context change to same window"
         )
-    
+
     if event_type in ("paste", "clipboard_change"):
         content = payload.get("content") or payload.get("pasted_content") or ""
         if len(content.split()) < 3:

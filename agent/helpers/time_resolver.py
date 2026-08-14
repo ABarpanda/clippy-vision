@@ -63,7 +63,7 @@ _PROTECTED_WORDS = {
     "date", "dates", "least", "yeah", "hear", "near", "wear", "pass",
     "mouth", "south", "worth", "cast", "list", "lost", "must", "doing",
     "money", "monkey", "yours", "ours", "error", "remember", "remembered",
-    
+
     # near intent-cue words (base verb forms, dev vocabulary, misc)
     "sent", "spend", "booked", "plane", "plain", "plant", "plants",
     "build", "write", "complete", "manage", "manager", "hopping",

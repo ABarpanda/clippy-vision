@@ -75,7 +75,7 @@ def fetch_events(temporal_range: TemporalRange) -> list[dict]:
 
     if temporal_range.end_ts < raw_ttl_cutoff:
         return []
-    
+
     start_ts = max(temporal_range.start_ts, raw_ttl_cutoff)
     sql = f"""
         SELECT

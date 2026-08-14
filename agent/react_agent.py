@@ -99,7 +99,7 @@ def _build_combined_query_context(conversation_id: str, user_message: str) -> st
     recent_turns = get_recent_chats(conversation_id, limit=3)
     if not recent_turns:
         return user_message
-    
+
     prior = " | ".join(
         f"{'User' if t['role'] == 'user' else 'Clippy'}: {t['content']}"
         for t in recent_turns
