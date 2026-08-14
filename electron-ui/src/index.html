@@ -1502,6 +1502,21 @@
           <span id="updates-status" class="settings-status"></span>
         </div>
       </section>
+
+      <section class="settings-section" id="about-section">
+        <h2>About</h2>
+        <p class="settings-hint">
+          The version of Clippy Vision currently installed on this machine.
+        </p>
+        <div class="privacy-list">
+          <div class="privacy-row">
+            <div class="privacy-row-text">
+              <strong>Clippy Vision</strong>
+              <span id="about-version">Version unavailable</span>
+            </div>
+          </div>
+        </div>
+      </section>
     </div>
   </div>
 
@@ -1558,6 +1573,7 @@
     const profileStatus = document.getElementById('profile-status')
     const updateCheckToggle = document.getElementById('update-check-toggle')
     const updatesStatus = document.getElementById('updates-status')
+    const aboutVersion = document.getElementById('about-version')
 
     let isLoading = false
     // In-flight bot reply kept across conversation switches
@@ -2416,6 +2432,15 @@
       }
     }
 
+    async function loadAppVersion() {
+      try {
+        const version = await window.clippy.getAppVersion()
+        aboutVersion.textContent = version ? `Version ${version}` : 'Version unavailable'
+      } catch (error) {
+        aboutVersion.textContent = 'Version unavailable'
+      }
+    }
+
     async function saveUpdateCheck() {
       const desired = updateCheckToggle.checked
       updateCheckToggle.disabled = true
@@ -2433,6 +2458,7 @@
 
     async function loadSettings() {
       loadUpdateCheck()
+      loadAppVersion()
       setStatus(profileStatus, 'Loading…', null)
       try {
         const profile = await window.clippy.getProfile()
