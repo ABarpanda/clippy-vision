@@ -51,6 +51,11 @@ async def lifespan(app: FastAPI):
     # Preload router classifier so the first chat does not pay the load cost
     threading.Thread(target=load_classifier, daemon=True, name="router-classifier-warmup").start()
 
+    # Summarizer / OCR backlog / distil run with the app, not only while capture
+    # is on — pause capture stops new intake, not processing of allowed history.
+    from core.background_jobs import start_background_jobs
+
+    start_background_jobs()
 
     if get_capture_settings()["rag_enabled"]:
         start_event_indexer()

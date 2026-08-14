@@ -18,19 +18,13 @@ from pynput import keyboard
 
 try:
     from core.baseline import compute_deviation, update_baseline
-    from core.distil import distil, should_distil
     from core.events import Event, WindowMetadata, generate_summary, get_session_id
-    from core.screenshot_processor import start_screenshot_processor
     from core.storage import purge_expired, store_event
-    from core.summarizer import start_summarizer
     from core.vision import on_activity_event, start_vision_daemon
 except ImportError:
     from baseline import compute_deviation, update_baseline
-    from distil import distil, should_distil
     from events import Event, WindowMetadata, generate_summary, get_session_id
-    from screenshot_processor import start_screenshot_processor
     from storage import purge_expired, store_event
-    from summarizer import start_summarizer
     from vision import on_activity_event, start_vision_daemon
 import uuid
 from datetime import datetime
@@ -86,15 +80,10 @@ set_capture_status(True, os.getpid())
 atexit.register(_capture_shutdown)
 threading.Thread(target=_capture_heartbeat, daemon=True, name="capture-heartbeat").start()
 purge_expired()
-# Startup is intentionally centralized here so the desktop process can spawn a
-# single capture worker and avoid duplicate listeners or duplicate daemons.
+# Capture only intakes live activity. Summarizer, screenshot OCR backlog, and
+# distil run in the API process so backlog drains even when capture is paused.
 start_worker()
 start_vision_daemon()
-start_summarizer()
-start_screenshot_processor()
-if should_distil():
-    print("[startup] Distillation threshold reached — running distil...")
-    distil()
 
 
 # A burst ends after a short pause; grouping keystrokes keeps activity records

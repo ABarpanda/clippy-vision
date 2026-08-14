@@ -35,19 +35,20 @@ OCR_ONLY_VERDICT = {
 }
 
 
-# One-time migration: add classification_status if the DB existed before this column
+# One-time migration: add classification_status if the DB existed before this column.
+# storage.py may already have added these; some SQLite builds raise DatabaseError
+# (not OperationalError) for duplicate columns.
 try:
     conn.execute("ALTER TABLE events ADD COLUMN classification_status TEXT DEFAULT 'pending'")
     conn.commit()
-except sqlite3.OperationalError:
-    pass  # column already exists
-
+except sqlite3.Error:
+    pass
 
 for col in ("vision_ocr_text", "vision_activity", "vision_suggested_action"):
     try:
         conn.execute(f"ALTER TABLE events ADD COLUMN {col} TEXT")
         conn.commit()
-    except sqlite3.OperationalError:
+    except sqlite3.Error:
         pass
 
 
