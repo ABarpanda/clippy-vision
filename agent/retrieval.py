@@ -1,7 +1,6 @@
 import json
 import math
 import re
-import sqlite3
 import time
 
 from agent.helpers.time_resolver import resolve_temporal_range
@@ -9,13 +8,6 @@ from core.llm_gateway import Priority, gateway
 from core.local_embeddings import embed_text, embed_texts
 from core.rag import search_event_rag
 from core.storage import conn
-
-# Add summary_embedding column to sessions if it doesn't exist yet (Fix 3)
-try:
-    conn.execute("ALTER TABLE sessions ADD COLUMN summary_embedding TEXT")
-    conn.commit()
-except sqlite3.OperationalError:
-    pass  # already exists
 
 MAX_RESULT_ROWS = 20
 MAX_RESULT_CHARS = 4000

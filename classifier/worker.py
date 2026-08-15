@@ -1,8 +1,6 @@
 import json
-import sqlite3
 import threading
 import time
-from pathlib import Path
 
 from core.screenshot_enrichment import enrich_screenshot
 from core.storage import conn
@@ -35,24 +33,9 @@ OCR_ONLY_VERDICT = {
 }
 
 
-# One-time migration: add classification_status if the DB existed before this column.
-# storage.py may already have added these; some SQLite builds raise DatabaseError
-# (not OperationalError) for duplicate columns.
-try:
-    conn.execute("ALTER TABLE events ADD COLUMN classification_status TEXT DEFAULT 'pending'")
-    conn.commit()
-except sqlite3.Error:
-    pass
-
-for col in ("vision_ocr_text", "vision_activity", "vision_suggested_action"):
-    try:
-        conn.execute(f"ALTER TABLE events ADD COLUMN {col} TEXT")
-        conn.commit()
-    except sqlite3.Error:
-        pass
-
-
-
+# Column migrations live in core.storage._ensure_column. Do not ALTER here:
+# a second ADD COLUMN on some Windows SQLite builds raises SystemError and
+# kills API startup.
 
 #-----------------------------------------------------#
 #------------------- Print functions -----------------#

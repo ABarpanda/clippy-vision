@@ -14,6 +14,27 @@ conn.execute("PRAGMA journal_mode=WAL")
 conn.commit()
 
 
+def _table_columns(table: str) -> set[str]:
+    return {row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+
+
+def _ensure_column(table: str, column: str, decl: str) -> None:
+    """Add a column only if it is missing.
+
+    Duplicate ADD COLUMN is not always a sqlite3.OperationalError. Some
+    Windows/SQLite builds raise sqlite3.DatabaseError or SystemError
+    ("returned NULL without setting an exception") instead, which used to
+    kill API startup.
+    """
+    if column in _table_columns(table):
+        return
+    try:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+        conn.commit()
+    except Exception:
+        pass
+
+
 
 
 
@@ -65,11 +86,7 @@ for _column, _type in (
     ("vision_activity", "TEXT"),
     ("vision_suggested_action", "TEXT"),
 ):
-    try:
-        conn.execute(f"ALTER TABLE events ADD COLUMN {_column} {_type}")
-        conn.commit()
-    except sqlite3.OperationalError:
-        pass
+    _ensure_column("events", _column, _type)
 
 
 
@@ -144,11 +161,7 @@ CREATE TABLE IF NOT EXISTS sessions(
 """)
 conn.commit()
 
-try:
-    conn.execute("ALTER TABLE sessions ADD COLUMN summary_embedding TEXT")
-    conn.commit()
-except sqlite3.OperationalError:
-    pass
+_ensure_column("sessions", "summary_embedding", "TEXT")
 
 conn.execute("""
 CREATE VIRTUAL TABLE IF NOT EXISTS sessions_fts
@@ -188,11 +201,7 @@ for _fts_table in ("events_fts", "sessions_fts"):
         pass
 conn.commit()
 
-try:
-    conn.execute("ALTER TABLE sessions ADD COLUMN vision_enriched INTEGER DEFAULT 0")
-    conn.commit()
-except sqlite3.OperationalError:
-    pass  # column already exists
+_ensure_column("sessions", "vision_enriched", "INTEGER DEFAULT 0")
 
 
 

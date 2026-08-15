@@ -62,6 +62,8 @@ from core.screenshot_processor import (
 )
 from core.screenshot_search import search_screenshots
 from core.storage import (
+    _ensure_column,
+    _table_columns,
     clear_data,
     conn,
     export_data,
@@ -648,6 +650,14 @@ class RuntimeRegressionTests(unittest.TestCase):
         self.assertEqual(result["screenshots"], 1)
         self.assertFalse(path.exists())
         self.assertIsNone(conn.execute("SELECT 1 FROM events WHERE event_id=?", (event["event_id"],)).fetchone())
+
+    def test_ensure_column_is_idempotent(self):
+        before = _table_columns("events")
+        self.assertIn("classification_status", before)
+        _ensure_column("events", "classification_status", "TEXT DEFAULT 'pending'")
+        _ensure_column("events", "classification_status", "TEXT DEFAULT 'pending'")
+        _ensure_column("sessions", "summary_embedding", "TEXT")
+        self.assertEqual(_table_columns("events"), before)
 
 
 if __name__ == "__main__":
