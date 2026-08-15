@@ -13,9 +13,9 @@ from classifier.vision_classifier import classify_with_vision
 from classifier.worker import apply_vision_verdict
 
 POLL_SECS = 10
-PHASH_THRESHOLD = 2              # bit distance: 0-2 = identical, 10+ = very different
+PHASH_THRESHOLD = 2  # bit distance: 0-2 = identical, 10+ = very different
 NEAREST_EVENT_WINDOW_SECS = 10  # ±10s to find a nearby event
-RECENT_THRESHOLD_SECS = 60      # screenshots within this window are processed first
+RECENT_THRESHOLD_SECS = 60  # screenshots within this window are processed first
 
 from paths import get_screenshots_dir
 
@@ -25,6 +25,7 @@ _SCREENSHOT_DIR = get_screenshots_dir()
 # ─────────────────────────────────────────────────────────────
 # DB helpers
 # ─────────────────────────────────────────────────────────────
+
 
 def _get_nearest_event(screenshot_ts: float) -> dict | None:
     row = conn.execute(
@@ -38,21 +39,21 @@ def _get_nearest_event(screenshot_ts: float) -> dict | None:
            AND vision_suggested_action IS NULL
            ORDER BY ABS(timestamp - ?) ASC
            LIMIT 1""",
-        (screenshot_ts, NEAREST_EVENT_WINDOW_SECS, screenshot_ts)
+        (screenshot_ts, NEAREST_EVENT_WINDOW_SECS, screenshot_ts),
     ).fetchone()
 
     if not row:
         return None
 
     return {
-        "event_id":     row[0],
-        "timestamp":    row[1],
-        "event_type":   row[2],
+        "event_id": row[0],
+        "timestamp": row[1],
+        "event_type": row[2],
         "process_name": row[3],
         "window_context": {
-            "process_name":         row[3],
+            "process_name": row[3],
             "current_window_title": row[4],
-            "active_url":           row[5],
+            "active_url": row[5],
         },
         "summary": row[6],
         "payload": row[7],
@@ -68,14 +69,14 @@ def _get_window_context_at(screenshot_ts: float) -> dict:
            AND timestamp <= ?
            ORDER BY timestamp DESC
            LIMIT 1""",
-        (screenshot_ts,)
+        (screenshot_ts,),
     ).fetchone()
 
     if row:
         return {
-            "process_name":         row[0],
+            "process_name": row[0],
             "current_window_title": row[1],
-            "active_url":           row[2],
+            "active_url": row[2],
         }
     return {"process_name": "unknown", "current_window_title": "", "active_url": None}
 
@@ -92,7 +93,7 @@ def _create_screenshot_event(screenshot_ts: float) -> dict:
             timestamp=screenshot_ts,
             current_window_title=window_ctx["current_window_title"],
             active_url=window_ctx["active_url"],
-            process_name=window_ctx["process_name"]
+            process_name=window_ctx["process_name"],
         ),
         previous_window_context=None,
         payload={},
@@ -100,25 +101,25 @@ def _create_screenshot_event(screenshot_ts: float) -> dict:
         vector_embedding=None,
         interest_score=None,
         interest_reason=None,
-        interesting=None
+        interesting=None,
     )
     store_event(event)
     # Lock out of text classifier — vision-only, set to done by apply_vision_verdict
     conn.execute(
         "UPDATE events SET classification_status='screenshot_only' WHERE event_id=?",
-        (event_id,)
+        (event_id,),
     )
     conn.commit()
 
     return {
-        "event_id":   event_id,
-        "timestamp":  screenshot_ts,
+        "event_id": event_id,
+        "timestamp": screenshot_ts,
         "event_type": "screenshot_analysis",
         "process_name": window_ctx["process_name"],
         "window_context": {
-            "process_name":         window_ctx["process_name"],
+            "process_name": window_ctx["process_name"],
             "current_window_title": window_ctx["current_window_title"],
-            "active_url":           window_ctx["active_url"],
+            "active_url": window_ctx["active_url"],
         },
         "summary": f"Background screenshot of {window_ctx['process_name']} - {window_ctx['current_window_title']}",
     }
@@ -128,11 +129,12 @@ def _create_screenshot_event(screenshot_ts: float) -> dict:
 # Screenshot discovery
 # ─────────────────────────────────────────────────────────────
 
+
 def _get_unprocessed_screenshots() -> list[Path]:
     """All unprocessed screenshots sorted oldest-first."""
     return sorted(
         [p for p in _SCREENSHOT_DIR.glob("*.jpg") if "_processed" not in p.stem],
-        key=lambda p: int(p.stem)
+        key=lambda p: int(p.stem),
     )
 
 
@@ -143,6 +145,7 @@ def _mark_as_processed(path: Path):
 # ─────────────────────────────────────────────────────────────
 # Hash + grouping
 # ─────────────────────────────────────────────────────────────
+
 
 def _compute_all_hashes(paths: list[Path]) -> dict[str, imagehash.ImageHash]:
     """Compute perceptual hash for each screenshot. Skips unreadable files."""
@@ -180,7 +183,7 @@ def _group_by_similarity(
 
     # O(n²) pairwise — fast enough for typical screenshot counts (<200)
     for i, pa in enumerate(valid):
-        for pb in valid[i + 1:]:
+        for pb in valid[i + 1 :]:
             if (hashes[pa.stem] - hashes[pb.stem]) <= PHASH_THRESHOLD:
                 union(pa.stem, pb.stem)
 
@@ -201,6 +204,7 @@ def _group_by_similarity(
 # Processing
 # ─────────────────────────────────────────────────────────────
 
+
 def _process_group(group: list[Path]) -> bool:
     """
     Run vision once on the most recent screenshot in the group (the representative),
@@ -216,7 +220,9 @@ def _process_group(group: list[Path]) -> bool:
 
     rep_event = _get_nearest_event(rep_ts)
     if rep_event is None:
-        print(f"  [screenshot_processor] No nearby event for {representative.name} — creating screenshot_analysis event")
+        print(
+            f"  [screenshot_processor] No nearby event for {representative.name} — creating screenshot_analysis event"
+        )
         rep_event = _create_screenshot_event(rep_ts)
     else:
         print(
@@ -243,7 +249,9 @@ def _process_group(group: list[Path]) -> bool:
             other_event = _create_screenshot_event(ts)
         apply_vision_verdict(other_event["event_id"], verdict)
         _mark_as_processed(path)
-        print(f"  [screenshot_processor] Copied verdict to duplicate {path.name[:20]}... [{other_event['event_id'][:8]}]")
+        print(
+            f"  [screenshot_processor] Copied verdict to duplicate {path.name[:20]}... [{other_event['event_id'][:8]}]"
+        )
 
     _mark_as_processed(representative)
     return True
@@ -252,6 +260,7 @@ def _process_group(group: list[Path]) -> bool:
 # ─────────────────────────────────────────────────────────────
 # Main loop
 # ─────────────────────────────────────────────────────────────
+
 
 def screenshot_processor_loop():
     print("[screenshot_processor] Started")
@@ -273,7 +282,7 @@ def screenshot_processor_loop():
         cutoff_ms = now_ms - RECENT_THRESHOLD_SECS * 1000
 
         recent_groups = [g for g in groups if int(g[-1].stem) >= cutoff_ms]
-        old_groups    = [g for g in groups if int(g[-1].stem) <  cutoff_ms]
+        old_groups = [g for g in groups if int(g[-1].stem) < cutoff_ms]
 
         for group in recent_groups:
             _process_group(group)

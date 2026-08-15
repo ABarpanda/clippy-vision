@@ -74,7 +74,11 @@ def gather_intro_inputs() -> dict:
         "meta": meta,
         "identity": identity,
         "clusters": [
-            {"label": c["label"], "description": c["description"], "fact_count": c["fact_count"]}
+            {
+                "label": c["label"],
+                "description": c["description"],
+                "fact_count": c["fact_count"],
+            }
             for c in clusters
         ],
         "fact_delta": fact_delta,
@@ -182,7 +186,7 @@ def rebuild_introduction(inputs: dict | None = None) -> str | None:
     if (get_introduction_meta().get("source") or "").strip().lower() == "user":
         print("\n  [INTRO] skipped write — user-authored introduction protected")
         return None
-        
+
     set_introduction(text, source="distiller")
     print(f"\n  [INTRO] rebuilt ({len(text)} chars)")
     return text

@@ -14,8 +14,12 @@ from .vision_classifier import classify_with_vision
 
 POLL_SECS = 2
 VISION_POLL_SECS = 5
-VISION_SCORE_THRESHOLD = 7   # only route to vision if text score ≤ this (uncertain range)
-MAX_VISION_WAIT_SECS   = 300 # skip vision enrichment if event has been waiting longer than this
+VISION_SCORE_THRESHOLD = (
+    7  # only route to vision if text score ≤ this (uncertain range)
+)
+MAX_VISION_WAIT_SECS = (
+    300  # skip vision enrichment if event has been waiting longer than this
+)
 
 DEFAULT_SCREENSHOT_VERDICT = {
     "verdict": "not_interesting",
@@ -28,7 +32,9 @@ DEFAULT_SCREENSHOT_VERDICT = {
 
 # One-time migration: add classification_status if the DB existed before this column
 try:
-    conn.execute("ALTER TABLE events ADD COLUMN classification_status TEXT DEFAULT 'pending'")
+    conn.execute(
+        "ALTER TABLE events ADD COLUMN classification_status TEXT DEFAULT 'pending'"
+    )
     conn.commit()
 except sqlite3.OperationalError:
     pass  # column already exists
@@ -41,16 +47,20 @@ for col in ("vision_ocr_text", "vision_activity", "vision_suggested_action"):
     except sqlite3.OperationalError:
         pass
 
-#-----------------------------------------------------#
-#------------------- Print functions -----------------#
-#-----------------------------------------------------#
+
+# -----------------------------------------------------#
+# ------------------- Print functions -----------------#
+# -----------------------------------------------------#
 def _print_verdict(tier: int, event: dict, verdict: dict):
-    verdict_str  = verdict["verdict"].upper()
-    score        = verdict["score"]
-    reason       = verdict["reason"]
-    event_type   = event["event_type"]
+    verdict_str = verdict["verdict"].upper()
+    score = verdict["score"]
+    reason = verdict["reason"]
+    event_type = event["event_type"]
     process_name = event["process_name"] or "unknown"
-    print(f"  [TIER-{tier}] {verdict_str} (score={score}/10) | {event_type} in {process_name} | {reason}")
+    print(
+        f"  [TIER-{tier}] {verdict_str} (score={score}/10) | {event_type} in {process_name} | {reason}"
+    )
+
 
 def _print_vision_verdict(event: dict, verdict: dict):
     verdict_str = verdict["verdict"].upper()
@@ -69,17 +79,19 @@ def _print_vision_verdict(event: dict, verdict: dict):
         print(f"    next     : {verdict['suggested_action']}")
 
 
-
 def apply_verdict(event_id: str, verdict: dict, needs_vision: bool = False):
-    status      = "awaiting_vision" if needs_vision else "done"
-    interesting = 0 if verdict["verdict"] == "not_interesting" else 1  # needs_vision → tentatively interesting
+    status = "awaiting_vision" if needs_vision else "done"
+    interesting = (
+        0 if verdict["verdict"] == "not_interesting" else 1
+    )  # needs_vision → tentatively interesting
     conn.execute(
         """UPDATE events
            SET interesting=?, interest_score=?, interest_reason=?, classification_status=?
            WHERE event_id=?""",
-        (interesting, verdict["score"], verdict["reason"], status, event_id)
+        (interesting, verdict["score"], verdict["reason"], status, event_id),
     )
     conn.commit()
+
 
 def apply_vision_verdict(event_id: str, verdict: dict):
     # Vision verdict is authoritative — it can see the screen, so it overrides text-tier classification
@@ -108,27 +120,37 @@ def apply_vision_verdict(event_id: str, verdict: dict):
 
 
 def _row_to_event(row) -> dict:
-    (event_id, timestamp, event_type,
-     process_name, current_window_title, active_url,
-     prev_process, prev_title,
-     summary, payload) = row
+    (
+        event_id,
+        timestamp,
+        event_type,
+        process_name,
+        current_window_title,
+        active_url,
+        prev_process,
+        prev_title,
+        summary,
+        payload,
+    ) = row
 
     return {
-        "event_id":     event_id,
-        "timestamp":    timestamp,
-        "event_type":   event_type,
+        "event_id": event_id,
+        "timestamp": timestamp,
+        "event_type": event_type,
         "process_name": process_name,
-        "summary":      summary,
-        "payload":      payload,
+        "summary": summary,
+        "payload": payload,
         "window_context": {
-            "process_name":         process_name,
+            "process_name": process_name,
             "current_window_title": current_window_title,
-            "active_url":           active_url,
+            "active_url": active_url,
         },
         "previous_window_context": {
-            "process_name":         prev_process,
+            "process_name": prev_process,
             "current_window_title": prev_title,
-        } if prev_process else None,
+        }
+        if prev_process
+        else None,
     }
 
 
@@ -144,7 +166,10 @@ def classify_event(event: dict):
     verdict = tier1_score(event, conn)
     if verdict:
         _print_verdict(1, event, verdict)
-        needs_vision = (verdict["verdict"] == "interesting" and verdict["score"] <= VISION_SCORE_THRESHOLD)
+        needs_vision = (
+            verdict["verdict"] == "interesting"
+            and verdict["score"] <= VISION_SCORE_THRESHOLD
+        )
         apply_verdict(event["event_id"], verdict, needs_vision=needs_vision)
         return
 
@@ -156,28 +181,33 @@ def classify_event(event: dict):
                AND classification_status = 'done'
                ORDER BY timestamp DESC LIMIT 3
            ) ORDER BY timestamp ASC""",
-        (event["event_id"],)
+        (event["event_id"],),
     ).fetchall()
 
     if recent:
         context_str = "\n".join(f"  [{r[0]}] {r[1]}: {r[2]}" for r in recent)
-        summary = f"Recent context:\n{context_str}\n\nCurrent event:\n  {event['summary']}"
+        summary = (
+            f"Recent context:\n{context_str}\n\nCurrent event:\n  {event['summary']}"
+        )
     else:
         summary = event["summary"]
 
     try:
-        verdict = classify_with_llm(summary, event["event_type"], event["window_context"])
+        verdict = classify_with_llm(
+            summary, event["event_type"], event["window_context"]
+        )
     except Exception as e:
         print(f"  [TIER-2] Failed: {e} — backing off 30s before retry")
         time.sleep(30)
         return  # leave as 'pending', retry next cycle
 
     _print_verdict(2, event, verdict)
-    needs_vision = (
-        verdict["verdict"] == "needs_vision"
-        or (verdict["verdict"] == "interesting" and verdict["score"] <= VISION_SCORE_THRESHOLD)
+    needs_vision = verdict["verdict"] == "needs_vision" or (
+        verdict["verdict"] == "interesting"
+        and verdict["score"] <= VISION_SCORE_THRESHOLD
     )
     apply_verdict(event["event_id"], verdict, needs_vision=needs_vision)
+
 
 def classify_vision_event(event: dict):
     screenshots = get_screenshots_near(event["timestamp"], max_count=1)
@@ -187,11 +217,15 @@ def classify_vision_event(event: dict):
         return
 
     # Show timing context before sending to the model
-    event_ts   = time.strftime("%H:%M:%S", time.localtime(event["timestamp"]))
+    event_ts = time.strftime("%H:%M:%S", time.localtime(event["timestamp"]))
     shot_ts_ms = int(screenshots[0].stem)
-    shot_ts    = time.strftime("%H:%M:%S", time.localtime(shot_ts_ms / 1000))
-    shot_delta = int(event["timestamp"] - shot_ts_ms / 1000)  # screenshot age vs event (seconds)
-    vision_lag = int(time.time() - event["timestamp"])        # how late vision is vs real-time (seconds)
+    shot_ts = time.strftime("%H:%M:%S", time.localtime(shot_ts_ms / 1000))
+    shot_delta = int(
+        event["timestamp"] - shot_ts_ms / 1000
+    )  # screenshot age vs event (seconds)
+    vision_lag = int(
+        time.time() - event["timestamp"]
+    )  # how late vision is vs real-time (seconds)
     print(
         f"  [VISION] event@{event_ts} | screenshot@{shot_ts} "
         f"(Δ{shot_delta:+d}s vs event) | processing lag {vision_lag}s"
@@ -228,6 +262,7 @@ def worker_loop():
         for row in rows:
             classify_event(_row_to_event(row))
 
+
 def vision_worker_loop():
     print("[worker] Vision worker started")
     while True:
@@ -251,18 +286,22 @@ def vision_worker_loop():
                 # Event is too stale for vision enrichment to be useful — mark done and move on
                 conn.execute(
                     "UPDATE events SET classification_status='done' WHERE event_id=?",
-                    (event["event_id"],)
+                    (event["event_id"],),
                 )
                 conn.commit()
                 event_ts = time.strftime("%H:%M:%S", time.localtime(event["timestamp"]))
-                print(f"  [VISION] Skipped stale event@{event_ts} ({age_secs:.0f}s old > {MAX_VISION_WAIT_SECS}s limit)")
+                print(
+                    f"  [VISION] Skipped stale event@{event_ts} ({age_secs:.0f}s old > {MAX_VISION_WAIT_SECS}s limit)"
+                )
                 continue
             classify_vision_event(event)
+
 
 def start_vision_worker():
     t = threading.Thread(target=vision_worker_loop, daemon=True)
     t.start()
     return t
+
 
 def start_worker():
     t = threading.Thread(target=worker_loop, daemon=True)

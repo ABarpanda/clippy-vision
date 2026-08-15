@@ -10,16 +10,16 @@ from paths import get_baseline_path
 BASELINE_PATH = str(get_baseline_path())
 _baseline_lock = threading.Lock()
 
-#--------------------------------#
+# --------------------------------#
 # Change the alpha value in------#
 # Future to be adaptive for------#
 # each context-------------------#
-#--------------------------------#
+# --------------------------------#
 
 ALPHA = 0.05
 MIN_SAMPLES = 30
 
-TRACKED_METRICS =[
+TRACKED_METRICS = [
     "typing_speed_wpm",
     "avg_iki_ms",
     "avg_dwell_time_ms",
@@ -34,9 +34,11 @@ def _read_baseline_file() -> dict:
             return json.load(f)
     return {}
 
+
 def load_baseline() -> dict:
     with _baseline_lock:
         return _read_baseline_file()
+
 
 def save_baseline(baseline: dict):
     """Must be called while holding _baseline_lock."""
@@ -44,7 +46,8 @@ def save_baseline(baseline: dict):
     with open(BASELINE_PATH, "w") as f:
         json.dump(baseline, f, indent=2)
 
-def update_baseline(metrics : dict, context_key : str):
+
+def update_baseline(metrics: dict, context_key: str):
     with _baseline_lock:
         baseline = _read_baseline_file()
 
@@ -57,7 +60,7 @@ def update_baseline(metrics : dict, context_key : str):
                 "sample_count": 0,
                 "alpha": ALPHA,
                 "metrics": metric_baselines,
-                "last_update": time.time()
+                "last_update": time.time(),
             }
         else:
             context_data = baseline[context_key]
@@ -68,12 +71,14 @@ def update_baseline(metrics : dict, context_key : str):
                     continue
 
                 old_mean = context_data["metrics"][m]["mean"]
-                old_var  = context_data["metrics"][m]["variance"]
+                old_var = context_data["metrics"][m]["variance"]
 
                 current_value = metrics[m]
 
                 new_mean = (alpha * current_value) + ((1 - alpha) * old_mean)
-                new_var  = (1 - alpha) * (old_var + alpha * (current_value - old_mean) ** 2)
+                new_var = (1 - alpha) * (
+                    old_var + alpha * (current_value - old_mean) ** 2
+                )
 
                 context_data["metrics"][m]["mean"] = new_mean
                 context_data["metrics"][m]["variance"] = new_var
@@ -83,7 +88,8 @@ def update_baseline(metrics : dict, context_key : str):
 
         save_baseline(baseline)
 
-def compute_deviation(metrics: dict, context_key:str) -> dict | None:
+
+def compute_deviation(metrics: dict, context_key: str) -> dict | None:
     baseline = load_baseline()
     if context_key not in baseline:
         return None
@@ -92,28 +98,28 @@ def compute_deviation(metrics: dict, context_key:str) -> dict | None:
 
     if context_data["sample_count"] < MIN_SAMPLES:
         return None
-    
-    z_scores = {} # deviation scores for each metric
+
+    z_scores = {}  # deviation scores for each metric
 
     for m in TRACKED_METRICS:
         if m not in metrics or m not in context_data["metrics"]:
             continue
-        
+
         mean = context_data["metrics"][m]["mean"]
         variance = context_data["metrics"][m]["variance"]
         if variance > 1e-6:
-             z_scores[m] = round((metrics[m] - mean) / math.sqrt(variance), 2)
-        
+            z_scores[m] = round((metrics[m] - mean) / math.sqrt(variance), 2)
+
     if not z_scores:
         return None
-    
-    overall_deviation =  round(math.sqrt(sum(z**2 for z in z_scores.values()) / len(z_scores)), 2)
+
+    overall_deviation = round(
+        math.sqrt(sum(z**2 for z in z_scores.values()) / len(z_scores)), 2
+    )
 
     return {
         "context_key": context_key,
         "overall_deviation": overall_deviation,
         "anomaly": overall_deviation > 2.0,
-        "z_scores": z_scores
+        "z_scores": z_scores,
     }
-    
-

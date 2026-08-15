@@ -4,7 +4,6 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 
-
 import json
 import threading
 from contextlib import asynccontextmanager
@@ -41,7 +40,9 @@ async def lifespan(app: FastAPI):
     # Weekly intro rebuild: immediate check + periodic background loop
     start_intro_rebuild_daemon()
     # Preload router classifier so the first chat does not pay the load cost
-    threading.Thread(target=load_classifier, daemon=True, name="router-classifier-warmup").start()
+    threading.Thread(
+        target=load_classifier, daemon=True, name="router-classifier-warmup"
+    ).start()
     # Model warm is triggered explicitly by Electron (setup / normal launch)
     # via POST /residency/startup — avoids racing a background warm with setup UI.
     yield
@@ -50,37 +51,25 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 
-
 app.add_middleware(
-
     CORSMiddleware,
-
     allow_origins=["*"],
-
     allow_methods=["*"],
-
     allow_headers=["*"],
-
 )
 
 
-
 class QueryRequest(BaseModel):
-
     message: str
 
     conversation_id: str
 
 
-
 class NameRequest(BaseModel):
-
     name: str
 
 
-
 class ProfileUpdateRequest(BaseModel):
-
     name: str | None = None
 
     introduction: str | None = None
@@ -88,11 +77,8 @@ class ProfileUpdateRequest(BaseModel):
     identity: dict[str, str] | None = None
 
 
-
 class PrivacyUpdateRequest(BaseModel):
-
     enabled: dict[str, bool]
-
 
 
 def _validate_user_message(message: str) -> str:
@@ -108,7 +94,6 @@ def _validate_user_message(message: str) -> str:
 
 
 @app.post("/chat")
-
 def chat(req: QueryRequest):
 
     message = _validate_user_message(req.message)
@@ -118,9 +103,7 @@ def chat(req: QueryRequest):
     return {"result": result}
 
 
-
 @app.post("/chat/stream")
-
 def chat_stream(req: QueryRequest):
 
     message = _validate_user_message(req.message)
@@ -128,45 +111,30 @@ def chat_stream(req: QueryRequest):
     def event_gen():
 
         try:
-
             for event in run_stream(message, req.conversation_id):
-
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
         except Exception as e:
-
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(
-
         event_gen(),
-
         media_type="text/event-stream",
-
         headers={
-
             "Cache-Control": "no-cache",
-
             "Connection": "keep-alive",
-
             "X-Accel-Buffering": "no",
-
         },
-
     )
 
 
-
 @app.get("/user/name")
-
 def read_user_name():
 
     return {"name": get_user_name()}
 
 
-
 @app.post("/user/name")
-
 def write_user_name(req: NameRequest):
 
     name = set_user_name(req.name)
@@ -174,43 +142,30 @@ def write_user_name(req: NameRequest):
     return {"name": name}
 
 
-
 @app.get("/user/profile")
-
 def read_user_profile():
 
     return {
-
         "name": get_user_name(),
-
         "introduction": get_introduction(),
-
         "identity": get_identity(),
-
     }
 
 
-
 @app.post("/user/profile")
-
 def write_user_profile(req: ProfileUpdateRequest):
 
     if req.name is not None:
-
         set_user_name(req.name)
 
     if req.introduction is not None:
-
         set_introduction(req.introduction.strip(), source="user")
 
     if req.identity:
-
         for field, value in req.identity.items():
-
             field = (field or "").strip().lower().replace(" ", "_")
 
             if not field:
-
                 continue
 
             value = (value or "").strip()
@@ -220,27 +175,19 @@ def write_user_profile(req: ProfileUpdateRequest):
             save_identity_field(field, value=value, source="user", op="override")
 
     return {
-
         "name": get_user_name(),
-
         "introduction": get_introduction(),
-
         "identity": get_identity(),
-
     }
 
 
-
 @app.get("/settings/privacy")
-
 def read_privacy_settings():
 
     return {"targets": list_privacy_targets()}
 
 
-
 @app.put("/settings/privacy")
-
 def write_privacy_settings(req: PrivacyUpdateRequest):
 
     set_privacy_enabled(req.enabled)
@@ -248,71 +195,52 @@ def write_privacy_settings(req: PrivacyUpdateRequest):
     return {"targets": list_privacy_targets()}
 
 
-
 @app.get("/conversations")
-
 def conversations():
 
     return {"conversations": list_conversations()}
 
 
-
 @app.get("/conversations/search")
-
 def conversations_search(q: str = "", limit: int = 20):
 
     return {"conversations": search_conversations(q, limit=limit), "query": q}
 
 
-
 @app.get("/conversations/{conversation_id}")
-
 def conversation_messages(conversation_id: str):
 
     return {
-
         "conversation_id": conversation_id,
-
         "messages": get_conversation_messages(conversation_id),
-
     }
 
 
-
 @app.delete("/conversations/{conversation_id}")
-
 def conversation_delete(conversation_id: str):
 
     result = delete_conversation(conversation_id)
 
     if not result["deleted"]:
-
         raise HTTPException(status_code=404, detail="Conversation not found.")
 
     return result
 
 
-
 @app.get("/health")
-
 def health():
 
     return {"status": "ok"}
 
 
-
 @app.post("/residency/startup")
-
 def residency_startup():
-
     """Pin text + embed for app launch; vision stays idle until capture starts."""
 
     return warm_for_startup()
 
 
-
 @app.get("/residency")
-
 def residency_status():
 
     from core.model_residency import load_residency
@@ -320,19 +248,14 @@ def residency_status():
     return load_residency()
 
 
-
 @app.post("/residency/capture-stop")
-
 def residency_capture_stop():
-
     """Unload vision when Electron stops screen capture (process may be force-killed)."""
 
     return on_capture_stop()
 
 
-
 if __name__ == "__main__":
-
     # Loopback only. This API serves captured screen content and conversation
     # history, so it must never be reachable from the local network.
     # Electron reserves a free port and passes it in; 8000 is only the fallback
@@ -340,5 +263,3 @@ if __name__ == "__main__":
     port = int(os.environ.get("CLIPPY_API_PORT") or 8000)
 
     uvicorn.run(app, host="127.0.0.1", port=port)
-
-

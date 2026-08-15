@@ -17,9 +17,9 @@ from storage import (
 
 from core.llm_gateway import Priority, gateway
 
-MODEL        = "qwen3:8b"
-INTERVAL_SEC = 300   # run every 5 minutes
-MIN_EVENTS   = 3     # don't summarize if fewer than 3 interesting events
+MODEL = "qwen3:8b"
+INTERVAL_SEC = 300  # run every 5 minutes
+MIN_EVENTS = 3  # don't summarize if fewer than 3 interesting events
 SUMMARY_SCHEMA = {
     "type": "object",
     "properties": {
@@ -27,11 +27,7 @@ SUMMARY_SCHEMA = {
         "active_task": {"type": "string"},
         "entities": {"type": "array", "items": {"type": "string"}},
     },
-    "required": [
-        "summary",
-        "active_task",
-        "entities"
-    ],
+    "required": ["summary", "active_task", "entities"],
 }
 SYSTEM_PROMPT = """You summarize computer work sessions from activity events.
 
@@ -65,10 +61,14 @@ def summarize_window(events: list[dict], session_id: str) -> dict | None:
     body = gateway.chat(
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user",   "content": prompt}
+            {"role": "user", "content": prompt},
         ],
-        model=MODEL, format=SUMMARY_SCHEMA, think=False,
-        options={"temperature": 0}, priority=Priority.BACKGROUND)
+        model=MODEL,
+        format=SUMMARY_SCHEMA,
+        think=False,
+        options={"temperature": 0},
+        priority=Priority.BACKGROUND,
+    )
 
     content = body["message"]["content"]
     result = json.loads(content) if isinstance(content, str) else content
@@ -80,23 +80,28 @@ def summarize_window(events: list[dict], session_id: str) -> dict | None:
     embedding = None
     if summary_text:
         try:
-            embedding = gateway.embed(summary_text, embed_model="nomic-embed-text", priority=Priority.BACKGROUND)
+            embedding = gateway.embed(
+                summary_text,
+                embed_model="nomic-embed-text",
+                priority=Priority.BACKGROUND,
+            )
         except Exception:
             pass  # best-effort; retrieval.py will back-fill on first query
 
     summary = {
-        "summary_id":   str(uuid.uuid4()),
-        "session_id":   session_id,
-        "created_at":   now,
+        "summary_id": str(uuid.uuid4()),
+        "session_id": session_id,
+        "created_at": now,
         "window_start": events[0]["timestamp"],
-        "window_end":   events[-1]["timestamp"],
-        "summary":      summary_text,
-        "active_task":  result.get("active_task"),
-        "entities":     result.get("entities", []),
-        "event_count":  len(events),
-        "embedding":    embedding,
+        "window_end": events[-1]["timestamp"],
+        "summary": summary_text,
+        "active_task": result.get("active_task"),
+        "entities": result.get("entities", []),
+        "event_count": len(events),
+        "embedding": embedding,
     }
     return summary
+
 
 def _refresh_vision_enriched_sessions(session_id: str):
     stale = get_sessions_needing_refresh()
@@ -107,13 +112,19 @@ def _refresh_vision_enriched_sessions(session_id: str):
         if len(events) < MIN_EVENTS:
             mark_session_vision_enriched(s["summary_id"])
             continue
-        print(f"  [SUMMARIZER] Re-summarizing session {s['summary_id'][:8]}... with vision data ({len(events)} events)")
+        print(
+            f"  [SUMMARIZER] Re-summarizing session {s['summary_id'][:8]}... with vision data ({len(events)} events)"
+        )
         summary = summarize_window(events, session_id)
         if summary:
-            summary["summary_id"] = s["summary_id"]  # overwrite in-place via INSERT OR REPLACE
+            summary["summary_id"] = s[
+                "summary_id"
+            ]  # overwrite in-place via INSERT OR REPLACE
             if should_distil():
                 distil()
-            store_summary(summary, vision_enriched=True, embedding=summary.pop("embedding", None))
+            store_summary(
+                summary, vision_enriched=True, embedding=summary.pop("embedding", None)
+            )
             print(f"  [SUMMARIZER] Refreshed — {summary['active_task']}")
         else:
             mark_session_vision_enriched(s["summary_id"])
@@ -129,18 +140,26 @@ def summarizer_loop():
             # Pass 1: keep summarizing until fully caught up
             # (multiple windows may be pending after a restart or long gap)
             while True:
-                since  = get_last_summary_time(session_id)
+                since = get_last_summary_time(session_id)
                 events = get_unsummarized_events(since)
 
                 if len(events) < MIN_EVENTS:
                     if len(events) > 0:
-                        print(f"  [SUMMARIZER] {len(events)} event(s) pending, need {MIN_EVENTS} to summarize — waiting for more")
+                        print(
+                            f"  [SUMMARIZER] {len(events)} event(s) pending, need {MIN_EVENTS} to summarize — waiting for more"
+                        )
                     break
 
-                print(f"  [SUMMARIZER] Summarizing {len(events)} events since {time.strftime('%H:%M', time.localtime(since))}")
+                print(
+                    f"  [SUMMARIZER] Summarizing {len(events)} events since {time.strftime('%H:%M', time.localtime(since))}"
+                )
                 summary = summarize_window(events, session_id)
                 if summary:
-                    store_summary(summary, vision_enriched=False, embedding=summary.pop("embedding", None))
+                    store_summary(
+                        summary,
+                        vision_enriched=False,
+                        embedding=summary.pop("embedding", None),
+                    )
                     print(f"  [SUMMARIZER] Done — {summary['active_task']}")
                     print(f"               {summary['summary'][:120]}...")
                 else:
@@ -154,11 +173,14 @@ def summarizer_loop():
 
         # Sleep only for the time remaining in the interval so the tick cadence
         # stays fixed regardless of how long the work took.
-        elapsed  = time.time() - tick_start
+        elapsed = time.time() - tick_start
         sleep_for = max(0.0, INTERVAL_SEC - elapsed)
         if elapsed > 1:
-            print(f"  [SUMMARIZER] Work took {elapsed:.0f}s, sleeping {sleep_for:.0f}s until next tick")
+            print(
+                f"  [SUMMARIZER] Work took {elapsed:.0f}s, sleeping {sleep_for:.0f}s until next tick"
+            )
         time.sleep(sleep_for)
+
 
 def start_summarizer() -> threading.Thread:
     t = threading.Thread(target=summarizer_loop, daemon=True)

@@ -32,7 +32,7 @@ OUTPUT_SCHEMA = {
     "properties": {
         "sql_query": {"type": "string"},
     },
-    "required": ["sql_query"]
+    "required": ["sql_query"],
 }
 
 # ─────────────────────────────────────────────────────────────
@@ -134,9 +134,10 @@ Rules:
 # ─────────────────────────────────────────────────────────────
 
 _BLOCKED = re.compile(
-    r'\b(DROP|DELETE|UPDATE|INSERT|ALTER|CREATE|ATTACH|DETACH|PRAGMA|REPLACE|TRUNCATE)\b',
+    r"\b(DROP|DELETE|UPDATE|INSERT|ALTER|CREATE|ATTACH|DETACH|PRAGMA|REPLACE|TRUNCATE)\b",
     re.IGNORECASE,
 )
+
 
 def _is_safe(sql: str) -> bool:
     return sql.strip().upper().startswith("SELECT") and not _BLOCKED.search(sql)
@@ -146,12 +147,18 @@ def _is_safe(sql: str) -> bool:
 # Core helpers
 # ─────────────────────────────────────────────────────────────
 
+
 def _generate_sql(system_prompt: str, user_content: str) -> str:
     body = gateway.chat(
-        [{"role": "system", "content": system_prompt},
-         {"role": "user",   "content": user_content}],
-        model=MODEL, format=OUTPUT_SCHEMA, think=False,
-        options={"temperature": 0}, priority=Priority.INTERACTIVE,
+        [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content},
+        ],
+        model=MODEL,
+        format=OUTPUT_SCHEMA,
+        think=False,
+        options={"temperature": 0},
+        priority=Priority.INTERACTIVE,
     )
     content = body["message"]["content"]
     parsed = json.loads(content) if isinstance(content, str) else content
@@ -180,6 +187,7 @@ def _run_sql(sql: str) -> tuple[list, int]:
 # Cosine similarity helpers (Fix 3 — semantic session search)
 # ─────────────────────────────────────────────────────────────
 
+
 def _cosine(a: list, b: list) -> float:
     dot = sum(x * y for x, y in zip(a, b))
     norm_a = math.sqrt(sum(x * x for x in a))
@@ -189,7 +197,9 @@ def _cosine(a: list, b: list) -> float:
     return dot / (norm_a * norm_b)
 
 
-def _semantic_sessions(question: str, date_sql_filter: str, limit: int = MAX_RESULT_ROWS) -> tuple[list, int]:
+def _semantic_sessions(
+    question: str, date_sql_filter: str, limit: int = MAX_RESULT_ROWS
+) -> tuple[list, int]:
     """Embed the question and re-rank sessions by cosine similarity.
 
     date_sql_filter is a WHERE fragment (without the WHERE keyword) that
@@ -199,7 +209,9 @@ def _semantic_sessions(question: str, date_sql_filter: str, limit: int = MAX_RES
     Returns (rows_as_text_list, total_candidates_count).
     Rows that have no embedding yet are scored 0 (still returned if nothing better exists).
     """
-    q_vec = gateway.embed(question, embed_model=EMBED_MODEL, priority=Priority.INTERACTIVE)
+    q_vec = gateway.embed(
+        question, embed_model=EMBED_MODEL, priority=Priority.INTERACTIVE
+    )
 
     candidate_sql = f"""
         SELECT summary_id, session_id, window_start, window_end,
@@ -215,8 +227,17 @@ def _semantic_sessions(question: str, date_sql_filter: str, limit: int = MAX_RES
     scored = []
     unembedded_ids = []
     for row in rows:
-        (summary_id, session_id, ws, we, summary, active_task,
-         entities, event_count, emb_json) = row
+        (
+            summary_id,
+            session_id,
+            ws,
+            we,
+            summary,
+            active_task,
+            entities,
+            event_count,
+            emb_json,
+        ) = row
         if emb_json:
             vec = json.loads(emb_json)
             score = _cosine(q_vec, vec)
@@ -252,7 +273,9 @@ def _backfill_session_embeddings(pairs: list[tuple[str, str]]) -> None:
     if not texts:
         return
     try:
-        vecs = gateway.embed(texts, embed_model=EMBED_MODEL, priority=Priority.BACKGROUND)
+        vecs = gateway.embed(
+            texts, embed_model=EMBED_MODEL, priority=Priority.BACKGROUND
+        )
         for (summary_id, _), vec in zip(pairs, vecs):
             conn.execute(
                 "UPDATE sessions SET summary_embedding = ? WHERE summary_id = ?",
@@ -286,9 +309,12 @@ def _rows_are_useful(rows: list) -> bool:
 # so we can pass it to the semantic ranker (Fix 3).
 # ─────────────────────────────────────────────────────────────
 
+
 def _extract_where_fragment(sql: str) -> str | None:
     """Return everything after WHERE up to ORDER BY / LIMIT / end, or None."""
-    m = re.search(r'\bWHERE\b(.+?)(?:\bORDER\s+BY\b|\bLIMIT\b|$)', sql, re.IGNORECASE | re.DOTALL)
+    m = re.search(
+        r"\bWHERE\b(.+?)(?:\bORDER\s+BY\b|\bLIMIT\b|$)", sql, re.IGNORECASE | re.DOTALL
+    )
     if m:
         return m.group(1).strip()
     return None
@@ -298,10 +324,11 @@ def _extract_where_fragment(sql: str) -> str | None:
 # Public entry points
 # ─────────────────────────────────────────────────────────────
 
+
 def search_sessions(question: str) -> str:
     """Search session summaries. Best for: broad time windows, daily/weekly
     overviews, project topics, what-did-I-work-on questions."""
-    now_ts  = int(time.time())
+    now_ts = int(time.time())
     now_str = time.strftime("%A %B %d, %Y at %H:%M (local time)")
     user_content = f"Current timestamp: {now_ts} ({now_str})\n\nQuestion: {question}"
 
@@ -356,7 +383,7 @@ def search_sessions(question: str) -> str:
 def search_events(question: str) -> str:
     """Search individual events. Best for: specific messages, OCR text,
     exact URLs, clipboard content, app switches, fine-grained timestamps."""
-    now_ts  = int(time.time())
+    now_ts = int(time.time())
     now_str = time.strftime("%A %B %d, %Y at %H:%M (local time)")
     user_content = f"Current timestamp: {now_ts} ({now_str})\n\nQuestion: {question}"
 

@@ -10,7 +10,7 @@ import psutil
 from core.model_residency import keep_alive_for
 
 OLLAMA_URL = "http://localhost:11434/api/chat"
-EMBED_URL  = "http://localhost:11434/api/embed"
+EMBED_URL = "http://localhost:11434/api/embed"
 EMBED_MODEL = "nomic-embed-text"
 
 # --- Throttle configuration (relative to per-device baseline) ---
@@ -20,24 +20,34 @@ EMBED_MODEL = "nomic-embed-text"
 # "Pressured" = CPU has risen _PAUSE_HEADROOM points above the idle baseline.
 # "Recovered" = CPU has fallen back to within _RESUME_HEADROOM of the baseline.
 # Hard ceilings prevent the thresholds from being set too high on a busy device.
-_BASELINE_SAMPLES   = 4      # number of 1-second samples used to measure idle CPU
-_PAUSE_HEADROOM     = 30     # CPU points above baseline that trigger a pause
-_RESUME_HEADROOM    = 12     # CPU points above baseline considered "recovered"
-_CPU_PAUSE_CEIL     = 92.0   # hard ceiling: never pause above this regardless of baseline
-_CPU_RESUME_CEIL    = 80.0   # hard ceiling: resume threshold cap
-_CHECK_INTERVAL_S   = 1.0    # seconds between CPU re-checks while paused
-_BG_INTER_JOB_SLEEP = 2.0    # seconds to breathe between consecutive BACKGROUND jobs
-_MAX_WAIT_SECS      = 180    # escape hatch: force-run after waiting this long regardless
+_BASELINE_SAMPLES = 4  # number of 1-second samples used to measure idle CPU
+_PAUSE_HEADROOM = 30  # CPU points above baseline that trigger a pause
+_RESUME_HEADROOM = 12  # CPU points above baseline considered "recovered"
+_CPU_PAUSE_CEIL = 92.0  # hard ceiling: never pause above this regardless of baseline
+_CPU_RESUME_CEIL = 80.0  # hard ceiling: resume threshold cap
+_CHECK_INTERVAL_S = 1.0  # seconds between CPU re-checks while paused
+_BG_INTER_JOB_SLEEP = 2.0  # seconds to breathe between consecutive BACKGROUND jobs
+_MAX_WAIT_SECS = 180  # escape hatch: force-run after waiting this long regardless
 
 
 class Priority:
-    INTERACTIVE = 0 # chat agent - user is waiting for a response
-    FOREGROUND = 10 # classifiers - image/text processing
-    BACKGROUND = 20 # summarization/distillation - background tasks
+    INTERACTIVE = 0  # chat agent - user is waiting for a response
+    FOREGROUND = 10  # classifiers - image/text processing
+    BACKGROUND = 20  # summarization/distillation - background tasks
 
 
 class Job:
-    __slots__ = ("url", "payload", "timeout", "event", "result", "error", "enqueued_at", "stream", "chunks")
+    __slots__ = (
+        "url",
+        "payload",
+        "timeout",
+        "event",
+        "result",
+        "error",
+        "enqueued_at",
+        "stream",
+        "chunks",
+    )
 
     def __init__(self, url: str, payload: dict, timeout: float, stream: bool = False):
         self.url = url
@@ -68,11 +78,13 @@ class LLMGateway:
         self._seq = count()
 
         baseline = self._measure_cpu_baseline()
-        self._cpu_pause_pct  = min(baseline + _PAUSE_HEADROOM,  _CPU_PAUSE_CEIL)
+        self._cpu_pause_pct = min(baseline + _PAUSE_HEADROOM, _CPU_PAUSE_CEIL)
         self._cpu_resume_pct = min(baseline + _RESUME_HEADROOM, _CPU_RESUME_CEIL)
-        print(f"[gateway] CPU baseline={baseline:.1f}%  "
-              f"pause>{self._cpu_pause_pct:.1f}%  "
-              f"resume<{self._cpu_resume_pct:.1f}%")
+        print(
+            f"[gateway] CPU baseline={baseline:.1f}%  "
+            f"pause>{self._cpu_pause_pct:.1f}%  "
+            f"resume<{self._cpu_resume_pct:.1f}%"
+        )
 
         self.worker = threading.Thread(target=self._worker_loop, daemon=True)
         self.worker.start()
@@ -106,7 +118,9 @@ class LLMGateway:
 
         # Deadline reached — log and run anyway to drain the backlog
         waited = time.monotonic() - job.enqueued_at
-        print(f"[gateway] escape hatch triggered after {waited:.0f}s wait — running despite pressure")
+        print(
+            f"[gateway] escape hatch triggered after {waited:.0f}s wait — running despite pressure"
+        )
 
     def _run_stream_job(self, job: "Job") -> None:
         try:
@@ -148,7 +162,8 @@ class LLMGateway:
                     req = urllib.request.Request(
                         job.url,
                         data=json.dumps(job.payload).encode(),
-                        headers={"Content-Type": "application/json"})
+                        headers={"Content-Type": "application/json"},
+                    )
 
                     with urllib.request.urlopen(req, timeout=job.timeout) as resp:
                         job.result = json.loads(resp.read())
@@ -164,7 +179,19 @@ class LLMGateway:
             if priority >= Priority.BACKGROUND:
                 time.sleep(_BG_INTER_JOB_SLEEP)
 
-    def chat(self, messages, model, *, priority=Priority.FOREGROUND, tools=None, format=None, options=None, think=None, timeout=180, keep_alive=None) -> dict | None:
+    def chat(
+        self,
+        messages,
+        model,
+        *,
+        priority=Priority.FOREGROUND,
+        tools=None,
+        format=None,
+        options=None,
+        think=None,
+        timeout=180,
+        keep_alive=None,
+    ) -> dict | None:
         payload = {
             "model": model,
             "messages": messages,
@@ -188,7 +215,19 @@ class LLMGateway:
             raise job.error
         return job.result
 
-    def chat_stream(self, messages, model, *, priority=Priority.FOREGROUND, tools=None, format=None, options=None, think=None, timeout=180, keep_alive=None):
+    def chat_stream(
+        self,
+        messages,
+        model,
+        *,
+        priority=Priority.FOREGROUND,
+        tools=None,
+        format=None,
+        options=None,
+        think=None,
+        timeout=180,
+        keep_alive=None,
+    ):
         """Yield Ollama NDJSON stream chunks for one chat call (thinking + content deltas)."""
         payload = {
             "model": model,
@@ -217,13 +256,23 @@ class LLMGateway:
         if job.error:
             raise job.error
 
-    def embed(self, text, *, embed_model, priority=Priority.FOREGROUND, timeout=60, keep_alive=None):
+    def embed(
+        self,
+        text,
+        *,
+        embed_model,
+        priority=Priority.FOREGROUND,
+        timeout=60,
+        keep_alive=None,
+    ):
         """Embed a string (or list of strings) through the same serialized queue.
         Returns a single vector for a string input, or a list of vectors for a list."""
         payload = {
             "model": embed_model,
             "input": text,
-            "keep_alive": keep_alive_for(embed_model) if keep_alive is None else keep_alive,
+            "keep_alive": keep_alive_for(embed_model)
+            if keep_alive is None
+            else keep_alive,
         }
         job = Job(EMBED_URL, payload, timeout)
         self.queue.put((priority, next(self._seq), job))
@@ -235,5 +284,6 @@ class LLMGateway:
         if isinstance(text, str):
             return embeddings[0] if embeddings else []
         return embeddings
+
 
 gateway = LLMGateway()

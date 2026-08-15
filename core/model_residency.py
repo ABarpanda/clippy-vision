@@ -126,7 +126,9 @@ def _ollama_post(path: str, body: dict, timeout: float = 90) -> None:
         resp.read()
 
 
-def _warm(model: str, keep_alive: str | int = KEEP_ALIVE_PINNED, timeout: float = 90) -> None:
+def _warm(
+    model: str, keep_alive: str | int = KEEP_ALIVE_PINNED, timeout: float = 90
+) -> None:
     print(f"[residency] warm {model} (keep_alive={keep_alive!r})")
     if model == EMBED_MODEL:
         _ollama_post(
@@ -138,7 +140,12 @@ def _warm(model: str, keep_alive: str | int = KEEP_ALIVE_PINNED, timeout: float 
         # Non-empty prompt: empty prompt hangs on some Ollama builds
         _ollama_post(
             "/api/generate",
-            {"model": model, "prompt": "ping", "stream": False, "keep_alive": keep_alive},
+            {
+                "model": model,
+                "prompt": "ping",
+                "stream": False,
+                "keep_alive": keep_alive,
+            },
             timeout=timeout,
         )
 
@@ -175,8 +182,10 @@ def _pressure_loop() -> None:
             free = _available()
             if free >= _FREE_FLOOR:
                 continue
-            print(f"[residency] pressure free~{free / _GB:.1f}GB < floor "
-                  f"{_FREE_FLOOR / _GB:.1f}GB - demoting vision to on_demand")
+            print(
+                f"[residency] pressure free~{free / _GB:.1f}GB < floor "
+                f"{_FREE_FLOOR / _GB:.1f}GB - demoting vision to on_demand"
+            )
             _unload_vision()
             _persist("on_demand", reason="ram_pressure")
             return
@@ -187,7 +196,9 @@ def _start_monitor() -> None:
     _stop_monitor()
     _monitor_stop.clear()
     _monitor_thread = threading.Thread(
-        target=_pressure_loop, daemon=True, name="residency-pressure",
+        target=_pressure_loop,
+        daemon=True,
+        name="residency-pressure",
     )
     _monitor_thread.start()
 
@@ -259,25 +270,38 @@ def on_capture_start() -> dict:
             except Exception as e:
                 print(f"[residency] vision pin failed - on_demand: {e}")
                 _stop_monitor()
-                return _persist("on_demand", reason="vl_warm_failed", error=str(e),
-                                available_before_mb=_mb(free))
+                return _persist(
+                    "on_demand",
+                    reason="vl_warm_failed",
+                    error=str(e),
+                    available_before_mb=_mb(free),
+                )
 
             after = _available()
             if after < _FREE_FLOOR:
                 print(f"[residency] after VL pin free~{after / _GB:.1f}GB - on_demand")
                 _unload_vision()
                 _stop_monitor()
-                return _persist("on_demand", reason="post_pin_below_floor",
-                                available_before_mb=_mb(free), available_after_mb=_mb(after))
+                return _persist(
+                    "on_demand",
+                    reason="post_pin_below_floor",
+                    available_before_mb=_mb(free),
+                    available_after_mb=_mb(after),
+                )
 
-            result = _persist("pinned", reason="capture_pin",
-                              available_before_mb=_mb(free), available_after_mb=_mb(after))
+            result = _persist(
+                "pinned",
+                reason="capture_pin",
+                available_before_mb=_mb(free),
+                available_after_mb=_mb(after),
+            )
             _start_monitor()
             return result
 
         _stop_monitor()
-        return _persist("on_demand", reason="insufficient_ram_to_pin",
-                        available_before_mb=_mb(free))
+        return _persist(
+            "on_demand", reason="insufficient_ram_to_pin", available_before_mb=_mb(free)
+        )
 
 
 def on_capture_stop() -> dict:
