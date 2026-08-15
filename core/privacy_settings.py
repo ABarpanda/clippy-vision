@@ -3,6 +3,7 @@
 When a target is enabled, matching windows are blacked out in captures
 (same path as always-redacting the Clippy Vision window).
 """
+
 from __future__ import annotations
 
 import json
@@ -89,11 +90,13 @@ _TARGET_IDS = {t["id"] for t in PRIVACY_TARGETS}
 
 # Always redact Clippy Vision itself (never user-toggleable).
 # electron.exe = npm start; packaged builds use the product exe name.
-ALWAYS_REDACT_PROCESSES = frozenset({
-    "electron.exe",
-    "clippy vision.exe",
-    "clippy-vision.exe",
-})
+ALWAYS_REDACT_PROCESSES = frozenset(
+    {
+        "electron.exe",
+        "clippy vision.exe",
+        "clippy-vision.exe",
+    }
+)
 ALWAYS_REDACT_TITLE_PATTERNS = ("clippy vision",)
 
 

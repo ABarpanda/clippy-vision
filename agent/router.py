@@ -20,9 +20,13 @@ class RouterDecision:
     # Label → softmax score for secondaries (used by should_prefetch thresholds)
     secondary_scores: dict[str, float] = field(default_factory=dict)
 
+
 CATEGORIES = [
-    "time_anchored", "topic_search", "specific_recall",
-    "memory_query", "casual",
+    "time_anchored",
+    "topic_search",
+    "specific_recall",
+    "memory_query",
+    "casual",
 ]
 ID2LABEL = {i: c for i, c in enumerate(CATEGORIES)}
 
@@ -33,10 +37,10 @@ SECONDARY_THRESHOLD = 0.20
 CLASSIFIER_PATH = Path(__file__).parent.parent / "models" / "router_classifier" / "best"
 
 _PREFETCH_THRESHOLDS: dict[str, float] = {
-    "memory_query":    0.55,
-    "time_anchored":   0.55,
+    "memory_query": 0.55,
+    "time_anchored": 0.55,
     "specific_recall": 0.30,
-    "topic_search":    0.25,
+    "topic_search": 0.25,
     # Categories not listed here are not prefetched
 }
 
@@ -44,82 +48,96 @@ _classification_model = None
 _classification_tokenizer = None
 _classifier_lock = threading.Lock()
 
+
 class MiniLMClassifier(torch.nn.Module):
-  def __init__(self, base_model:str, num_labels: int):
-    super().__init__()
-    from transformers import AutoModel
+    def __init__(self, base_model: str, num_labels: int):
+        super().__init__()
+        from transformers import AutoModel
 
-    self.encoder = AutoModel.from_pretrained(base_model)
-    h = self.encoder.config.hidden_size
-    self.dropout = torch.nn.Dropout(0.1)
-    self.classifier = torch.nn.Linear(h, num_labels)
+        self.encoder = AutoModel.from_pretrained(base_model)
+        h = self.encoder.config.hidden_size
+        self.dropout = torch.nn.Dropout(0.1)
+        self.classifier = torch.nn.Linear(h, num_labels)
 
-  def mean_pool(self, token, mask):
-    m = mask.unsqueeze(-1).expand(token.size()).float()
-    return torch.sum(token * m, 1) / torch.clamp(m.sum(1), min=1e-9)
+    def mean_pool(self, token, mask):
+        m = mask.unsqueeze(-1).expand(token.size()).float()
+        return torch.sum(token * m, 1) / torch.clamp(m.sum(1), min=1e-9)
 
-  def forward(self, input_ids, attention_mask):
-    out = self.encoder(input_ids=input_ids, attention_mask=attention_mask)
-    return self.classifier(self.dropout(self.mean_pool(out.last_hidden_state, attention_mask)))
+    def forward(self, input_ids, attention_mask):
+        out = self.encoder(input_ids=input_ids, attention_mask=attention_mask)
+        return self.classifier(
+            self.dropout(self.mean_pool(out.last_hidden_state, attention_mask))
+        )
 
 
 def load_classifier():
-  global _classification_model, _classification_tokenizer
-  with _classifier_lock:
-    if _classification_model is not None:
-      return _classification_model, _classification_tokenizer
+    global _classification_model, _classification_tokenizer
+    with _classifier_lock:
+        if _classification_model is not None:
+            return _classification_model, _classification_tokenizer
 
-    if not CLASSIFIER_PATH.exists():
-      print(f"[router] Classifier model not found at {CLASSIFIER_PATH}")
-      return None, None
+        if not CLASSIFIER_PATH.exists():
+            print(f"[router] Classifier model not found at {CLASSIFIER_PATH}")
+            return None, None
 
-    try:
-      from transformers import AutoTokenizer
-      _classification_tokenizer = AutoTokenizer.from_pretrained(CLASSIFIER_PATH)
-      _classification_model = MiniLMClassifier(MINILM_MODEL, num_labels=len(CATEGORIES))
-      _classification_model.load_state_dict(torch.load(CLASSIFIER_PATH / "model.pt", map_location="cpu"))
-      _classification_model.eval()
-      print(f"[router] Classifier loaded successfully from {CLASSIFIER_PATH}")
-      return _classification_model, _classification_tokenizer
-    except Exception as e:
-      print(f"[router] Failed to load classifier: {e}")
-      return None, None
+        try:
+            from transformers import AutoTokenizer
 
-def classify_query(query: str) -> tuple[RouterDecision|None, float|None]:
-  model, tokenizer = load_classifier()
+            _classification_tokenizer = AutoTokenizer.from_pretrained(CLASSIFIER_PATH)
+            _classification_model = MiniLMClassifier(
+                MINILM_MODEL, num_labels=len(CATEGORIES)
+            )
+            _classification_model.load_state_dict(
+                torch.load(CLASSIFIER_PATH / "model.pt", map_location="cpu")
+            )
+            _classification_model.eval()
+            print(f"[router] Classifier loaded successfully from {CLASSIFIER_PATH}")
+            return _classification_model, _classification_tokenizer
+        except Exception as e:
+            print(f"[router] Failed to load classifier: {e}")
+            return None, None
 
-  if model is None:
-    return None, 0.0
 
-  enc = tokenizer(query,
-  return_tensors="pt",
-  padding="max_length",
-  truncation=True,
-  max_length=128)
+def classify_query(query: str) -> tuple[RouterDecision | None, float | None]:
+    model, tokenizer = load_classifier()
 
-  with torch.no_grad():
-    logits = model(enc["input_ids"], enc["attention_mask"]).squeeze(0)
+    if model is None:
+        return None, 0.0
 
-  probs = torch.softmax(logits, dim=0).tolist()
-  primary_idx = int(torch.tensor(probs).argmax())
+    enc = tokenizer(
+        query,
+        return_tensors="pt",
+        padding="max_length",
+        truncation=True,
+        max_length=128,
+    )
 
-  primary_label = ID2LABEL[primary_idx]
-  confidence = probs[primary_idx]
+    with torch.no_grad():
+        logits = model(enc["input_ids"], enc["attention_mask"]).squeeze(0)
 
-  secondary_scores = {
-      ID2LABEL[i]: p for i, p in enumerate(probs)
-      if p >= SECONDARY_THRESHOLD and i != primary_idx
-  }
-  secondary_labels = list(secondary_scores.keys())
+    probs = torch.softmax(logits, dim=0).tolist()
+    primary_idx = int(torch.tensor(probs).argmax())
 
-  return RouterDecision(
-    primary=primary_label,
-    secondary=secondary_labels,
-    temporal_hint=None,
-    needs_memory_fetch=
-    (primary_label in ("memory_query", "topic_search") or "memory_query" in secondary_labels),
-    secondary_scores=secondary_scores,
-  ), confidence
+    primary_label = ID2LABEL[primary_idx]
+    confidence = probs[primary_idx]
+
+    secondary_scores = {
+        ID2LABEL[i]: p
+        for i, p in enumerate(probs)
+        if p >= SECONDARY_THRESHOLD and i != primary_idx
+    }
+    secondary_labels = list(secondary_scores.keys())
+
+    return RouterDecision(
+        primary=primary_label,
+        secondary=secondary_labels,
+        temporal_hint=None,
+        needs_memory_fetch=(
+            primary_label in ("memory_query", "topic_search")
+            or "memory_query" in secondary_labels
+        ),
+        secondary_scores=secondary_scores,
+    ), confidence
 
 
 def should_prefetch(decision: RouterDecision, confidence: float) -> bool:

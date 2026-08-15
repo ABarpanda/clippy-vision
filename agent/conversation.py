@@ -7,30 +7,31 @@ import uuid
 from core.llm_gateway import Priority, gateway
 from core.storage import conn
 
-EMBED_MODEL        = "nomic-embed-text"
-SUMMARY_MIN_TURNS  = 5    # build first summary after this many turns
-SUMMARY_EVERY_N    = 5    # build a new summary every N turns thereafter
-RECENT_TURNS_LIMIT = 8    # raw turns always injected (4 full exchanges)
-RECENT_SUMMARIES   = 2    # summaries always injected (most recent first)
-DEEP_SUMMARIES     = 2    # additional summaries via semantic retrieval
-SUMMARY_MIN_SIM    = 0.35 # floor for deep summary retrieval
+EMBED_MODEL = "nomic-embed-text"
+SUMMARY_MIN_TURNS = 5  # build first summary after this many turns
+SUMMARY_EVERY_N = 5  # build a new summary every N turns thereafter
+RECENT_TURNS_LIMIT = 8  # raw turns always injected (4 full exchanges)
+RECENT_SUMMARIES = 2  # summaries always injected (most recent first)
+DEEP_SUMMARIES = 2  # additional summaries via semantic retrieval
+SUMMARY_MIN_SIM = 0.35  # floor for deep summary retrieval
 
 # Conversation search ranking
 SEARCH_HALF_LIFE_DAYS = 14.0  # recency halves every 2 weeks
-SEARCH_SIM_WEIGHT     = 0.72  # semantic similarity share of final score
+SEARCH_SIM_WEIGHT = 0.72  # semantic similarity share of final score
 SEARCH_RECENCY_WEIGHT = 0.28  # recency share — recent chats rise when sims are close
-SEARCH_MIN_SIM        = 0.22  # drop chats below this max turn similarity
-SEARCH_DEFAULT_LIMIT  = 20
+SEARCH_MIN_SIM = 0.22  # drop chats below this max turn similarity
+SEARCH_DEFAULT_LIMIT = 20
 
 
 # ─────────────────────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────────────────────
 
+
 def _cosine_sim(a: list, b: list) -> float:
     dot = sum(x * y for x, y in zip(a, b))
-    na  = math.sqrt(sum(x * x for x in a))
-    nb  = math.sqrt(sum(y * y for y in b))
+    na = math.sqrt(sum(x * x for x in a))
+    nb = math.sqrt(sum(y * y for y in b))
     return dot / (na * nb) if na and nb else 0.0
 
 
@@ -40,7 +41,7 @@ def _embed_and_update(chat_id: str, text: str) -> None:
         vec = gateway.embed(text, embed_model=EMBED_MODEL, priority=Priority.BACKGROUND)
         conn.execute(
             "UPDATE conversations SET vector_embedding = ? WHERE chat_id = ?",
-            (json.dumps(vec), chat_id)
+            (json.dumps(vec), chat_id),
         )
         conn.commit()
     except Exception:
@@ -51,6 +52,7 @@ def _embed_and_update(chat_id: str, text: str) -> None:
 # Write
 # ─────────────────────────────────────────────────────────────
 
+
 def save_chat(conversation_id: str, role: str, content: str) -> str:
     """Persist a turn and fire a background embed."""
     chat_id = str(uuid.uuid4())
@@ -59,7 +61,7 @@ def save_chat(conversation_id: str, role: str, content: str) -> str:
             """INSERT INTO conversations
                (chat_id, conversation_id, timestamp, role, content)
                VALUES (?, ?, ?, ?, ?)""",
-            (chat_id, conversation_id, time.time(), role, content)
+            (chat_id, conversation_id, time.time(), role, content),
         )
         conn.commit()
     except Exception as e:
@@ -77,14 +79,20 @@ def save_chat(conversation_id: str, role: str, content: str) -> str:
 # Read — Tier 1 (always injected, fixed cost)
 # ─────────────────────────────────────────────────────────────
 
-def get_recent_chats(conversation_id: str, limit: int = RECENT_TURNS_LIMIT) -> list[dict]:
+
+def get_recent_chats(
+    conversation_id: str, limit: int = RECENT_TURNS_LIMIT
+) -> list[dict]:
     """Last N raw turns, oldest-first, excluding the most recent user message
     (which is already passed explicitly as the final user turn in the messages list)."""
     rows = conn.execute(
         """SELECT role, content FROM conversations
            WHERE conversation_id = ? AND is_summary_chat = 0
            ORDER BY timestamp DESC LIMIT ?""",
-        (conversation_id, limit + 1)  # fetch one extra to drop the current user message
+        (
+            conversation_id,
+            limit + 1,
+        ),  # fetch one extra to drop the current user message
     ).fetchall()
     # rows[0] is the most recent — if it's the user message just saved, drop it
     if rows and rows[0][0] == "user":
@@ -208,14 +216,19 @@ def search_conversations(query: str, limit: int = 20) -> list[dict]:
         age_days = max(0.0, (now - (info.get("last_timestamp") or now)) / 86400.0)
         recency = math.exp(-math.log(2) * age_days / SEARCH_HALF_LIFE_DAYS)
         score = SEARCH_SIM_WEIGHT * sim + SEARCH_RECENCY_WEIGHT * recency
-        scored.append((score, {
-            "conversation_id": cid,
-            "last_timestamp": info["last_timestamp"],
-            "title": info["title"],
-            "score": round(score, 4),
-            "similarity": round(sim, 4),
-            "recency": round(recency, 4),
-        }))
+        scored.append(
+            (
+                score,
+                {
+                    "conversation_id": cid,
+                    "last_timestamp": info["last_timestamp"],
+                    "title": info["title"],
+                    "score": round(score, 4),
+                    "similarity": round(sim, 4),
+                    "recency": round(recency, 4),
+                },
+            )
+        )
 
     scored.sort(key=lambda x: x[0], reverse=True)
     return [item for _, item in scored[:limit]]
@@ -253,13 +266,15 @@ def delete_conversation(conversation_id: str) -> dict:
     }
 
 
-def get_recent_summaries(conversation_id: str, limit: int = RECENT_SUMMARIES) -> list[str]:
+def get_recent_summaries(
+    conversation_id: str, limit: int = RECENT_SUMMARIES
+) -> list[str]:
     """Last N rolling summaries (most recent first) — covers the window just before raw turns."""
     rows = conn.execute(
         """SELECT content FROM conversations
            WHERE conversation_id = ? AND is_summary_chat = 1
            ORDER BY timestamp DESC LIMIT ?""",
-        (conversation_id, limit)
+        (conversation_id, limit),
     ).fetchall()
     # Reverse so they read chronologically in the prompt
     return [r[0] for r in reversed(rows)]
@@ -268,6 +283,7 @@ def get_recent_summaries(conversation_id: str, limit: int = RECENT_SUMMARIES) ->
 # ─────────────────────────────────────────────────────────────
 # Read — Tier 2 (semantic retrieval, only when history is deep)
 # ─────────────────────────────────────────────────────────────
+
 
 def get_relevant_summaries(
     conversation_id: str,
@@ -282,7 +298,7 @@ def get_relevant_summaries(
            WHERE conversation_id = ? AND is_summary_chat = 1
              AND vector_embedding IS NOT NULL
            ORDER BY timestamp ASC""",
-        (conversation_id,)
+        (conversation_id,),
     ).fetchall()
 
     # Not enough summaries to go beyond the recent window — skip
@@ -323,7 +339,7 @@ def _build_summary_text(chats: list[tuple]) -> str:
     body = gateway.chat(
         messages=[
             {"role": "system", "content": SUMMARY_SYSTEM_PROMPT},
-            {"role": "user",   "content": transcript},
+            {"role": "user", "content": transcript},
         ],
         model="qwen3:8b",
         think=False,
@@ -340,7 +356,7 @@ def maybe_summarize(conversation_id: str) -> None:
     count = conn.execute(
         """SELECT COUNT(*) FROM conversations
            WHERE conversation_id = ? AND is_summary_chat = 0""",
-        (conversation_id,)
+        (conversation_id,),
     ).fetchone()[0]
 
     # Gate: only fire at exactly 5, 10, 15, ...
@@ -351,7 +367,7 @@ def maybe_summarize(conversation_id: str) -> None:
         """SELECT role, content FROM conversations
            WHERE conversation_id = ? AND is_summary_chat = 0
            ORDER BY timestamp ASC""",
-        (conversation_id,)
+        (conversation_id,),
     ).fetchall()
 
     summary_text = _build_summary_text(chats)
@@ -361,7 +377,7 @@ def maybe_summarize(conversation_id: str) -> None:
         """INSERT INTO conversations
            (chat_id, conversation_id, timestamp, role, content, is_summary_chat)
            VALUES (?, ?, ?, ?, ?, 1)""",
-        (chat_id, conversation_id, time.time(), "system", summary_text)
+        (chat_id, conversation_id, time.time(), "system", summary_text),
     )
     conn.commit()
 

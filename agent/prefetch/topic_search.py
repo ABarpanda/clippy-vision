@@ -16,13 +16,15 @@ _conn.execute("PRAGMA journal_mode=WAL")
 MAX_RESULTS = 5
 EMBED_MODEL = "nomic-embed-text"
 
-def cosine_similarity(a: list[float], b: list[float]) -> float:
-    dot = sum(x*y for x, y in zip(a, b))
 
-    norm_a = math.sqrt(sum(x*x for x in a))
-    norm_b = math.sqrt(sum(y*y for y in b))
+def cosine_similarity(a: list[float], b: list[float]) -> float:
+    dot = sum(x * y for x, y in zip(a, b))
+
+    norm_a = math.sqrt(sum(x * x for x in a))
+    norm_b = math.sqrt(sum(y * y for y in b))
 
     return dot / (norm_a * norm_b) if norm_a and norm_b else 0.0
+
 
 def date_filter(temporal_range) -> str:
     base__query = "summary is NOT NULL and summary != ''"
@@ -34,6 +36,7 @@ def date_filter(temporal_range) -> str:
         f"AND {base__query}"
     )
 
+
 def entity_boost(keywords: list[str], entities: list[str]) -> float:
     if not entities or not keywords:
         return 0.0
@@ -44,11 +47,14 @@ def entity_boost(keywords: list[str], entities: list[str]) -> float:
     hits = sum(1 for kw in keywords if any(kw in e for e in ents))
     return min(hits * 0.05, 0.15)
 
+
 def topic_search(query: str, q_vec: list | None, temporal_range=None) -> str:
 
     keywords = keywords_from_query(query)
     if q_vec is None:
-        q_vec = gateway.embed(query, priority=Priority.INTERACTIVE, embed_model=EMBED_MODEL)
+        q_vec = gateway.embed(
+            query, priority=Priority.INTERACTIVE, embed_model=EMBED_MODEL
+        )
 
     date_filter_query = date_filter(temporal_range)
     sql = f"""
@@ -62,22 +68,27 @@ def topic_search(query: str, q_vec: list | None, temporal_range=None) -> str:
     except Exception as e:
         return f"Error querying sessions: {e}"
 
-
     if not rows:
         return "No sessions found"
 
     results = []
     score = 0.0
 
-    for (summary_id, window_start, summary, active_task, entities, summary_embedding) in rows:
+    for (
+        summary_id,
+        window_start,
+        summary,
+        active_task,
+        entities,
+        summary_embedding,
+    ) in rows:
         if summary_embedding:
             score = cosine_similarity(q_vec, json.loads(summary_embedding))
 
         if entities:
-            score+= entity_boost(keywords, entities)
+            score += entity_boost(keywords, entities)
 
-        results.append((score,window_start, summary, active_task, entities))
-
+        results.append((score, window_start, summary, active_task, entities))
 
     results.sort(key=lambda x: x[0], reverse=True)
     top_results = results[:MAX_RESULTS]
@@ -93,7 +104,6 @@ def topic_search(query: str, q_vec: list | None, temporal_range=None) -> str:
             parts.append(f"entities: {entities}")
         response.append(" ".join(p for p in parts if p))
 
-
     shown_results = len(response)
     if total > shown_results:
         header = f"Showing {shown_results} of {total} results - for more specific or finer detail call search_events"
@@ -103,8 +113,10 @@ def topic_search(query: str, q_vec: list | None, temporal_range=None) -> str:
     result = header + "\n" + "\n".join(response)
     return result
 
+
 if __name__ == "__main__":
     import sys
+
     sys.path.insert(0, str(Path(__file__).parent.parent.parent))
     from agent.helpers.time_resolver import resolve_temporal_range
 

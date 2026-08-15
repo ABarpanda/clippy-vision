@@ -36,14 +36,16 @@ def test_vision_dedup():
     screenshots = [s for s in screenshots if "_processed" not in s.stem]
 
     if len(screenshots) == 0:
-        print("\nAll screenshots already processed. Collect fresh screenshots for benchmarking.")
+        print(
+            "\nAll screenshots already processed. Collect fresh screenshots for benchmarking."
+        )
         return
 
     total = len(screenshots)
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"Vision Deduplication Efficiency Test")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
     print(f"Testing {total} screenshots...\n")
 
     # Compute hashes
@@ -70,7 +72,7 @@ def test_vision_dedup():
 
     # Group by similarity
     for i, pa in enumerate(valid):
-        for pb in valid[i + 1:]:
+        for pb in valid[i + 1 :]:
             if (hashes[pa.stem] - hashes[pb.stem]) <= PHASH_THRESHOLD:
                 union(pa.stem, pb.stem)
 
@@ -91,9 +93,9 @@ def test_vision_dedup():
     print(f"  Unique visual groups:     {unique_groups}")
     print(f"  Duplicate screenshots:    {total - unique_groups}")
     print(f"  Largest group size:       {group_sizes[0] if group_sizes else 0}")
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"  ** Vision Reduction:      {reduction_pct:.1f}%")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
     print(f"Resume Bullet:")
     print(f'   "Reduced vision processing by {reduction_pct:.0f}% through perceptual')

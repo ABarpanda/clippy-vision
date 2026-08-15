@@ -18,6 +18,7 @@ def test_imports():
         import win32gui
         from PIL import Image
         from pynput import keyboard
+
         print("  ✓ All Python packages imported successfully")
         return True
     except ImportError as e:
@@ -25,11 +26,13 @@ def test_imports():
         print("  Run: pip install -r requirements.txt")
         return False
 
+
 def test_ollama_connection():
     """Test connection to Ollama"""
     print("\n[2/5] Testing Ollama connection...")
     try:
         from core.llm_gateway import gateway
+
         result = gateway.embed("test", embed_model="nomic-embed-text", timeout=30)
         if result:
             print("  ✓ Ollama connection successful")
@@ -41,16 +44,15 @@ def test_ollama_connection():
         print("  Make sure Ollama is running: ollama serve")
         return False
 
+
 def test_models():
     """Test if required models are available"""
     print("\n[3/5] Checking installed models...")
     try:
         import subprocess
+
         result = subprocess.run(
-            ["ollama", "list"],
-            capture_output=True,
-            text=True,
-            check=True
+            ["ollama", "list"], capture_output=True, text=True, check=True
         )
 
         models_output = result.stdout
@@ -74,14 +76,11 @@ def test_models():
         print(f"  ✗ Error checking models: {e}")
         return False
 
+
 def test_directories():
     """Test if required directories exist"""
     print("\n[4/5] Checking project directories...")
-    dirs = [
-        "core/data",
-        "core/data/screenshots",
-        "logs"
-    ]
+    dirs = ["core/data", "core/data/screenshots", "logs"]
 
     all_exist = True
     for dir_path in dirs:
@@ -95,6 +94,7 @@ def test_directories():
         print("  Run setup script to create missing directories")
     return all_exist
 
+
 def test_database():
     """Test database initialization"""
     print("\n[5/5] Testing database...")
@@ -102,12 +102,16 @@ def test_database():
         from core.storage import conn
 
         # Check if main tables exist
-        cursor = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-        )
+        cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
         tables = [row[0] for row in cursor.fetchall()]
 
-        required_tables = ["events", "sessions", "memory_clusters", "memory_facts", "conversations"]
+        required_tables = [
+            "events",
+            "sessions",
+            "memory_clusters",
+            "memory_facts",
+            "conversations",
+        ]
         missing_tables = [t for t in required_tables if t not in tables]
 
         if missing_tables:
@@ -124,6 +128,7 @@ def test_database():
     except Exception as e:
         print(f"  ✗ Database error: {e}")
         return False
+
 
 def main():
     print("=" * 50)
@@ -157,6 +162,7 @@ def main():
         print("\n✗ Some tests failed. Please fix the issues above.")
         print("  See QUICKSTART.md for troubleshooting help.")
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()

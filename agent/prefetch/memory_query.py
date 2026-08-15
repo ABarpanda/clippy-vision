@@ -13,21 +13,21 @@ DB_PATH = get_db_path()
 conn = sqlite3.connect(str(DB_PATH), check_same_thread=False, timeout=30.0)
 conn.execute("PRAGMA journal_mode=WAL")
 
-MEMORY_TOP_K     = 8
-MEMORY_MIN_SIM   = 0.55
+MEMORY_TOP_K = 8
+MEMORY_MIN_SIM = 0.55
 CLUSTER_GATE_SIM = 0.38
-EMBED_MODEL      = "nomic-embed-text"
+EMBED_MODEL = "nomic-embed-text"
+
 
 def _fetch_memory(q_vec: list) -> str:
     # Pass 1: cluster gate (compare query to cluster centeroids)
 
-    cluster_rows =  conn.execute("""
+    cluster_rows = conn.execute("""
     SELECT cluster_id, label, description, centroid FROM memory_clusters
     """).fetchall()
 
     if not cluster_rows:
         return "No semantic memory clusters found."
-
 
     surviving_clusters_ids = set()
 
@@ -45,13 +45,16 @@ def _fetch_memory(q_vec: list) -> str:
 
     # Pass 2: fact re-rank within surviving clusters
     placeholders = ",".join("?" * len(surviving_clusters_ids))
-    fact_rows = conn.execute(f"""
+    fact_rows = conn.execute(
+        f"""
     SELECT f.fact_id, f.text, f.vector_embedding, f.cluster_id, c.label, c.description
     FROM memory_facts f
     JOIN memory_clusters c ON f.cluster_id = c.cluster_id
     WHERE f.valid_to IS NULL
     AND f.cluster_id IN ({placeholders})
-    """, list(surviving_clusters_ids)).fetchall()
+    """,
+        list(surviving_clusters_ids),
+    ).fetchall()
 
     if not fact_rows:
         return ""
@@ -68,7 +71,6 @@ def _fetch_memory(q_vec: list) -> str:
 
     if not scored:
         return ""
-
 
     # Merge and format results
 
@@ -87,15 +89,15 @@ def _fetch_memory(q_vec: list) -> str:
         seen_clusters[cluster_id]["facts"].append((sim, text))
 
     clusters_ordered = sorted(
-        seen_clusters.values(), key=lambda x: x["max_sim"], reverse=True)
-
+        seen_clusters.values(), key=lambda x: x["max_sim"], reverse=True
+    )
 
     sections = []
     chars = 0
     for c in clusters_ordered:
         header = f"[{c['label']}] {c['description']}"
-        lines  = [f"  - {text}" for sim, text in c["facts"]]
-        block  = header + "\n" + "\n".join(lines)
+        lines = [f"  - {text}" for sim, text in c["facts"]]
+        block = header + "\n" + "\n".join(lines)
         sections.append(block)
         chars += len(block)
     return "\n\n".join(sections) if sections else ""
@@ -108,7 +110,9 @@ def memory_query(query: str = "", q_vec: list | None = None) -> str:
         if not query:
             return "memory_query: no query or vector provided."
         try:
-            q_vec = gateway.embed(query, embed_model=EMBED_MODEL, priority=Priority.INTERACTIVE)
+            q_vec = gateway.embed(
+                query, embed_model=EMBED_MODEL, priority=Priority.INTERACTIVE
+            )
         except Exception as e:
             return f"memory_query: embedding failed — {e}"
     result = _fetch_memory(q_vec)
@@ -122,6 +126,7 @@ def memory_query_from_vec(q_vec: list) -> str:
 
 if __name__ == "__main__":
     import sys
+
     sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
     while True:
@@ -131,5 +136,3 @@ if __name__ == "__main__":
         print()
         print(memory_query(query))
         print()
-
-

@@ -27,29 +27,62 @@ DEFAULT_LOOKBACK_DAYS = 7
 SESSION_SCORE_THRESHOLD = 0.35
 
 ARTIFACT_PATTERNS = [
-  ("clipboard", re.compile(r'\b(cop(y|ied)|clipboard|clipped)\b', re.I)),
-  ("paste",     re.compile(r'\b(past(e|ed)|pasting)\b', re.I)),
-  ("url",       re.compile(r'\b(link|url|website|article|book|page|site|read|reading|visit|browse|open)\b', re.I)),
-  ("screen",    re.compile(r'\b(saw|screen|viewing|looked at|displayed|showing|visible)\b', re.I)),
+    ("clipboard", re.compile(r"\b(cop(y|ied)|clipboard|clipped)\b", re.I)),
+    ("paste", re.compile(r"\b(past(e|ed)|pasting)\b", re.I)),
+    (
+        "url",
+        re.compile(
+            r"\b(link|url|website|article|book|page|site|read|reading|visit|browse|open)\b",
+            re.I,
+        ),
+    ),
+    (
+        "screen",
+        re.compile(
+            r"\b(saw|screen|viewing|looked at|displayed|showing|visible)\b", re.I
+        ),
+    ),
 ]
 
 ARTIFACT_ROUTES = {
-"url":       {"fields": ["active_url", "current_window_title", "summary"],
-                  "event_types": None, "app_filter": None},
-"screen":    {"fields": ["vision_ocr_text", "vision_activity", "summary"],
-                  "event_types": ["screenshot_analysis"], "app_filter": None},
-"paste":     {"fields": ["payload", "summary"],
-                  "event_types": ["paste"], "app_filter": None},
-"clipboard": {"fields": ["payload", "summary"],
-                  "event_types": ["clipboard_change"], "app_filter": None},
-"generic":   {"fields": ["summary", "vision_activity", "current_window_title", "vision_ocr_text", "active_url"],
-                  "event_types": None, "app_filter": None}
+    "url": {
+        "fields": ["active_url", "current_window_title", "summary"],
+        "event_types": None,
+        "app_filter": None,
+    },
+    "screen": {
+        "fields": ["vision_ocr_text", "vision_activity", "summary"],
+        "event_types": ["screenshot_analysis"],
+        "app_filter": None,
+    },
+    "paste": {
+        "fields": ["payload", "summary"],
+        "event_types": ["paste"],
+        "app_filter": None,
+    },
+    "clipboard": {
+        "fields": ["payload", "summary"],
+        "event_types": ["clipboard_change"],
+        "app_filter": None,
+    },
+    "generic": {
+        "fields": [
+            "summary",
+            "vision_activity",
+            "current_window_title",
+            "vision_ocr_text",
+            "active_url",
+        ],
+        "event_types": None,
+        "app_filter": None,
+    },
 }
 
 URL_RE = re.compile(
-    r'https?://\S+|www\.\S+|\b\w[\w-]*\.(com|org|io|net|edu|gov|co|ai|dev|in|uk|au|ca|de|fr|it|jp|kr|mx|nl|nz|ru|sa|se|ch|tw|hk|us)\b',
-    re.I
+    r"https?://\S+|www\.\S+|\b\w[\w-]*\.(com|org|io|net|edu|gov|co|ai|dev|in|uk|au|ca|de|fr|it|jp|kr|mx|nl|nz|ru|sa|se|ch|tw|hk|us)\b",
+    re.I,
 )
+
 
 def detect_artifact_type(query: str) -> str:
     q_lower = query.lower()
@@ -57,6 +90,7 @@ def detect_artifact_type(query: str) -> str:
         if pattern.search(q_lower):
             return artifact_type
     return "generic"
+
 
 def extract_urls_from_entities(entities_json: str) -> list[str]:
     if not entities_json:
@@ -69,8 +103,11 @@ def extract_urls_from_entities(entities_json: str) -> list[str]:
 
     return [e for e in entities if isinstance(e, str) and URL_RE.search(e)]
 
+
 # Track A: Session-level search for URLs
-def search_sessions_for_url(query:str,  query_vec, keywords: list[str], temporal_range=None, recency_hint=None) -> list | None:
+def search_sessions_for_url(
+    query: str, query_vec, keywords: list[str], temporal_range=None, recency_hint=None
+) -> list | None:
 
     if temporal_range:
         time_filter = (
@@ -112,7 +149,7 @@ def search_sessions_for_url(query:str,  query_vec, keywords: list[str], temporal
     ts_range = max(newest_ts - oldest_ts, 1)
 
     scores = []
-    for (window_start, summary, active_task, entities, summary_embedding) in candidates:
+    for window_start, summary, active_task, entities, summary_embedding in candidates:
         urls = extract_urls_from_entities(entities)
         recency_score = (window_start - oldest_ts) / ts_range
         score = 0.0
@@ -120,24 +157,32 @@ def search_sessions_for_url(query:str,  query_vec, keywords: list[str], temporal
             score += cosine_similarity(query_vec, json.loads(summary_embedding))
         else:
             # Fallback to keyword-based similarity
-            combined_keywords = f"{summary or ''} {entities or ''} {active_task or ''}".lower()
-            score += sum(1 for kw in keywords if kw in combined_keywords) / max(len(keywords), 1)
+            combined_keywords = (
+                f"{summary or ''} {entities or ''} {active_task or ''}".lower()
+            )
+            score += sum(1 for kw in keywords if kw in combined_keywords) / max(
+                len(keywords), 1
+            )
 
-        score+= recency_weight * recency_score
+        score += recency_weight * recency_score
         scores.append((score, window_start, summary, active_task, urls))
 
     if not scores:
         return None
     scores.sort(key=lambda x: x[0], reverse=True)
-    top_k = [score for score in scores[:MAX_RESULTS] if score[0] >= SESSION_SCORE_THRESHOLD]
+    top_k = [
+        score for score in scores[:MAX_RESULTS] if score[0] >= SESSION_SCORE_THRESHOLD
+    ]
     return top_k if top_k else None
+
 
 # Track B: Event-level search for URLs
 
+
 def _sanitize_for_fts(keyword: str) -> str:
     """Strip FTS5 special chars, wrap in quotes for safe exact-token matching."""
-    clean = re.sub(r'[^\w]', '', keyword)
-    return f'"{clean}"' if clean else ''
+    clean = re.sub(r"[^\w]", "", keyword)
+    return f'"{clean}"' if clean else ""
 
 
 def _extract_payload_text(payload: str) -> str | None:
@@ -156,14 +201,17 @@ def _extract_payload_text(payload: str) -> str | None:
             for v in obj.values():
                 if isinstance(v, str) and v.strip():
                     return v.strip()
-            return None          # all values were null / empty
+            return None  # all values were null / empty
         if isinstance(obj, str):
             return obj.strip() or None
     except (json.JSONDecodeError, TypeError):
         pass
     return payload.strip() or None
 
-def search_events_for_url(keywords: list[str], temporal_range=None, recency_hint=None) -> list | None:
+
+def search_events_for_url(
+    keywords: list[str], temporal_range=None, recency_hint=None
+) -> list | None:
     if temporal_range:
         time_filter = (
             f"timestamp >= {temporal_range.start_ts} "
@@ -205,16 +253,16 @@ def search_events_for_url(keywords: list[str], temporal_range=None, recency_hint
 
     # fts.rank is negative — more negative = more relevant
     timestamps = [r[0] for r in rows]
-    newest_ts  = max(timestamps)
-    oldest_ts  = min(timestamps)
-    ts_range   = max(newest_ts - oldest_ts, 1.0)
+    newest_ts = max(timestamps)
+    oldest_ts = min(timestamps)
+    ts_range = max(newest_ts - oldest_ts, 1.0)
     recency_weight = 0.4 if recency_hint == "soft" else 0.2
 
     scores = []
-    for (ts, url, window_title, summary, rank) in rows:
-        relevance = -rank                              # flip: now positive, higher -> more relevant
-        recency   = (ts - oldest_ts) / ts_range       # 0.0 oldest -> 1.0 newest
-        score     = relevance + recency_weight * recency
+    for ts, url, window_title, summary, rank in rows:
+        relevance = -rank  # flip: now positive, higher -> more relevant
+        recency = (ts - oldest_ts) / ts_range  # 0.0 oldest -> 1.0 newest
+        score = relevance + recency_weight * recency
         scores.append((score, ts, url, window_title, summary))
 
     if not scores:
@@ -222,6 +270,7 @@ def search_events_for_url(keywords: list[str], temporal_range=None, recency_hint
 
     scores.sort(key=lambda x: x[0], reverse=True)
     return scores[:MAX_RESULTS]
+
 
 def search_events_for_artifact(
     artifact_type: str,
@@ -300,13 +349,13 @@ def search_events_for_artifact(
         ts_range = max(newest_ts - oldest_ts, 1.0)
 
         scored = []
-        for (ts, payload, window_title, process_name, rank) in rows:
+        for ts, payload, window_title, process_name, rank in rows:
             text = _extract_payload_text(payload)
             if not text:
                 continue
             relevance = -rank
-            recency   = (ts - oldest_ts) / ts_range
-            score     = relevance + recency_weight * recency
+            recency = (ts - oldest_ts) / ts_range
+            score = relevance + recency_weight * recency
             scored.append((score, ts, text, window_title, process_name))
 
         scored.sort(key=lambda x: x[0], reverse=True)
@@ -360,10 +409,10 @@ def search_events_for_artifact(
         ts_range = max(newest_ts - oldest_ts, 1.0)
 
         scored = []
-        for (ts, ocr_text, vision_activity, window_title, rank) in rows:
+        for ts, ocr_text, vision_activity, window_title, rank in rows:
             relevance = -rank
-            recency   = (ts - oldest_ts) / ts_range
-            score     = relevance + recency_weight * recency
+            recency = (ts - oldest_ts) / ts_range
+            score = relevance + recency_weight * recency
             scored.append((score, ts, ocr_text, vision_activity, window_title))
 
         scored.sort(key=lambda x: x[0], reverse=True)
@@ -422,10 +471,10 @@ def search_events_for_artifact(
     ts_range = max(newest_ts - oldest_ts, 1.0)
 
     scored = []
-    for (ts, summary, vision_activity, window_title, active_url, rank) in rows:
+    for ts, summary, vision_activity, window_title, active_url, rank in rows:
         relevance = -rank
-        recency   = (ts - oldest_ts) / ts_range
-        score     = relevance + recency_weight * recency
+        recency = (ts - oldest_ts) / ts_range
+        score = relevance + recency_weight * recency
         scored.append((score, ts, summary, vision_activity, window_title, active_url))
 
     scored.sort(key=lambda x: x[0], reverse=True)
@@ -443,13 +492,17 @@ def _format_clipboard_results(artifact_type: str, results: list) -> str:
     for item in results:
         score, ts, payload, window_title, process_name = item
         ts_str = time.strftime("%Y-%m-%d %H:%M", time.localtime(ts))
-        block  = [f"time: {ts_str}"]
+        block = [f"time: {ts_str}"]
         if process_name:
             block.append(f"app: {process_name}")
         if window_title:
             block.append(f"window: {window_title}")
         if payload:
-            display = payload if len(payload) <= 300 else payload[:300] + f"… [{len(payload)} chars total]"
+            display = (
+                payload
+                if len(payload) <= 300
+                else payload[:300] + f"… [{len(payload)} chars total]"
+            )
             block.append(f"content: {display}")
         parts.append("\n".join(block))
     return "\n\n---\n".join(parts)
@@ -465,13 +518,17 @@ def _format_screen_results(results: list) -> str:
     for item in results:
         score, ts, ocr_text, vision_activity, window_title = item
         ts_str = time.strftime("%Y-%m-%d %H:%M", time.localtime(ts))
-        block  = [f"time: {ts_str}"]
+        block = [f"time: {ts_str}"]
         if window_title:
             block.append(f"window: {window_title}")
         if vision_activity:
             block.append(f"activity: {vision_activity}")
         if ocr_text:
-            display = ocr_text if len(ocr_text) <= 400 else ocr_text[:400] + f"… [{len(ocr_text)} chars total]"
+            display = (
+                ocr_text
+                if len(ocr_text) <= 400
+                else ocr_text[:400] + f"… [{len(ocr_text)} chars total]"
+            )
             block.append(f"ocr_text: {display}")
         parts.append("\n".join(block))
     return "\n\n---\n".join(parts)
@@ -479,14 +536,12 @@ def _format_screen_results(results: list) -> str:
 
 def _format_generic_results(results: list) -> str:
     if not results:
-        return (
-            f"specific_recall: no relevant events found in the last {DEFAULT_LOOKBACK_DAYS} days."
-        )
+        return f"specific_recall: no relevant events found in the last {DEFAULT_LOOKBACK_DAYS} days."
     parts = ["[activity events — last 7 days]"]
     for item in results:
         score, ts, summary, vision_activity, window_title, active_url = item
         ts_str = time.strftime("%Y-%m-%d %H:%M", time.localtime(ts))
-        block  = [f"time: {ts_str}"]
+        block = [f"time: {ts_str}"]
         if window_title:
             block.append(f"window: {window_title}")
         if active_url:
@@ -504,7 +559,7 @@ def _format_url_results(session_results, event_results) -> str:
     if session_results:
         parts.append("[URLs from activity history — up to 90 days]")
         for score, ws, summary, active_task, urls in session_results:
-            ts    = time.strftime("%Y-%m-%d %H:%M", time.localtime(ws))
+            ts = time.strftime("%Y-%m-%d %H:%M", time.localtime(ws))
             block = [f"time: {ts}"]
             if summary:
                 block.append(f"summary: {summary}")
@@ -516,7 +571,7 @@ def _format_url_results(session_results, event_results) -> str:
         parts.append("[URLs from recent events — last 7 days]")
         for score, ts, url, window_title, summary in event_results:
             ts_str = time.strftime("%Y-%m-%d %H:%M", time.localtime(ts))
-            block  = [f"time: {ts_str}"]
+            block = [f"time: {ts_str}"]
             if window_title:
                 block.append(f"window: {window_title}")
             block.append(f"url: {url}")
@@ -531,36 +586,48 @@ def _format_url_results(session_results, event_results) -> str:
         )
     return "\n\n---\n".join(parts)
 
+
 def specific_recall(query: str, temporal_range=None, q_vec: list | None = None) -> str:
     from concurrent.futures import ThreadPoolExecutor
 
     artifact_type = detect_artifact_type(query)
-    keywords      = keywords_from_query(query)
-    recency_hint  = detect_recency_hint(query)
+    keywords = keywords_from_query(query)
+    recency_hint = detect_recency_hint(query)
 
     if artifact_type == "url":
         with ThreadPoolExecutor(max_workers=2) as executor:
             session_f = executor.submit(
-                search_sessions_for_url, query, q_vec, keywords, temporal_range, recency_hint
+                search_sessions_for_url,
+                query,
+                q_vec,
+                keywords,
+                temporal_range,
+                recency_hint,
             )
             event_f = executor.submit(
                 search_events_for_url, keywords, temporal_range, recency_hint
             )
             session_results = session_f.result()
-            event_results   = event_f.result()
+            event_results = event_f.result()
 
         return _format_url_results(session_results, event_results)
 
     if artifact_type in ("clipboard", "paste"):
-        results = search_events_for_artifact(artifact_type, keywords, temporal_range, recency_hint)
+        results = search_events_for_artifact(
+            artifact_type, keywords, temporal_range, recency_hint
+        )
         return _format_clipboard_results(artifact_type, results)
 
     if artifact_type == "screen":
-        results = search_events_for_artifact("screen", keywords, temporal_range, recency_hint)
+        results = search_events_for_artifact(
+            "screen", keywords, temporal_range, recency_hint
+        )
         return _format_screen_results(results)
 
     # generic fallback
-    results = search_events_for_artifact("generic", keywords, temporal_range, recency_hint)
+    results = search_events_for_artifact(
+        "generic", keywords, temporal_range, recency_hint
+    )
     return _format_generic_results(results)
 
 
@@ -569,7 +636,7 @@ if __name__ == "__main__":
         query = input("Query: ").strip()
         if not query:
             break
-        tr  = resolve_temporal_range(query)
+        tr = resolve_temporal_range(query)
         art = detect_artifact_type(query)
         kws = keywords_from_query(query)
         rec = detect_recency_hint(query)

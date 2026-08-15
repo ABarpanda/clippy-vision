@@ -57,8 +57,11 @@ except ImportError:
     from platform_support import (
         window_key,
     )
+
+
 def get_capture_settings() -> dict:
     return {"capture_clipboard": True}
+
 
 try:
     from core.model_residency import on_capture_start, on_capture_stop
@@ -68,11 +71,6 @@ try:
     from core.capture_state import set_capture_status
 except ImportError:
     from capture_state import set_capture_status
-
-
-
-
-
 
 
 def _capture_shutdown() -> None:
@@ -89,7 +87,9 @@ def _capture_heartbeat() -> None:
 on_capture_start()
 set_capture_status(True, os.getpid())
 atexit.register(_capture_shutdown)
-threading.Thread(target=_capture_heartbeat, daemon=True, name="capture-heartbeat").start()
+threading.Thread(
+    target=_capture_heartbeat, daemon=True, name="capture-heartbeat"
+).start()
 purge_expired()
 # Startup is intentionally centralized here so the desktop process can spawn a
 # single capture worker and avoid duplicate listeners or duplicate daemons.
@@ -108,10 +108,12 @@ BURST_PAUSE_THRESHOLD_MS = 2000
 MIN_KEYS_FOR_BURST = 3
 WINDOW_POLL_INTERVAL_SECONDS = 2.0
 
+
 class TypingEvent(TypedDict):
     timestamp: float
     event_type: str
     key: str | None
+
 
 class TypingBurstMetrics(TypedDict):
     # Temporal metrics describe the rhythm of the burst rather than its text.
@@ -122,10 +124,8 @@ class TypingBurstMetrics(TypedDict):
     max_iki_ms: float
     avg_dwell_time_ms: float
 
-
     # The foreground window is attached to every burst for later retrieval.
     window_context: WindowMetadata
-
 
     # Volume and derived metrics are computed from key events; raw key content
     # is not persisted here beyond the event-level payloads already supported.
@@ -134,8 +134,6 @@ class TypingBurstMetrics(TypedDict):
     key_down_count: int
     backspace_count: int
     delete_count: int
-
-
 
     typing_speed_wpm: float
     typing_speed_cpm: float
@@ -147,9 +145,6 @@ class TypingBurstMetrics(TypedDict):
 class PasteEvent(TypedDict):
     timestamp: float
     window_context: WindowMetadata
-
-
-
 
 
 # Burst Detection
@@ -185,26 +180,30 @@ class BurstDetection:
             if modifier:
                 self._modifiers.add(modifier)
 
-
-
             is_paste = key_str == "\x16" or (
                 key_str.lower() == "v" and bool(self._modifiers & {"cmd", "ctrl"})
             )
             if is_paste:
                 self.flush_events()
-                self._on_paste_event(PasteEvent(timestamp=time.time(), window_context=self.window_metadata))
+                self._on_paste_event(
+                    PasteEvent(
+                        timestamp=time.time(), window_context=self.window_metadata
+                    )
+                )
                 return
-            self._events.append(TypingEvent(timestamp=time.time(), event_type="key_press", key=key_str))
+            self._events.append(
+                TypingEvent(timestamp=time.time(), event_type="key_press", key=key_str)
+            )
             self._reset_timer()
 
     def on_key_release(self, key):
         with self._lock:
             key_str = self._key_string(key)
-            self._events.append(TypingEvent(
-                timestamp=time.time(),
-                event_type="key_release",
-                key= key_str
-            ))
+            self._events.append(
+                TypingEvent(
+                    timestamp=time.time(), event_type="key_release", key=key_str
+                )
+            )
             self._reset_timer()
             modifier = self._modifier_name(key_str)
             if modifier:
@@ -213,7 +212,7 @@ class BurstDetection:
     def _reset_timer(self):
         if self._timer:
             self._timer.cancel()
-        self._timer = threading.Timer(BURST_PAUSE_THRESHOLD_MS/1000, self._flush)
+        self._timer = threading.Timer(BURST_PAUSE_THRESHOLD_MS / 1000, self._flush)
         self._timer.daemon = True
         self._timer.start()
 
@@ -234,7 +233,7 @@ class BurstDetection:
         events = self._events[:]
         self._events.clear()
 
-        press_count = sum(1 for e in events if e['event_type'] == 'key_press')
+        press_count = sum(1 for e in events if e["event_type"] == "key_press")
         if press_count < MIN_KEYS_FOR_BURST:
             return
 
@@ -243,22 +242,13 @@ class BurstDetection:
             self._on_burst_completed(metrics)
 
 
-
-
-
-
-
-
-
 def get_window_metadata() -> WindowMetadata | None:
     # Keep platform-specific foreground-window discovery behind one adapter.
     return read_window_metadata()
 
 
-
-
-
 _last_paste_time = 0.0
+
 
 def _safe_window_metadata(candidate: WindowMetadata | None = None) -> WindowMetadata:
     if candidate:
@@ -289,12 +279,12 @@ def on_paste_event(paste_event: PasteEvent):
         event_type="paste",
         window_context=window_context,
         previous_window_context=None,
-        payload= {"pasted_content": content},
+        payload={"pasted_content": content},
         summary=None,
         vector_embedding=None,
         interest_score=None,
         interest_reason=None,
-        interesting=None
+        interesting=None,
     )
     event["summary"] = generate_summary(event)
     store_event(event)
@@ -304,6 +294,7 @@ def on_paste_event(paste_event: PasteEvent):
 
 def get_clipboard_text() -> str | None:
     return read_clipboard_text()
+
 
 def clipboard_monitor():
     # Polling is intentionally conservative: only meaningful text changes are
@@ -340,7 +331,7 @@ def clipboard_monitor():
                 vector_embedding=None,
                 interest_score=None,
                 interest_reason=None,
-                interesting=None
+                interesting=None,
             )
             event["summary"] = generate_summary(event)
             store_event(event)
@@ -348,18 +339,15 @@ def clipboard_monitor():
             on_activity_event()
 
 
-
-
-
-
 # Burst metrics computation
 # -------------------------
 # These derived values support baseline/deviation scoring without sending the
 # raw event stream to another process.
-def compute_burst_metrics(events: list[TypingEvent], window_metadata: WindowMetadata) -> TypingBurstMetrics:
-    press_events = [event for event in events if event['event_type'] == 'key_press']
-    release_events = [event for event in events if event['event_type'] == 'key_release']
-
+def compute_burst_metrics(
+    events: list[TypingEvent], window_metadata: WindowMetadata
+) -> TypingBurstMetrics:
+    press_events = [event for event in events if event["event_type"] == "key_press"]
+    release_events = [event for event in events if event["event_type"] == "key_release"]
 
     if not press_events:
         return None
@@ -368,43 +356,49 @@ def compute_burst_metrics(events: list[TypingEvent], window_metadata: WindowMeta
     ikis = []
     last_release_time = None
 
-
     for e in events:
-        if e['event_type'] == 'key_release':
-            last_release_time = e['timestamp']
-        elif e['event_type'] == 'key_press' and last_release_time is not None:
-            iki = (e['timestamp'] - last_release_time) * 1000
-            if iki >=0:
+        if e["event_type"] == "key_release":
+            last_release_time = e["timestamp"]
+        elif e["event_type"] == "key_press" and last_release_time is not None:
+            iki = (e["timestamp"] - last_release_time) * 1000
+            if iki >= 0:
                 ikis.append(iki)
 
     press_times = {}
     dwells = []
     for e in events:
-        key = e['key']
-        if e['event_type'] == 'key_press':
-            press_times[key] = e['timestamp']
-        elif e['event_type'] == 'key_release' and key in press_times:
-            dwell = (e['timestamp'] - press_times.pop(key)) * 1000
+        key = e["key"]
+        if e["event_type"] == "key_press":
+            press_times[key] = e["timestamp"]
+        elif e["event_type"] == "key_release" and key in press_times:
+            dwell = (e["timestamp"] - press_times.pop(key)) * 1000
             dwells.append(dwell)
 
-
-
     # Volume metrics distinguish normal text entry from revision-heavy bursts.
-    backspace_count = sum(1 for e in events if e['event_type'] == 'key_release' and e['key'] == 'Key.backspace')
-    delete_count = sum(1 for e in events if e['event_type'] == 'key_release' and e['key'] == 'Key.delete')
+    backspace_count = sum(
+        1
+        for e in events
+        if e["event_type"] == "key_release" and e["key"] == "Key.backspace"
+    )
+    delete_count = sum(
+        1
+        for e in events
+        if e["event_type"] == "key_release" and e["key"] == "Key.delete"
+    )
 
-
-    char_count = sum(1 for e in press_events if len(e['key']) == 1 and e['key'].isprintable())
+    char_count = sum(
+        1 for e in press_events if len(e["key"]) == 1 and e["key"].isprintable()
+    )
     word_count = 0
     in_word = False
-    WORD_DELIMITERS = ('Key.space', 'Key.enter', 'Key.tab', ' ')
+    WORD_DELIMITERS = ("Key.space", "Key.enter", "Key.tab", " ")
     for e in events:
-        if e['event_type'] != 'key_press':
+        if e["event_type"] != "key_press":
             continue
-        key = e['key']
+        key = e["key"]
         is_delimiter = key in WORD_DELIMITERS
-        is_backspace  = key == 'Key.backspace'
-        is_word_char  = len(key) == 1 and key.isprintable() and not is_delimiter
+        is_backspace = key == "Key.backspace"
+        is_word_char = len(key) == 1 and key.isprintable() and not is_delimiter
         if is_word_char:
             in_word = True
         elif is_delimiter and in_word:
@@ -416,11 +410,14 @@ def compute_burst_metrics(events: list[TypingEvent], window_metadata: WindowMeta
     if in_word:
         word_count += 1
 
-
     # Speed is intentionally calculated from the burst duration, not wall-clock
     # time between unrelated window changes.
-    start_time_ms = press_events[0]['timestamp'] * 1000
-    end_time_ms = (release_events[-1]['timestamp'] if release_events else press_events[-1]['timestamp']) * 1000
+    start_time_ms = press_events[0]["timestamp"] * 1000
+    end_time_ms = (
+        release_events[-1]["timestamp"]
+        if release_events
+        else press_events[-1]["timestamp"]
+    ) * 1000
     total_duration_ms = end_time_ms - start_time_ms
 
     minutes = total_duration_ms / 60000
@@ -450,6 +447,7 @@ def compute_burst_metrics(events: list[TypingEvent], window_metadata: WindowMeta
         total_duration_ms=total_duration_ms,
     )
 
+
 def print_event(event: Event):
     ts = datetime.fromtimestamp(event["timestamp"]).strftime("%H:%M:%S")
     w = event["window_context"]
@@ -464,6 +462,7 @@ def print_event(event: Event):
     print(f"  id      : {event['event_id']}")
     print()
 
+
 def is_meaningful_typing(metrics: TypingBurstMetrics) -> bool:
     if metrics["word_count"] < 2:
         return False
@@ -471,6 +470,7 @@ def is_meaningful_typing(metrics: TypingBurstMetrics) -> bool:
         return False
     meaningful_ratio = metrics["character_count"] / metrics["key_down_count"]
     return meaningful_ratio >= 0.30
+
 
 def on_burst_completed(metrics: TypingBurstMetrics):
     window_context = _safe_window_metadata(metrics.get("window_context"))
@@ -495,7 +495,7 @@ def on_burst_completed(metrics: TypingBurstMetrics):
         vector_embedding=None,
         interest_score=None,
         interest_reason=None,
-        interesting=None
+        interesting=None,
     )
     event["summary"] = generate_summary(event)
     store_event(event)
@@ -515,7 +515,7 @@ def on_burst_completed(metrics: TypingBurstMetrics):
             vector_embedding=None,
             interest_score=None,
             interest_reason=None,
-            interesting=None
+            interesting=None,
         )
         event_2["summary"] = generate_summary(event_2)
         store_event(event_2)
@@ -523,16 +523,18 @@ def on_burst_completed(metrics: TypingBurstMetrics):
         on_activity_event()
 
 
-burst_detector = BurstDetection(on_burst_completed=on_burst_completed, on_paste_event=on_paste_event)
+burst_detector = BurstDetection(
+    on_burst_completed=on_burst_completed, on_paste_event=on_paste_event
+)
 
 # Keyboard and clipboard listeners are optional at runtime. A permission
 # failure should not prevent the foreground-window loop from reporting context.
 try:
-    listener = keyboard.Listener(on_press=burst_detector.on_key_press, on_release=burst_detector.on_key_release)
+    listener = keyboard.Listener(
+        on_press=burst_detector.on_key_press, on_release=burst_detector.on_key_release
+    )
     listener.start()
 except Exception as exc:
-
-
     listener = None
     print(f"[capture] keyboard listener unavailable: {exc}")
 
@@ -573,14 +575,16 @@ while True:
                     previous_window_context=last_window_context,
                     payload={
                         "dwell_ms": dwell_ms,
-                        "previous_url": last_window_context.get("active_url") if last_window_context else None,
-                        "current_url": metadata.get("active_url")
+                        "previous_url": last_window_context.get("active_url")
+                        if last_window_context
+                        else None,
+                        "current_url": metadata.get("active_url"),
                     },
                     summary=None,
                     vector_embedding=None,
                     interest_score=None,
                     interest_reason=None,
-                    interesting=None
+                    interesting=None,
                 )
                 event["summary"] = generate_summary(event)
                 store_event(event)

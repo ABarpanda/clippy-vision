@@ -3,7 +3,7 @@ import urllib.request
 
 from core.llm_gateway import Priority, gateway
 
-MODEL      = "qwen3:8b"
+MODEL = "qwen3:8b"
 
 # Identical every call — Ollama reuses KV cache for this prefix (5x speedup)
 SYSTEM_PROMPT = """You label events from a personal computer activity monitor.
@@ -26,13 +26,14 @@ VERDICT_SCHEMA = {
     "properties": {
         "verdict": {
             "type": "string",
-            "enum": ["interesting", "not_interesting", "needs_vision"]
+            "enum": ["interesting", "not_interesting", "needs_vision"],
         },
-        "score":  {"type": "integer", "minimum": 0, "maximum": 10},
-        "reason": {"type": "string"}
+        "score": {"type": "integer", "minimum": 0, "maximum": 10},
+        "reason": {"type": "string"},
     },
-    "required": ["verdict", "score", "reason"]
+    "required": ["verdict", "score", "reason"],
 }
+
 
 def classify_with_llm(summary: str, event_type: str, window_context) -> dict:
     if isinstance(window_context, dict):
@@ -41,17 +42,21 @@ def classify_with_llm(summary: str, event_type: str, window_context) -> dict:
         ctx_str = str(window_context)
 
     body = gateway.chat(
-    messages=[
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user",   "content": f"[{event_type}] {ctx_str}: {summary}"},
-    ],
-    model=MODEL, format=VERDICT_SCHEMA, think=False,
-    options={"temperature": 0}, priority=Priority.FOREGROUND)
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": f"[{event_type}] {ctx_str}: {summary}"},
+        ],
+        model=MODEL,
+        format=VERDICT_SCHEMA,
+        think=False,
+        options={"temperature": 0},
+        priority=Priority.FOREGROUND,
+    )
 
     content = body["message"]["content"]
     verdict = json.loads(content) if isinstance(content, str) else content
     return {
         "verdict": verdict.get("verdict") or "needs_vision",
-        "reason":  verdict.get("reason")  or "No reason provided",
-        "score":   verdict.get("score")   or 0,
+        "reason": verdict.get("reason") or "No reason provided",
+        "score": verdict.get("score") or 0,
     }

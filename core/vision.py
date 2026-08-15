@@ -47,6 +47,8 @@ try:
     from core.privacy_settings import is_clippy_window, should_redact_window
 except ImportError:
     from privacy_settings import is_clippy_window, should_redact_window
+
+
 def get_capture_settings() -> dict:
     return {
         "capture_screenshots": True,
@@ -56,6 +58,7 @@ def get_capture_settings() -> dict:
         "activity_debounce_seconds": 2.0,
         "background_interval_seconds": 60.0,
     }
+
 
 _lock = threading.Lock()
 _last_capture_ms = 0
@@ -123,7 +126,10 @@ def _redact_clippy_windows(img: Image.Image, monitor: dict) -> None:
             return
         process_name = metadata.get("process_name", "")
         title = metadata.get("current_window_title", "")
-        if not (is_clippy_window(process_name, title) or should_redact_window(process_name, title)):
+        if not (
+            is_clippy_window(process_name, title)
+            or should_redact_window(process_name, title)
+        ):
             return
 
         bounds = get_foreground_window_bounds()
@@ -153,7 +159,11 @@ def capture_screenshot(timestamp_ms: int) -> Path | None:
         # The setting keeps the default capture cost low for multi-monitor Macs.
         with mss.mss() as sct:
             settings = get_capture_settings()
-            monitor = sct.monitors[0] if settings["capture_all_monitors"] else (sct.monitors[1] if len(sct.monitors) > 1 else sct.monitors[0])
+            monitor = (
+                sct.monitors[0]
+                if settings["capture_all_monitors"]
+                else (sct.monitors[1] if len(sct.monitors) > 1 else sct.monitors[0])
+            )
             screenshot = sct.grab(monitor)
             img = Image.frombytes("RGB", screenshot.size, screenshot.rgb)
 
@@ -192,8 +202,8 @@ def _capture_if_not_recent() -> None:
             return
         _last_capture_ms = now_ms
 
-
     capture_screenshot(now_ms)
+
 
 def purge_expired_screenshots() -> None:
     # Filenames begin with epoch milliseconds, keeping cleanup portable across
@@ -209,6 +219,7 @@ def purge_expired_screenshots() -> None:
             continue
         except Exception as e:
             print(f"Error purging expired screenshots: {e}")
+
 
 def _capture_after_activity() -> None:
     global _activity_timer
@@ -226,9 +237,12 @@ def on_activity_event() -> None:
     with _lock:
         if _activity_timer and _activity_timer.is_alive():
             return
-        _activity_timer = threading.Timer(settings["activity_debounce_seconds"], _capture_after_activity)
+        _activity_timer = threading.Timer(
+            settings["activity_debounce_seconds"], _capture_after_activity
+        )
         _activity_timer.daemon = True
         _activity_timer.start()
+
 
 def get_screenshots_near(
     event_timestamp: float,
@@ -244,7 +258,6 @@ def get_screenshots_near(
         except ValueError:
             continue
 
-
         # Allow a small future window for camera lag, but never attach a frame
         # captured substantially after the event being explained.
         offset = ts_ms - target_ms
@@ -253,6 +266,7 @@ def get_screenshots_near(
     candidates.sort(key=lambda x: x[0])
     return [path for _, path in candidates[:max_count]]
 
+
 def start_background_capture() -> None:
     # Periodic capture preserves context when the user is reading or watching
     # a video without producing keyboard or clipboard events.
@@ -260,6 +274,7 @@ def start_background_capture() -> None:
         _capture_if_not_recent()
         purge_expired_screenshots()
         time.sleep(get_capture_settings()["background_interval_seconds"])
+
 
 def start_vision_daemon() -> threading.Thread:
     # A daemon thread lets the desktop process exit without waiting on the
