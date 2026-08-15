@@ -750,7 +750,7 @@
       $('hardware-summary').textContent = check.level === 'ready' ? 'Ready' : check.level === 'warn' ? 'Review' : 'Blocked'
       $('hardware-note').textContent = check.mode === 'external'
         ? 'The configured local API supplies chat. MiniLM, accessibility capture, and OCR stay on this Mac.'
-        : 'The default text model uses roughly 5 GB on disk. Screen capture does not load a vision model.'
+        : 'The default text model uses roughly 5 GB on disk. Screen capture uses accessibility + OCR and does not download a vision model.'
 
       const verdict = $('verdict')
       const continueBtn = $('btn-continue')
@@ -771,7 +771,7 @@
         $('verdict-icon').textContent = '!'
         $('verdict-title').textContent = 'May run, but expect lag'
         $('verdict-body').textContent =
-          'Your machine is above the minimum but below recommended. Capture can work with fewer apps open, but you may see freezes when switching windows or playing video.'
+          'Your machine is above the minimum but below recommended. Capture should be fine; chat may feel slower if you also run heavy apps alongside the text model.'
         overrideRow.classList.add('visible')
         continueBtn.disabled = !override.checked
         continueBtn.textContent = 'Continue anyway'
@@ -779,7 +779,7 @@
         $('verdict-icon').textContent = '✕'
         $('verdict-title').textContent = 'Not enough resources'
         $('verdict-body').textContent =
-          'This machine is below Clippy Vision’s minimum for local AI capture. Setup is blocked so we don’t leave you with a desktop that freezes under load. Free disk space or add memory, then try again.'
+          'This machine is below Clippy Vision’s minimum for the local text model and capture stack. Free disk space or add memory, then try again.'
         overrideRow.classList.remove('visible')
         override.checked = false
         continueBtn.disabled = true

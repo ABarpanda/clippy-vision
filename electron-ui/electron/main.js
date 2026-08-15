@@ -254,7 +254,7 @@ function buildPythonEnv(extra = {}) {
 
 
 async function ensureOllamaParallelConfig({ persist = true, restart = false } = {}) {
-    // Keep text and vision residency predictable on machines with limited RAM.
+    // Keep text-model residency predictable on machines with limited RAM.
     // Windows needs setx because Ollama may be started outside Electron.
     process.env.OLLAMA_MAX_LOADED_MODELS = OLLAMA_MAX_LOADED_MODELS
     process.env.OLLAMA_NUM_PARALLEL = OLLAMA_NUM_PARALLEL
@@ -583,9 +583,13 @@ async function stepInstallPackages() {
 }
 
 async function stepPullModels() {
-    // MiniLM ships with the app, so setup only pulls the reasoning model.
+    // MiniLM ships with the app; setup only pulls the chat/reasoning model.
+    // Capture uses accessibility text + OCR and does not need a vision model.
     const models = [
-        { name: 'qwen3:8b',         label: 'qwen3:8b (~4.7 GB)' },
+        { name: 'qwen3:8b', label: 'qwen3:8b (~4.7 GB)' },
+        // Intentionally not downloaded. Capture no longer loads VL; keeping this
+        // commented avoids ~3 GB on every install and the old 16 GB / 6 GB floor.
+        // { name: 'qwen3-vl:4b', label: 'qwen3-vl:4b (~3.2 GB)' },
     ]
 
     stepUpdate('models', 'running', 'Checking existing models...')
@@ -873,10 +877,12 @@ async function runPreflightChecks() {
 
 
 
-const HW_MIN = { ramGb: 16, vramGb: 6, diskGb: 12 }
-const HW_REC = { ramGb: 32, vramGb: 8, diskGb: 15 }
-const HW_MIN_MAC = { ramGb: 16, vramGb: 16, diskGb: 12 }
-const HW_REC_MAC = { ramGb: 32, vramGb: 32, diskGb: 15 }
+// Capture is a11y + OCR (no VL), so the old 16 GB / 6 GB VRAM floor is gone.
+// Chat still wants headroom for qwen3:8b; integrated GPUs are allowed at minimum.
+const HW_MIN = { ramGb: 8, vramGb: 0, diskGb: 8 }
+const HW_REC = { ramGb: 16, vramGb: 4, diskGb: 10 }
+const HW_MIN_MAC = { ramGb: 8, vramGb: 8, diskGb: 8 }
+const HW_REC_MAC = { ramGb: 16, vramGb: 16, diskGb: 10 }
 
 function gradeResource(value, min, rec) {
     if (value < min) return 'fail'
@@ -940,8 +946,8 @@ async function getVramGb() {
 async function getHardwareCheck() {
     // Apple Silicon reports shared unified memory rather than discrete VRAM;
     // use total memory for the GPU grade so capable Macs are not blocked.
-    // Round RAM to the nearest GB so marketed 16 GB machines are not blocked
-    // by a small amount of reserved memory.
+    // Round RAM to the nearest GB so marketed machines are not blocked by a
+    // small amount of reserved memory (e.g. 7.8 GB reported on an 8 GB box).
     const ramGb = Math.round(os.totalmem() / (1024 ** 3))
     const diskRaw = await getFreeDiskGb(USER_DATA)
     const vramRaw = await getVramGb()

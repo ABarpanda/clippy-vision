@@ -87,18 +87,18 @@ Clippy Vision is under active development. Three releases shipped in the first t
 
 ### System requirements
 
-Clippy Vision runs local AI models (text + vision) on your PC. Capture shares the GPU/RAM with Chrome, your IDE, and Windows - underpowered machines will feel lag when switching apps.
+Clippy Vision runs a local text model for chat and uses accessibility APIs plus OCR for screen capture (no vision model in the capture path).
 
 | | Minimum | Recommended |
 |--|---------|-------------|
 | OS | Windows 10 / 11 (64-bit) | Windows 11 |
-| System RAM | 16 GB | 32 GB |
-| GPU VRAM | 6 GB dedicated | 8 GB+ dedicated |
-| Free disk | 12 GB | 15 GB+ |
+| System RAM | 8 GB | 16 GB |
+| GPU VRAM | Not required (integrated OK) | 4 GB+ dedicated |
+| Free disk | 8 GB | 10 GB+ |
 
-- **First run** also needs internet once (model downloads, ~8 GB).
-- The setup wizard **checks your PC** against these numbers before installing. Below minimum → setup is blocked. Between minimum and recommended → you can continue with a warning that capture may lag.
-- Integrated / shared GPU (0 GB dedicated VRAM) is treated as below minimum for full capture.
+- **First run** needs internet once for the text model (`qwen3:8b`, ~4.7 GB).
+- The setup wizard **checks your PC** against these numbers before installing. Below minimum → setup is blocked. Between minimum and recommended → you can continue with a warning that chat may feel slower.
+- Integrated / shared GPUs are allowed at minimum; a dedicated GPU still helps chat speed.
 
 ---
 
