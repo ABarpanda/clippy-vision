@@ -1396,6 +1396,7 @@ ipcMain.handle('open-external', (_event, url) => {
 
 ipcMain.handle('get-api-base', async () => apiUrl())
 ipcMain.handle('get-update-check', () => readDesktopSettings().updateCheckEnabled)
+ipcMain.handle('get-app-version', () => app.getVersion())
 ipcMain.handle('set-update-check', (_event, enabled) => setUpdateCheckEnabled(enabled))
 
 ipcMain.handle('get-hardware-check', async () => getHardwareCheck())

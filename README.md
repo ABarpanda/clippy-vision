@@ -99,7 +99,7 @@ Clippy Vision runs a local text model for chat and uses accessibility APIs plus 
 - **First run** needs internet once for the text model (`qwen3:8b`, ~4.7 GB).
 - The setup wizard **checks your PC** against these numbers before installing. Below minimum → setup is blocked. Between minimum and recommended → you can continue with a warning that chat may feel slower.
 - Integrated / shared GPUs are allowed at minimum; a dedicated GPU still helps chat speed.
-- **Lower-spec / contributor machines:** if `main` is still too heavy, use branch [`dev/rag-ocr-capture`](https://github.com/protocorn/clippy-vision/tree/dev/rag-ocr-capture) — no vision model in setup, chat-only download, and recent Ollama stability fixes. Details in [CONTRIBUTING.md](CONTRIBUTING.md#lower-spec-machines).
+- **Lower-spec / contributor machines:** capture uses accessibility + OCR (no vision model in setup). Only the chat model downloads by default; pick a smaller chat model in setup if needed. Details in [CONTRIBUTING.md](CONTRIBUTING.md#lower-spec-machines).
 
 ---
 
@@ -321,6 +321,7 @@ Every feature in Clippy Vision has a person behind it. This wall is how we say t
 | <a href="https://github.com/ABarpanda"><img src="https://avatars.githubusercontent.com/u/145291762?v=4" width="64" height="64" alt="ABarpanda"/></a> | <a href="https://github.com/ABarpanda"><b>@ABarpanda</b></a><br/><sub>💻</sub> | <a href="https://github.com/protocorn/clippy-vision/commits?author=ABarpanda">See their commits →</a> | 4 | +278&nbsp;/&nbsp;−217 |
 | <a href="https://github.com/shaurya703"><img src="https://avatars.githubusercontent.com/u/153742516?v=4" width="64" height="64" alt="shaurya703"/></a> | <a href="https://github.com/shaurya703"><b>@shaurya703</b></a><br/><sub>💻</sub> | <a href="https://github.com/protocorn/clippy-vision/commits?author=shaurya703">See their commits →</a> | 1 | +49&nbsp;/&nbsp;−0 |
 | <a href="https://github.com/cyforkk"><img src="https://avatars.githubusercontent.com/u/165913369?v=4" width="64" height="64" alt="cyforkk"/></a> | <a href="https://github.com/cyforkk"><b>@cyforkk</b></a><br/><sub>💻</sub> | Made errors readable: replaced bare HTTP status codes with real API error messages in chat. | 1 | +32&nbsp;/&nbsp;−11 |
+| <a href="https://github.com/vaishn4vi"><img src="https://github.com/vaishn4vi.png" width="64" height="64" alt="vaishn4vi"/></a> | <a href="https://github.com/vaishn4vi"><b>@vaishn4vi</b></a><br/><sub>💻</sub> | <a href="https://github.com/protocorn/clippy-vision/commits?author=vaishn4vi">See their commits →</a> | 1 | +32&nbsp;/&nbsp;−3 |
 
 <sub>Numbers come straight from git history and refresh automatically on every push to <code>main</code>.</sub>
 <!-- CONTRIBUTORS-STATS:END -->

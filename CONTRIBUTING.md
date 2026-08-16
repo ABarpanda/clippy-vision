@@ -84,23 +84,7 @@ See [QUICKSTART.md](QUICKSTART.md) for installer and troubleshooting details.
 
 ### Lower-spec machines
 
-If `main` feels too heavy for your device (older installs expected a vision model and higher RAM), try branch [`dev/rag-ocr-capture`](https://github.com/protocorn/clippy-vision/tree/dev/rag-ocr-capture).
-
-That branch is meant to be easier to run locally:
-
-- screen capture uses accessibility text + OCR (no vision model download in setup)
-- only the chat text model is required by default (`qwen3:8b`); you can set a smaller chat model in setup
-- includes recent Ollama / VRAM stability fixes
-
-```powershell
-git fetch origin
-git checkout dev/rag-ocr-capture
-cd electron-ui
-npm install
-npm start
-```
-
-Once that branch merges into `main`, you can stay on `main` again.
+Current `main` uses accessibility text + OCR for capture and does not download a vision model in setup. Only the chat text model is required by default (`qwen3:8b`). If that is still heavy on your machine, set a smaller chat model in the setup wizard.
 
 ## Code Style
 
