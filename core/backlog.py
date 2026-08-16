@@ -1,8 +1,8 @@
 """Classification backlog status and automatic catch-up gates.
 
-Deferred Tier-2 work drains in the API process automatically. Capture stays
-cheap (Tier-0/1); catch-up runs when capture is off, or when capture is on
-and the deferred queue is large/old enough to recommend draining.
+When capture is off, the API catch-up worker drains stranded ``pending``
+(Tier-0/1) then ``deferred`` (Tier-2). When capture is on, live owns pending;
+catch-up only runs Tier-2 if the deferred queue is large/old enough.
 """
 
 from __future__ import annotations

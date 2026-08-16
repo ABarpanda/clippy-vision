@@ -8,6 +8,7 @@ from core.backlog import (
     note_catch_up_failure,
     set_catch_up_running,
 )
+from core.capture_state import get_capture_status
 from core.model_residency import can_load_text, can_run_ocr, ensure_text_model
 from core.screenshot_enrichment import enrich_screenshot
 from core.storage import conn
@@ -369,13 +370,35 @@ def worker_loop():
 
 
 def catch_up_loop():
-    """API-process drain for deferred Tier-2. Yields under RAM pressure / cooldown."""
+    """API-process drain for stranded pending + deferred Tier-2.
+
+    Live capture owns cheap Tier-0/1 on ``pending``. When capture is off those
+    rows never move, so this worker clears ``pending`` first (no LLM), then
+    runs Tier-2 on ``deferred``.
+    """
     print("[worker] Deferred catch-up worker started")
     while True:
         if not catch_up_allowed():
             set_catch_up_running(False)
             time.sleep(CATCH_UP_POLL_SECS)
             continue
+
+        capture_active = bool(get_capture_status().get("active"))
+
+        # Capture off: pending would otherwise sit forever (live worker is down).
+        if not capture_active:
+            pending_rows = _fetch_status_rows("pending", limit=CATCH_UP_BATCH * 4)
+            if pending_rows:
+                set_catch_up_running(True)
+                for row in pending_rows:
+                    if not catch_up_allowed() or get_capture_status().get("active"):
+                        break
+                    # Tier-0/1 only — ambiguous events become deferred for phase 2.
+                    classify_event(_row_to_event(row), allow_tier2=False)
+                set_catch_up_running(False)
+                time.sleep(0.2)
+                continue
+
         if not can_load_text():
             if ensure_text_model():
                 print("[worker] text model warmed — catch-up continuing")
