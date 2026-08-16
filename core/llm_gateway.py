@@ -8,7 +8,7 @@ from itertools import count
 import psutil
 
 from core.local_embeddings import embed_text, embed_texts
-from core.model_residency import keep_alive_for
+from core.model_residency import can_load_text, keep_alive_for
 
 OLLAMA_URL = "http://localhost:11434/api/chat"
 
@@ -90,9 +90,13 @@ class LLMGateway:
     def _is_recovered(self) -> bool:
         return psutil.cpu_percent(interval=0.5) < self._cpu_resume_pct
 
-    def _health_gate(self, job: "Job") -> None:
+    def _health_gate(self, job: "Job", *, priority: int) -> None:
         """Block until CPU has recovered, or until the job's max-wait deadline
-        expires — whichever comes first."""
+        expires — whichever comes first.
+
+        BACKGROUND jobs never force-run under sustained pressure: they fail soft
+        so catch-up can retry later instead of thrashing the machine.
+        """
         deadline = job.enqueued_at + _MAX_WAIT_SECS
 
         if not self._is_pressured():
@@ -103,8 +107,15 @@ class LLMGateway:
             if self._is_recovered():
                 return  # CPU settled, proceed
 
-        # Deadline reached — log and run anyway to drain the backlog
         waited = time.monotonic() - job.enqueued_at
+        if priority >= Priority.BACKGROUND:
+            job.error = OSError(
+                f"deferred: cpu pressured after {waited:.0f}s — catch-up will retry"
+            )
+            print(f"[gateway] background job deferred after {waited:.0f}s CPU pressure")
+            return
+
+        # FOREGROUND escape hatch — drain classifiers that the user is waiting on
         print(f"[gateway] escape hatch triggered after {waited:.0f}s wait — running despite pressure")
 
     def _run_stream_job(self, job: "Job") -> None:
@@ -138,7 +149,16 @@ class LLMGateway:
 
             # Health gate for all non-interactive jobs
             if priority > Priority.INTERACTIVE:
-                self._health_gate(job)
+                if not can_load_text():
+                    job.error = OSError("deferred: ram below floor")
+                else:
+                    self._health_gate(job, priority=priority)
+            if job.error:
+                job.event.set()
+                if job.chunks is not None:
+                    job.chunks.put(None)
+                self.queue.task_done()
+                continue
 
             if job.stream:
                 self._run_stream_job(job)

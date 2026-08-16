@@ -1,5 +1,4 @@
 import json
-import urllib.request
 
 from core.llm_gateway import Priority, gateway
 
@@ -33,19 +32,30 @@ VERDICT_SCHEMA = {
     "required": ["verdict", "score", "reason"]
 }
 
-def classify_with_llm(summary: str, event_type: str, window_context) -> dict:
+def classify_with_llm(
+    summary: str,
+    event_type: str,
+    window_context,
+    *,
+    priority=Priority.BACKGROUND,
+) -> dict:
     if isinstance(window_context, dict):
         ctx_str = f"{window_context.get('process_name', '')} - {window_context.get('current_window_title', '')}"
     else:
         ctx_str = str(window_context)
 
     body = gateway.chat(
-    messages=[
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user",   "content": f"[{event_type}] {ctx_str}: {summary}"},
-    ],
-    model=MODEL, format=VERDICT_SCHEMA, think=False,
-    options={"temperature": 0}, priority=Priority.FOREGROUND)
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user",   "content": f"[{event_type}] {ctx_str}: {summary}"},
+        ],
+        model=MODEL,
+        format=VERDICT_SCHEMA,
+        think=False,
+        options={"temperature": 0},
+        priority=priority,
+        keep_alive="10m",
+    )
 
     content = body["message"]["content"]
     verdict = json.loads(content) if isinstance(content, str) else content

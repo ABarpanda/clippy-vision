@@ -14,6 +14,7 @@ except ImportError:
     from events import Event, WindowMetadata, get_session_id
     from storage import conn, store_event
 from classifier.worker import apply_vision_verdict, build_capture_text_verdict
+from core.model_residency import can_load_text, can_run_ocr
 from core.screenshot_enrichment import enrich_screenshot
 
 POLL_SECS = 10
@@ -53,7 +54,7 @@ def _get_nearest_event(screenshot_ts: float) -> dict | None:
                   summary, payload
            FROM events
            WHERE ABS(timestamp - ?) <= ?
-           AND classification_status IN ('done', 'awaiting_vision', 'screenshot_only')
+           AND classification_status IN ('done', 'screenshot_only')
            AND vision_ocr_text IS NULL
            AND vision_activity IS NULL
            AND vision_suggested_action IS NULL
@@ -308,7 +309,7 @@ def _process_group(group: list[Path]) -> bool:
         rep_event = _create_screenshot_event(rep_ts)
     else:
         print(
-            f"  [screenshot_processor] {representative.name} → attaching to "
+            f"  [screenshot_processor] {representative.name} -> attaching to "
             f"{rep_event['event_type']} [{rep_event['event_id'][:8]}]"
             + (f" | group of {len(group)}" if len(group) > 1 else "")
         )
@@ -381,6 +382,8 @@ def screenshot_processor_loop():
 
     while True:
         time.sleep(POLL_SECS)
+        if not can_run_ocr():
+            continue
 
         all_unprocessed = _get_unprocessed_screenshots()
         if not all_unprocessed:
@@ -405,7 +408,7 @@ def screenshot_processor_loop():
             except Exception as exc:
                 print(f"  [screenshot_processor] Group failed: {exc}")
 
-        if not recent_groups and old_groups:
+        if not recent_groups and old_groups and can_load_text():
 
             try:
                 # Process the oldest group first when idle

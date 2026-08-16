@@ -94,6 +94,7 @@ for _column, _type in (
 conn.execute("CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp)")
 conn.execute("CREATE INDEX IF NOT EXISTS idx_events_rag_queue ON events(classification_status, interesting, timestamp)")
 conn.execute("CREATE INDEX IF NOT EXISTS idx_events_type_timestamp ON events(event_type, timestamp)")
+conn.execute("CREATE INDEX IF NOT EXISTS idx_events_classification_status ON events(classification_status, timestamp)")
 conn.commit()
 
 

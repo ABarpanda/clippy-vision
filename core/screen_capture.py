@@ -80,8 +80,9 @@ set_capture_status(True, os.getpid())
 atexit.register(_capture_shutdown)
 threading.Thread(target=_capture_heartbeat, daemon=True, name="capture-heartbeat").start()
 purge_expired()
-# Capture only intakes live activity. Summarizer, screenshot OCR backlog, and
-# distil run in the API process so backlog drains even when capture is paused.
+# Capture only intakes live activity and runs cheap Tier-0/1 classification.
+# Deferred Tier-2 catch-up, summarizer, screenshot OCR, and distil run in the
+# API process so backlog drains even when capture is paused.
 start_worker()
 start_vision_daemon()
 

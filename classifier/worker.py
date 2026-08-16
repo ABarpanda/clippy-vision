@@ -1,7 +1,14 @@
+import hashlib
 import json
 import threading
 import time
 
+from core.backlog import (
+    catch_up_allowed,
+    note_catch_up_failure,
+    set_catch_up_running,
+)
+from core.model_residency import can_load_text, can_run_ocr, ensure_text_model
 from core.screenshot_enrichment import enrich_screenshot
 from core.storage import conn
 from core.vision import get_screenshots_near
@@ -11,8 +18,10 @@ from .tier_two_classifier import classify_with_llm
 from .tier_zero_classifier import tier_zero_classifier
 
 POLL_SECS = 2
-VISION_POLL_SECS = 5
-MAX_VISION_WAIT_SECS   = 300  # skip vision enrichment if event has been waiting longer than this
+CATCH_UP_POLL_SECS = 5
+CATCH_UP_BATCH = 5
+DUPLICATE_LOOKBACK_SECS = 30 * 60
+MAX_VISION_WAIT_SECS = 300  # skip vision enrichment if event has been waiting longer than this
 
 DEFAULT_SCREENSHOT_VERDICT = {
     "verdict": "not_interesting",
@@ -78,6 +87,20 @@ def apply_verdict(event_id: str, verdict: dict):
     conn.commit()
     return bool(cursor.rowcount)
 
+
+def mark_deferred(event_id: str, reason: str = "Ambiguous - deferred for catch-up") -> bool:
+    cursor = conn.execute(
+        """UPDATE events
+           SET classification_status='deferred',
+               interest_reason=?
+           WHERE event_id=?
+             AND classification_status IN ('pending', 'deferred')""",
+        (reason, event_id),
+    )
+    conn.commit()
+    return bool(cursor.rowcount)
+
+
 def apply_vision_verdict(
     event_id: str,
     verdict: dict,
@@ -86,7 +109,7 @@ def apply_vision_verdict(
     screenshot_filename: str | None = None,
 ):
 
-    # Vision verdict is authoritative — it can see the screen, so it overrides text-tier classification
+    # Vision verdict is authoritative - it can see the screen, so it overrides text-tier classification
     interesting = 0 if verdict["verdict"] == "not_interesting" else 1
     cursor = conn.execute(
         """UPDATE events
@@ -102,7 +125,7 @@ def apply_vision_verdict(
                interest_reason=CASE WHEN classification_status='done' THEN interest_reason ELSE ? END,
                classification_status='done'
            WHERE event_id=?
-             AND classification_status IN ('done', 'awaiting_vision', 'screenshot_only')
+             AND classification_status IN ('done', 'screenshot_only')
              AND vision_ocr_text IS NULL
              AND vision_activity IS NULL
              AND vision_suggested_action IS NULL""",
@@ -125,7 +148,7 @@ def apply_vision_verdict(
 
 def build_capture_text_verdict(event: dict, captured_text: str) -> dict:
     window = event.get("window_context") or {}
-    context = " — ".join(
+    context = " - ".join(
         value for value in (
             str(window.get("process_name") or "").strip(),
             str(window.get("current_window_title") or "").strip(),
@@ -137,6 +160,61 @@ def build_capture_text_verdict(event: dict, captured_text: str) -> dict:
     if not captured_text:
         verdict["reason"] = "No accessibility or OCR text was available"
     return verdict
+
+
+def event_fingerprint(event: dict) -> str:
+    """Cheap identity for duplicate ambiguous events - faster than an LLM call."""
+    window = event.get("window_context") or {}
+    parts = [
+        str(event.get("event_type") or "").strip().casefold(),
+        str(window.get("process_name") or event.get("process_name") or "").strip().casefold(),
+        str(window.get("current_window_title") or "").strip().casefold(),
+        str(window.get("active_url") or "").strip().casefold(),
+        " ".join(str(event.get("summary") or "").split()).casefold(),
+    ]
+    raw = "|".join(parts)
+    return hashlib.sha1(raw.encode("utf-8", errors="ignore")).hexdigest()
+
+
+def lookup_duplicate_verdict(event: dict, lookback_secs: float = DUPLICATE_LOOKBACK_SECS) -> dict | None:
+    """Reuse a recent completed verdict for an identical ambiguous fingerprint."""
+    fingerprint = event_fingerprint(event)
+    cutoff = float(event.get("timestamp") or time.time()) - lookback_secs
+    rows = conn.execute(
+        """SELECT event_type, process_name, current_window_title, active_url, summary,
+                  interesting, interest_score, interest_reason
+           FROM events
+           WHERE classification_status = 'done'
+             AND interesting IS NOT NULL
+             AND timestamp >= ?
+             AND timestamp < ?
+             AND event_id != ?
+           ORDER BY timestamp DESC
+           LIMIT 40""",
+        (cutoff, event.get("timestamp") or time.time(), event["event_id"]),
+    ).fetchall()
+    for row in rows:
+        candidate = {
+            "event_type": row[0],
+            "process_name": row[1],
+            "summary": row[4],
+            "window_context": {
+                "process_name": row[1],
+                "current_window_title": row[2],
+                "active_url": row[3],
+            },
+        }
+        if event_fingerprint(candidate) != fingerprint:
+            continue
+        interesting = int(row[5] or 0)
+        score = int(row[6] if row[6] is not None else (7 if interesting else 2))
+        reason = row[7] or "duplicate of recent classified event"
+        return {
+            "verdict": "interesting" if interesting else "not_interesting",
+            "score": score,
+            "reason": f"Cached duplicate: {reason}",
+        }
+    return None
 
 
 def _row_to_event(row) -> dict:
@@ -164,9 +242,10 @@ def _row_to_event(row) -> dict:
     }
 
 
-def classify_event(event: dict):
+def classify_event(event: dict, *, allow_tier2: bool = False):
+    """Cheap live path (Tier-0/1 + duplicate cache). Tier-2 only during catch-up."""
 
-    # Tier 0 — rules (instant, no I/O)
+    # Tier 0 - rules (instant, no I/O)
     verdict = tier_zero_classifier(event)
     if verdict:
         _print_verdict(0, event, verdict)
@@ -174,15 +253,31 @@ def classify_event(event: dict):
         return
 
 
-    # Tier 1 — feature scoring + personal baseline (cheap)
+    # Tier 1 - feature scoring + personal baseline (cheap)
     verdict = tier1_score(event, conn)
     if verdict:
         _print_verdict(1, event, verdict)
         apply_verdict(event["event_id"], verdict)
         return
 
+    cached = lookup_duplicate_verdict(event)
+    if cached:
+        print(
+            f"  [CACHE] Reused verdict for {event['event_type']} in "
+            f"{event.get('process_name') or 'unknown'} - skip LLM"
+        )
+        apply_verdict(event["event_id"], cached)
+        return
 
-    # Tier 2 — LLM with last-3-event context window
+    if not allow_tier2:
+        mark_deferred(event["event_id"])
+        print(
+            f"  [DEFER] {event['event_type']} in {event.get('process_name') or 'unknown'} "
+            f"- waiting for catch-up"
+        )
+        return
+
+    # Tier 2 - LLM with last-3-event context window (catch-up only)
     recent = conn.execute(
         """SELECT * FROM (
                SELECT event_type, process_name, summary, timestamp FROM events
@@ -200,11 +295,18 @@ def classify_event(event: dict):
         summary = event["summary"]
 
     try:
-        verdict = classify_with_llm(summary, event["event_type"], event["window_context"])
+        from core.llm_gateway import Priority
+        verdict = classify_with_llm(
+            summary,
+            event["event_type"],
+            event["window_context"],
+            priority=Priority.BACKGROUND,
+        )
     except Exception as e:
-        print(f"  [TIER-2] Failed: {e} — backing off 30s before retry")
-        time.sleep(30)
-        return  # leave as 'pending', retry next cycle
+        note_catch_up_failure(str(e))
+        print(f"  [TIER-2] Failed: {e} - leaving deferred (cooldown)")
+        mark_deferred(event["event_id"], reason=f"Catch-up deferred: {e}")
+        return
 
     _print_verdict(2, event, verdict)
     apply_verdict(event["event_id"], verdict)
@@ -239,49 +341,93 @@ def classify_capture_text_event(event: dict):
     apply_vision_verdict(event["event_id"], verdict, image_embedding, image_embedding_model, screenshots[0].name)
 
 
-def worker_loop():
-    print("[worker] Classification worker started")
-    while True:
-        rows = conn.execute(
-            """SELECT event_id, timestamp, event_type,
-                      process_name, current_window_title, active_url,
-                      previous_process_name, previous_window_title,
-                      summary, payload
-               FROM events
-               WHERE classification_status = 'pending'
-               ORDER BY timestamp ASC
-               LIMIT 10"""
-        ).fetchall()
+def _fetch_status_rows(status: str, limit: int, newest_first: bool = False):
+    order = "DESC" if newest_first else "ASC"
+    return conn.execute(
+        f"""SELECT event_id, timestamp, event_type,
+                  process_name, current_window_title, active_url,
+                  previous_process_name, previous_window_title,
+                  summary, payload
+           FROM events
+           WHERE classification_status = ?
+           ORDER BY timestamp {order}
+           LIMIT ?""",
+        (status, limit),
+    ).fetchall()
 
+
+def worker_loop():
+    """Live intake: Tier-0/1 + duplicate cache only. Never calls the LLM."""
+    print("[worker] Live classification worker started (Tier-0/1 only)")
+    while True:
+        rows = _fetch_status_rows("pending", limit=10)
         if not rows:
             time.sleep(POLL_SECS)
             continue
-
         for row in rows:
-            classify_event(_row_to_event(row))
+            classify_event(_row_to_event(row), allow_tier2=False)
+
+
+def catch_up_loop():
+    """API-process drain for deferred Tier-2. Yields under RAM pressure / cooldown."""
+    print("[worker] Deferred catch-up worker started")
+    while True:
+        if not catch_up_allowed():
+            set_catch_up_running(False)
+            time.sleep(CATCH_UP_POLL_SECS)
+            continue
+        if not can_load_text():
+            if ensure_text_model():
+                print("[worker] text model warmed — catch-up continuing")
+            else:
+                note_catch_up_failure("text model unavailable")
+                set_catch_up_running(False)
+                time.sleep(CATCH_UP_POLL_SECS)
+                continue
+
+        rows = _fetch_status_rows("deferred", limit=CATCH_UP_BATCH)
+        if not rows:
+            set_catch_up_running(False)
+            time.sleep(CATCH_UP_POLL_SECS)
+            continue
+
+        set_catch_up_running(True)
+        for row in rows:
+            if not catch_up_allowed():
+                break
+            if not can_load_text():
+                if not ensure_text_model():
+                    note_catch_up_failure("text model unavailable")
+                    break
+            classify_event(_row_to_event(row), allow_tier2=True)
+        set_catch_up_running(False)
+        time.sleep(1.0)
+
 
 def capture_text_worker_loop():
+    """Legacy OCR path kept for tests; production OCR is API screenshot_processor."""
     print("[worker] Screen text worker started")
     while True:
+        if not can_run_ocr():
+            time.sleep(5)
+            continue
         rows = conn.execute(
             """SELECT event_id, timestamp, event_type,
                       process_name, current_window_title, active_url,
                       previous_process_name, previous_window_title,
                       summary, payload
                FROM events
-               WHERE classification_status IN ('awaiting_vision', 'screenshot_only')
+               WHERE classification_status = 'screenshot_only'
                ORDER BY timestamp DESC
                LIMIT 5"""
         ).fetchall()
         if not rows:
-            time.sleep(VISION_POLL_SECS)
+            time.sleep(5)
             continue
         for row in rows:
             event = _row_to_event(row)
             age_secs = time.time() - event["timestamp"]
             if age_secs > MAX_VISION_WAIT_SECS:
-
-                # Event is too stale for vision enrichment to be useful — mark done and move on
                 conn.execute(
                     "UPDATE events SET classification_status='done' WHERE event_id=?",
                     (event["event_id"],)
@@ -292,13 +438,19 @@ def capture_text_worker_loop():
                 continue
             classify_capture_text_event(event)
 
-def start_capture_text_worker():
-    t = threading.Thread(target=capture_text_worker_loop, daemon=True)
+
+def start_live_worker():
+    t = threading.Thread(target=worker_loop, daemon=True, name="classify-live")
     t.start()
     return t
 
-def start_worker():
-    t = threading.Thread(target=worker_loop, daemon=True)
+
+def start_catch_up_worker():
+    t = threading.Thread(target=catch_up_loop, daemon=True, name="classify-catch-up")
     t.start()
-    start_capture_text_worker()
     return t
+
+
+def start_worker():
+    """Backward-compatible alias for capture process: live cheap classification only."""
+    return start_live_worker()
