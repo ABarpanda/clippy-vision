@@ -58,26 +58,62 @@ def _clean_text(value: object) -> str:
 
 
 def extract_text(path: Path) -> str:
+    detail = extract_text_detail(path)
+    return detail["text"]
+
+
+def extract_text_detail(
+    path: Path,
+    *,
+    bypass_memory_gate: bool = False,
+    min_confidence: float | None = None,
+) -> dict:
+    """
+    Run OCR and return structured debug info.
+    Used by probes; production uses extract_text() which only needs the joined string.
+    """
+    from core.model_residency import can_run_ocr
+
+    threshold = OCR_MIN_CONFIDENCE if min_confidence is None else float(min_confidence)
+    detail = {
+        "text": "",
+        "lines": [],  # list[{text, score, accepted}]
+        "gated": False,
+        "engine_error": None,
+        "elapsed_ms": 0.0,
+    }
+    if not bypass_memory_gate and not can_run_ocr():
+        detail["gated"] = True
+        return detail
+
     engine = _get_engine()
     if engine is None:
-        return ""
+        detail["engine_error"] = str(_engine_error or "engine unavailable")
+        return detail
+
+    import time
+
+    started = time.perf_counter()
     try:
         result = engine(str(path))
         texts, scores = _parts(result)
-        accepted = []
+        accepted_unique: list[str] = []
+        seen = set()
         for index, value in enumerate(texts):
             score = float(scores[index]) if index < len(scores) else 1.0
             text = _clean_text(value)
-            if text and score >= OCR_MIN_CONFIDENCE:
-                accepted.append(text)
-        seen = set()
-        unique = []
-        for text in accepted:
-            key = text.casefold()
-            if key not in seen:
-                seen.add(key)
-                unique.append(text)
-        return "\n".join(unique)[:OCR_MAX_CHARS]
+            if not text:
+                continue
+            ok = score >= threshold
+            detail["lines"].append({"text": text, "score": score, "accepted": ok})
+            if ok:
+                key = text.casefold()
+                if key not in seen:
+                    seen.add(key)
+                    accepted_unique.append(text)
+        detail["text"] = "\n".join(accepted_unique)[:OCR_MAX_CHARS]
     except Exception as exc:
         print(f"[ocr] failed for {path.name}: {exc}")
-        return ""
+        detail["engine_error"] = str(exc)
+    detail["elapsed_ms"] = (time.perf_counter() - started) * 1000
+    return detail

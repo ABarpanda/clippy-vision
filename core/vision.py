@@ -49,12 +49,14 @@ except ImportError:
     # Redaction rules (Clippy window + user privacy toggles) live in privacy_settings.
     from privacy_settings import is_clippy_window, should_redact_window
 try:
-    from core.accessibility_text import extract_accessibility_text
+    from core.accessibility_text import extract_accessibility_text, foreground_content_bounds
     from core.app_settings import get_capture_settings
+    from core.ocr_crop import save_crop_metadata
     from core.screenshot_enrichment import remember_accessibility_text
 except ImportError:
-    from accessibility_text import extract_accessibility_text
+    from accessibility_text import extract_accessibility_text, foreground_content_bounds
     from app_settings import get_capture_settings
+    from ocr_crop import save_crop_metadata
     from screenshot_enrichment import remember_accessibility_text
 
 _lock = threading.Lock()
@@ -197,6 +199,16 @@ def capture_screenshot(timestamp_ms: int) -> Path | None:
         buf = io.BytesIO()
         img.save(buf, format="JPEG", quality=JPEG_QUALITY, optimize=True)
         path.write_bytes(buf.getvalue())
+        # UIA text can be poor while its pane geometry still identifies the
+        # user's work area. Persist this immediately; OCR may run later after
+        # the focused UI has changed.
+        save_crop_metadata(
+            path,
+            image_width=img.width,
+            image_height=img.height,
+            monitor=monitor,
+            a11y_bounds=foreground_content_bounds(),
+        )
         remember_accessibility_text(path, _foreground_accessibility_text())
         with _lock:
             _last_capture_hash = digest
@@ -232,6 +244,7 @@ def purge_expired_screenshots() -> None:
             ts_part = path.stem.split("_")[0]
             if int(ts_part) < cutoff_ms:
                 path.unlink()
+                path.with_suffix(".ocr-crop.json").unlink(missing_ok=True)
         except ValueError:
             continue
         except Exception as e:
