@@ -23,11 +23,12 @@ from agent.conversation import (
 from agent.react_agent import USER_MESSAGE_MAX_CHARS, run, run_stream
 from agent.router import load_classifier
 from core.app_settings import get_capture_settings, set_capture_settings
+from core.backlog import get_backlog_status
 from core.capture_state import get_capture_status
 from core.diagnostics import get_diagnostics
 from core.intro_builder import start_intro_rebuild_daemon
 from core.memory_store import get_profile, save_identity_field, set_introduction
-from core.model_residency import on_capture_stop, warm_for_startup
+from core.model_residency import can_load_light, on_capture_stop, warm_for_startup
 from core.paths import get_data_dir, get_screenshots_dir
 from core.platform_support import platform_label
 from core.privacy_settings import list_privacy_targets, set_privacy_enabled
@@ -48,8 +49,9 @@ async def lifespan(app: FastAPI):
     # Weekly intro rebuild: immediate check + periodic background loop
     start_intro_rebuild_daemon()
 
-    # Preload router classifier so the first chat does not pay the load cost
-    threading.Thread(target=load_classifier, daemon=True, name="router-classifier-warmup").start()
+    # Preload router classifier only when a small torch model still fits.
+    if can_load_light():
+        threading.Thread(target=load_classifier, daemon=True, name="router-classifier-warmup").start()
 
     # Summarizer / OCR backlog / distil run with the app, not only while capture
     # is on — pause capture stops new intake, not processing of allowed history.
@@ -57,6 +59,8 @@ async def lifespan(app: FastAPI):
 
     start_background_jobs()
 
+    # PARKED: event RAG indexer — only if rag_enabled (default off); ask contributor
+    # keep/remove. See core/rag.py and app_settings.
     if get_capture_settings()["rag_enabled"]:
         start_event_indexer()
 
@@ -284,6 +288,7 @@ def read_capture_settings():
 @app.put("/settings/capture")
 def write_capture_settings(req: CaptureSettingsRequest):
     settings = set_capture_settings(req.dict(exclude_unset=True))
+    # PARKED: start/stop event RAG indexer with the toggle (default off).
     if settings["rag_enabled"]:
         start_event_indexer()
     else:
@@ -400,8 +405,8 @@ def status():
         "data_dir": str(get_data_dir()),
         "capture": get_capture_status(),
         "residency": load_residency(),
+        "backlog": get_backlog_status(),
     }
-
 
 
 @app.post("/residency/startup")

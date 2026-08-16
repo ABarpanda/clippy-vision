@@ -498,7 +498,16 @@ def ingest_conversation(user_message: str, agent_reply: str) -> None:
     Only the user message is used as the fact source — the agent reply is output,
     not ground truth about the user.
     Designed to run in a background thread — all LLM calls use Priority.BACKGROUND."""
+    try:
+        _ingest_conversation(user_message, agent_reply)
+    except OSError as exc:
+        # Soft defer (RAM/CPU gates) must never crash the chat turn's background thread.
+        print(f"  [DISTIL/agent] deferred: {exc}")
+    except Exception as exc:
+        print(f"  [DISTIL/agent] ingest failed: {exc}")
 
+
+def _ingest_conversation(user_message: str, agent_reply: str) -> None:
     turn_text = f"USER: {user_message}"
 
 

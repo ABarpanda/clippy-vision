@@ -24,9 +24,10 @@ except ImportError:
         mark_session_vision_enriched,
         store_summary,
     )
-from core.accessibility_text import is_useful_accessibility_text
+from core.accessibility_text import is_useful_accessibility_text, strip_ui_chrome
 from core.llm_gateway import Priority, gateway
 from core.local_embeddings import embed_text
+from core.model_residency import can_load_text, ensure_text_model
 
 MODEL = "qwen3:8b"
 INTERVAL_SEC = 60
@@ -37,18 +38,6 @@ MAX_VISION_REFRESHES_PER_TICK = 1
 MAX_EVENTS_PER_WINDOW = 25
 MAX_PROMPT_CHARS = 7000
 PER_EVENT_SCREEN_CHARS = 500
-# Window-manager / browser chrome that a11y returns constantly without real content.
-_UI_CHROME_LINES = {
-    "minimize",
-    "maximize",
-    "restore",
-    "close",
-    "chrome legacy window",
-    "close find bar",
-    "find in page",
-    "previous",
-    "next",
-}
 _WINDOW_TITLE_SUFFIXES = (
     " - cursor",
     " - google chrome",
@@ -94,14 +83,16 @@ def _is_window_title_line(line: str) -> bool:
 
 
 def _strip_ui_chrome(text: str, *, drop_window_titles: bool = False) -> str:
+    """Summarizer prompt filter: shared a11y chrome + optional window-title lines."""
+    filtered = strip_ui_chrome(text)
+    if not drop_window_titles:
+        return filtered
     lines = []
-    for raw in str(text or "").splitlines():
+    for raw in filtered.splitlines():
         line = " ".join(raw.split()).strip()
         if not line:
             continue
-        if line.casefold() in _UI_CHROME_LINES:
-            continue
-        if drop_window_titles and _is_window_title_line(line):
+        if _is_window_title_line(line):
             continue
         lines.append(line)
     return "\n".join(lines)
@@ -254,7 +245,17 @@ def summarizer_loop():
 
     while True:
         tick_start = time.time()
+        failed = False
         try:
+            if not can_load_text():
+                # Don't soft-skip forever: try loading the model. A hard free-RAM
+                # floor was stranding summarizer while chat (INTERACTIVE) could load.
+                if ensure_text_model():
+                    print("  [SUMMARIZER] text model warmed — continuing")
+                else:
+                    print("  [SUMMARIZER] deferring — text model unavailable (warm failed or commit pressure)")
+                    time.sleep(INTERVAL_SEC)
+                    continue
             events = get_unsummarized_events(time.time() - RAW_LOOKBACK_SECONDS)
             grouped: dict[str, list[dict]] = {}
             for event in events:
@@ -289,11 +290,13 @@ def summarizer_loop():
 
         except Exception as e:
             print(f"  [SUMMARIZER] Error: {e}")
+            failed = True
 
         # Sleep only for the time remaining in the interval so the tick cadence
-        # stays fixed regardless of how long the work took.
+        # stays fixed regardless of how long the work took. Failed ticks wait a
+        # full interval so a dead Ollama is not retried with zero backoff.
         elapsed = time.time() - tick_start
-        sleep_for = max(0.0, INTERVAL_SEC - elapsed)
+        sleep_for = INTERVAL_SEC if failed else max(0.0, INTERVAL_SEC - elapsed)
         if elapsed > 1:
             print(f"  [SUMMARIZER] Work took {elapsed:.0f}s, sleeping {sleep_for:.0f}s until next tick")
         time.sleep(sleep_for)

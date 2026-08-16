@@ -129,6 +129,10 @@ def load_classifier():
       print(f"[router] Classifier checkpoint not found at {CLASSIFIER_PATH}; using tool-driven retrieval")
       return None, None
 
+    from core.model_residency import can_load_light
+    if not can_load_light():
+      return None, None
+
     try:
       from transformers import AutoTokenizer
       _classification_tokenizer = AutoTokenizer.from_pretrained(CLASSIFIER_PATH, local_files_only=True)
