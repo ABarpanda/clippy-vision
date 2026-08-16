@@ -99,6 +99,7 @@ Clippy Vision runs a local text model for chat and uses accessibility APIs plus 
 - **First run** needs internet once for the text model (`qwen3:8b`, ~4.7 GB).
 - The setup wizard **checks your PC** against these numbers before installing. Below minimum → setup is blocked. Between minimum and recommended → you can continue with a warning that chat may feel slower.
 - Integrated / shared GPUs are allowed at minimum; a dedicated GPU still helps chat speed.
+- **Lower-spec / contributor machines:** if `main` is still too heavy, use branch [`dev/rag-ocr-capture`](https://github.com/protocorn/clippy-vision/tree/dev/rag-ocr-capture) — no vision model in setup, chat-only download, and recent Ollama stability fixes. Details in [CONTRIBUTING.md](CONTRIBUTING.md#lower-spec-machines).
 
 ---
 
