@@ -70,13 +70,13 @@ const DEFAULT_API_PORT = 8000
 let apiPort = Number(process.env.CLIPPY_API_PORT) || 0
 const OLLAMA_BASE_URL = 'http://127.0.0.1:11434'
 const RELEASE_REPOSITORY = 'protocorn/clippy-vision'
-const LOCAL_EMBEDDING_MODEL = 'nomic-embed-text'
+const LOCAL_EMBEDDING_MODEL = 'local:sentence-transformers/all-MiniLM-L6-v2'
 
 // Hosted and subscription providers are deliberately not active in this
 // release. Keep the names here as a documented extension seam until the
 // project is ready to define their privacy and authentication guarantees.
 // Future provider IDs: gemini_api, codex_cli, claude_cli.
-const OLLAMA_MAX_LOADED_MODELS = '2'
+const OLLAMA_MAX_LOADED_MODELS = '1'
 const OLLAMA_NUM_PARALLEL = '1'
 
 const DEFAULT_LLM_CONFIG = {
@@ -85,7 +85,7 @@ const DEFAULT_LLM_CONFIG = {
     api_key: '',
     cli_command: '',
     chat_model: 'qwen3:8b',
-    vision_model: 'qwen3-vl:4b',
+    // Capture uses accessibility + OCR; no vision model is downloaded or required.
     embedding_model: LOCAL_EMBEDDING_MODEL,
 }
 
@@ -105,9 +105,9 @@ function normalizeLLMConfig(values = {}) {
     // endpoint does not require an API key.
     merged.api_key = ''
     merged.cli_command = ''
-    for (const field of ['chat_model', 'vision_model']) {
-        merged[field] = String(merged[field] || DEFAULT_LLM_CONFIG[field]).trim()
-    }
+    merged.chat_model = String(merged.chat_model || DEFAULT_LLM_CONFIG.chat_model).trim()
+    // Drop leftover vision_model keys from older installs — setup never pulls VL.
+    delete merged.vision_model
     // Embeddings remain a local Ollama responsibility and cannot be redirected
     // to a hosted service through the desktop settings.
     merged.embedding_model = LOCAL_EMBEDDING_MODEL
@@ -115,7 +115,7 @@ function normalizeLLMConfig(values = {}) {
 }
 
 function validateLLMConfig(values = {}) {
-    for (const field of ['base_url', 'chat_model', 'vision_model']) {
+    for (const field of ['base_url', 'chat_model']) {
         if (Object.prototype.hasOwnProperty.call(values, field) && !String(values[field] || '').trim()) {
             throw new Error(`${field} cannot be empty.`)
         }
@@ -123,9 +123,7 @@ function validateLLMConfig(values = {}) {
     if (values.provider !== 'ollama' || !/^https?:\/\/[^\s]+$/i.test(values.base_url)) {
         throw new Error('Base URL must be a valid HTTP or HTTPS URL.')
     }
-    for (const field of ['chat_model', 'vision_model']) {
-        if (values[field].length > 240) throw new Error(`${field} is too long.`)
-    }
+    if (values.chat_model.length > 240) throw new Error('chat_model is too long.')
     return values
 }
 
@@ -138,7 +136,6 @@ function readLLMConfig() {
         api_key: process.env.CLIPPY_LLM_API_KEY,
         cli_command: process.env.CLIPPY_CLI_COMMAND,
         chat_model: process.env.CLIPPY_CHAT_MODEL,
-        vision_model: process.env.CLIPPY_VISION_MODEL,
     }
     return normalizeLLMConfig({ ...saved, ...Object.fromEntries(Object.entries(env).filter(([, value]) => value)) })
 }
@@ -152,7 +149,6 @@ function publicLLMConfig() {
         api_key: 'CLIPPY_LLM_API_KEY',
         cli_command: 'CLIPPY_CLI_COMMAND',
         chat_model: 'CLIPPY_CHAT_MODEL',
-        vision_model: 'CLIPPY_VISION_MODEL',
     }).filter(([, envName]) => String(process.env[envName] || '').trim()).map(([field]) => field)
     return { ...safe, api_key_set: Boolean(config.api_key), environment_overrides }
 }
@@ -193,6 +189,15 @@ function openProviderAuth() {
 function configuredOllamaBaseURL() {
     const config = readLLMConfig()
     return config.provider === 'ollama' ? config.base_url : OLLAMA_BASE_URL
+}
+
+function usesManagedOllama() {
+    const baseURL = configuredOllamaBaseURL().toLowerCase().replace(/\/+$/, '')
+    return new Set([
+        'http://127.0.0.1:11434',
+        'http://localhost:11434',
+        'http://[::1]:11434',
+    ]).has(baseURL)
 }
 
 function apiUrl(pathname = '') {
@@ -244,27 +249,68 @@ function buildPythonEnv(extra = {}) {
 }
 
 
-async function ensureOllamaParallelConfig({ persist = true, restart = false } = {}) {
-    // Keep text and vision residency predictable on machines with limited RAM.
+async function ensureOllamaParallelConfig({ persist = true } = {}) {
+    // Keep text-model residency predictable on machines with limited RAM.
     // Windows needs setx because Ollama may be started outside Electron.
     process.env.OLLAMA_MAX_LOADED_MODELS = OLLAMA_MAX_LOADED_MODELS
     process.env.OLLAMA_NUM_PARALLEL = OLLAMA_NUM_PARALLEL
 
     if (persist && process.platform === 'win32') {
-
         await runCommand('setx', ['OLLAMA_MAX_LOADED_MODELS', OLLAMA_MAX_LOADED_MODELS])
         await runCommand('setx', ['OLLAMA_NUM_PARALLEL', OLLAMA_NUM_PARALLEL])
     }
+}
 
-    if (!restart) return
+async function ollamaReachable(tries = 1, intervalMs = 250) {
+    return pollUntilAlive(configuredOllamaBaseURL(), intervalMs, tries).then(() => true).catch(() => false)
+}
 
 
+// Only one caller may launch a server at a time, otherwise two concurrent
+// spawns race for port 11434 and the loser dies with a bind error.
+let ollamaStartPromise = null
 
+async function ensureOllamaServing({ waitTries = 30 } = {}) {
+    /*
+     * Adopt any server that is already listening on the Ollama port.
+     *
+     * The desktop app and the Ollama tray app share one port. Restarting or
+     * force-killing `ollama.exe` makes the tray app relaunch its own server,
+     * and the two instances then fight over the socket: the loser exits with
+     * "bind: Only one usage of each socket address", while in-flight requests
+     * fail as HTTP 500 or connection refused. So Clippy never kills a server it
+     * does not own, and starts one only when the port is genuinely free.
+     */
+    if (!usesManagedOllama()) {
+        return ollamaReachable(3, 500)
+    }
+    if (await ollamaReachable(1, 250)) return true
+    if (ollamaStartPromise) return ollamaStartPromise
 
-    if (process.platform === 'win32') {
-        await runCommand('taskkill', ['/IM', 'ollama.exe', '/F'])
-        await new Promise((r) => setTimeout(r, 1500))
-        spawnHidden(OLLAMA_COMMAND, ['serve'], { cwd: ROOT, detached: false })
+    ollamaStartPromise = (async () => {
+        if (ollamaProcess && !ollamaProcess.killed) {
+            return ollamaReachable(waitTries, 1000)
+        }
+        console.log('[ollama] no server on', configuredOllamaBaseURL(), '— starting one')
+        const proc = spawnHidden(OLLAMA_COMMAND, ['serve'], { cwd: ROOT, detached: false })
+        ollamaProcess = proc
+        // Ollama reports load failures and bind conflicts on stderr. Surfacing
+        // them here is what turns an opaque HTTP 500 into a readable cause.
+        proc.stdout.on('data', (d) => console.log('[ollama]', d.toString().trim()))
+        proc.stderr.on('data', (d) => console.error('[ollama ERR]', d.toString().trim()))
+        proc.on('exit', (code) => {
+            console.log('[ollama] serve exited', code)
+            if (ollamaProcess === proc) ollamaProcess = null
+        })
+        const alive = await ollamaReachable(waitTries, 1000)
+        if (!alive) console.error('[ollama] server did not become reachable')
+        return alive
+    })()
+
+    try {
+        return await ollamaStartPromise
+    } finally {
+        ollamaStartPromise = null
     }
 }
 
@@ -274,6 +320,7 @@ let setupWindow   = null
 let tray          = null
 let captureProcess = null
 let apiProcess    = null
+let ollamaProcess = null
 let isQuitting    = false
 
 app.on('second-instance', () => {
@@ -321,13 +368,13 @@ function stepProgress(key, percent) {
 
 
 let doneSoFar = 0
-const STEP_TOTAL = 6
+let setupStepTotal = 6
 function markDone(key, sub) {
     // The renderer owns the visual step state; Electron only sends monotonic
     // completion updates after each asynchronous installer step finishes.
     doneSoFar++
     stepUpdate(key, 'done', sub)
-    sendSetup('setup-overall', { done: doneSoFar, text: `${doneSoFar} / ${STEP_TOTAL} steps` })
+    sendSetup('setup-overall', { done: doneSoFar, text: `${doneSoFar} / ${setupStepTotal} steps` })
 }
 
 
@@ -479,43 +526,28 @@ async function stepCheckOllama() {
 }
 
 async function stepStartOllamaService() {
-    // Start the service only after its concurrency limits are persisted; this
-    // prevents a vision request from evicting the text model unexpectedly.
+    // Capture is model-free, so Ollama only needs room for the text model.
     stepUpdate('ollama-service', 'running', 'Configuring & starting Ollama...')
     log('> ollama serve', 'dim')
 
 
-    log('Setting OLLAMA_MAX_LOADED_MODELS=2 (vision only while capturing)...', 'info')
-    await ensureOllamaParallelConfig({ persist: true, restart: true })
-
-
-
-
-    let serviceAlreadyAlive = false
-    try {
-        await pollUntilAlive(configuredOllamaBaseURL(), 250, 1)
-        serviceAlreadyAlive = true
-    } catch (_) {
-
-    }
-    if (!serviceAlreadyAlive && process.platform !== 'win32') {
-        log('Ollama is not running; starting a local service...', 'info')
-        spawnHidden(OLLAMA_COMMAND, ['serve'], { cwd: ROOT, detached: false })
-    }
+    log('Setting OLLAMA_MAX_LOADED_MODELS=1...', 'info')
+    await ensureOllamaParallelConfig({ persist: true })
 
     log('Waiting for Ollama service...', 'dim')
     stepProgress('ollama-service', -1)
 
-    try {
-        // Ensure Ollama is reachable before asking the API to load weights.
-        await pollUntilAlive(configuredOllamaBaseURL(), 1000, 30)
+    // Reuses a running server and starts one only when the port is free, so
+    // setup can never trigger a bind conflict with the Ollama tray app.
+    if (await ensureOllamaServing({ waitTries: 30 })) {
         log('Ollama ready.', 'ok')
         markDone('ollama-service', 'Ollama service running')
-    } catch (e) {
-        stepUpdate('ollama-service', 'error', 'Ollama service did not start in time.')
-        log(e.message, 'err')
-        throw new Error('ollama-service-timeout')
+        return
     }
+
+    stepUpdate('ollama-service', 'error', 'Ollama service did not start in time.')
+    log('Ollama did not become reachable on ' + configuredOllamaBaseURL(), 'err')
+    throw new Error('ollama-service-timeout')
 }
 
 async function stepInstallPackages() {
@@ -575,12 +607,10 @@ async function stepInstallPackages() {
 }
 
 async function stepPullModels() {
-    // Pull the embedding, text, and vision slots independently so an existing
-    // model is reused and interrupted setup can resume without redownloading.
+    // MiniLM ships with the app. Setup only pulls the chat model — capture uses
+    // accessibility text + OCR and never downloads a vision model.
     const models = [
-        { name: 'nomic-embed-text', label: 'nomic-embed-text (~274 MB)' },
-        { name: 'qwen3:8b',         label: 'qwen3:8b (~4.7 GB)' },
-        { name: 'qwen3-vl:4b',      label: 'qwen3-vl:4b (~2.9 GB)' },
+        { name: 'qwen3:8b', label: 'qwen3:8b (~4.7 GB)' },
     ]
 
     stepUpdate('models', 'running', 'Checking existing models...')
@@ -657,8 +687,8 @@ async function stepPullModels() {
 }
 
 async function stepWarmup() {
-    // Warm text during onboarding for a fast first chat. Vision is deliberately
-    // loaded on demand when capture begins to keep idle memory lower.
+    // Warm the configured chat model during onboarding for a fast first reply.
+    const chatModel = readLLMConfig().chat_model
     stepUpdate('warmup', 'running', 'Loading models into memory...')
     stepProgress('warmup', -1)
 
@@ -680,12 +710,12 @@ async function stepWarmup() {
     }
 
 
-    // Explicitly warm text and embeddings; vision stays idle until capture.
-    log('Warming text (vision loads when capture starts)...', 'info')
-    stepUpdate('warmup', 'running', 'Loading qwen3:8b...')
+    // Capture uses accessibility text with OCR fallback and warms no model.
+    log('Warming the text model...', 'info')
+    stepUpdate('warmup', 'running', `Loading ${chatModel}...`)
     try {
         await httpPost(apiUrl('/residency/startup'), {}, 120000)
-        log('Text model ready — vision idle until screen capture.', 'ok')
+        log('Text model ready — capture remains model-free.', 'ok')
     } catch (e) {
         log(`Model warm skipped or timed out (${e.message}) — continuing.`, 'info')
 
@@ -766,8 +796,12 @@ const stepFns = {
 async function runSetup(startFrom = 'python') {
     // Retry starts at the failed step, while a fresh install runs the complete
     // ordered chain from Python discovery through model warmup.
-    const order = ['python', 'ollama', 'ollama-service', 'packages', 'models', 'warmup']
-    const startIdx = order.indexOf(startFrom)
+    const order = usesManagedOllama()
+        ? ['python', 'ollama', 'ollama-service', 'packages', 'models', 'warmup']
+        : ['python', 'packages', 'warmup']
+    setupStepTotal = order.length
+    const requestedIndex = order.indexOf(startFrom)
+    const startIdx = requestedIndex >= 0 ? requestedIndex : 0
 
     for (let i = startIdx; i < order.length; i++) {
         const key = order[i]
@@ -791,52 +825,44 @@ async function runSetup(startFrom = 'python') {
 
 
 
-const REQUIRED_MODELS = ['nomic-embed-text', 'qwen3:8b', 'qwen3-vl:4b']
+const REQUIRED_MODELS = ['qwen3:8b']
 
 async function runPreflightChecks() {
     // Every normal launch verifies the local runtime before starting the API,
     // which turns missing models or permissions into a recoverable setup step.
-    // Ensure text can stay loaded when capture later pins vision.
+    const managedOllama = usesManagedOllama()
     const alreadyConfigured = process.env.OLLAMA_MAX_LOADED_MODELS === OLLAMA_MAX_LOADED_MODELS
-    await ensureOllamaParallelConfig({
-        persist: !alreadyConfigured,
-        restart: false,
-    })
+    if (managedOllama) {
+        await ensureOllamaParallelConfig({ persist: !alreadyConfigured })
+    }
 
     const py = await runCommand(PYTHON_COMMAND, ['--version'])
     if (py.code !== 0) {
         return { ok: false, step: 'python', reason: 'Python not found or not on PATH.' }
     }
 
-    const ol = await runCommand(OLLAMA_COMMAND, ['--version'])
-    if (ol.code !== 0) {
-        return { ok: false, step: 'ollama', reason: 'Ollama not found or not on PATH.' }
-    }
-
-    // If the environment changed, restart Ollama so the running service picks
-    // up the persisted residency limits before checking required models.
-    const serviceAlive = await pollUntilAlive(configuredOllamaBaseURL(), 500, 3).then(() => true).catch(() => false)
-    if (!alreadyConfigured) {
-        await ensureOllamaParallelConfig({ persist: false, restart: process.platform === 'win32' })
-        if (!serviceAlive && process.platform !== 'win32') {
-            spawnHidden(OLLAMA_COMMAND, ['serve'], { cwd: ROOT, detached: false })
+    if (!managedOllama) {
+        if (!(await ollamaReachable(3, 500))) {
+            return { ok: false, step: 'warmup', reason: 'The configured local API is not reachable.' }
         }
-        const started = await pollUntilAlive(configuredOllamaBaseURL(), 1000, 15).then(() => true).catch(() => false)
-        if (!started) {
+    } else {
+        const ol = await runCommand(OLLAMA_COMMAND, ['--version'])
+        if (ol.code !== 0) {
+            return { ok: false, step: 'ollama', reason: 'Ollama not found or not on PATH.' }
+        }
+
+        // Residency limits apply to whichever server owns the port; a running
+        // server is adopted as-is rather than restarted, because killing it
+        // starts a bind war with the Ollama tray app.
+        if (!(await ensureOllamaServing({ waitTries: 20 }))) {
             return { ok: false, step: 'ollama-service', reason: 'Ollama service could not be started.' }
         }
-    } else if (!serviceAlive) {
-        spawnHidden(OLLAMA_COMMAND, ['serve'], { cwd: ROOT, detached: false })
-        const started = await pollUntilAlive(configuredOllamaBaseURL(), 1000, 10).then(() => true).catch(() => false)
-        if (!started) {
-            return { ok: false, step: 'ollama-service', reason: 'Ollama service could not be started.' }
-        }
-    }
 
-    const list = await runCommand(OLLAMA_COMMAND, ['list'])
-    const missing = REQUIRED_MODELS.filter((name) => !ollamaListHasModel(list.stdout, name))
-    if (missing.length > 0) {
-        return { ok: false, step: 'models', reason: `Missing models: ${missing.join(', ')}` }
+        const list = await runCommand(OLLAMA_COMMAND, ['list'])
+        const missing = REQUIRED_MODELS.filter((name) => !ollamaListHasModel(list.stdout, name))
+        if (missing.length > 0) {
+            return { ok: false, step: 'models', reason: `Missing models: ${missing.join(', ')}` }
+        }
     }
 
 
@@ -856,10 +882,12 @@ async function runPreflightChecks() {
 
 
 
-const HW_MIN = { ramGb: 16, vramGb: 6, diskGb: 12 }
-const HW_REC = { ramGb: 32, vramGb: 8, diskGb: 15 }
-const HW_MIN_MAC = { ramGb: 16, vramGb: 16, diskGb: 12 }
-const HW_REC_MAC = { ramGb: 32, vramGb: 32, diskGb: 15 }
+// Capture is a11y + OCR (no VL), so the old 16 GB / 6 GB VRAM floor is gone.
+// Chat still wants headroom for qwen3:8b; integrated GPUs are allowed at minimum.
+const HW_MIN = { ramGb: 8, vramGb: 0, diskGb: 8 }
+const HW_REC = { ramGb: 16, vramGb: 4, diskGb: 10 }
+const HW_MIN_MAC = { ramGb: 8, vramGb: 8, diskGb: 8 }
+const HW_REC_MAC = { ramGb: 16, vramGb: 16, diskGb: 10 }
 
 function gradeResource(value, min, rec) {
     if (value < min) return 'fail'
@@ -923,8 +951,8 @@ async function getVramGb() {
 async function getHardwareCheck() {
     // Apple Silicon reports shared unified memory rather than discrete VRAM;
     // use total memory for the GPU grade so capable Macs are not blocked.
-    // Round RAM to the nearest GB so marketed 16 GB machines are not blocked
-    // by a small amount of reserved memory.
+    // Round RAM to the nearest GB so marketed machines are not blocked by a
+    // small amount of reserved memory (e.g. 7.8 GB reported on an 8 GB box).
     const ramGb = Math.round(os.totalmem() / (1024 ** 3))
     const diskRaw = await getFreeDiskGb(USER_DATA)
     const vramRaw = await getVramGb()
@@ -965,7 +993,7 @@ async function getHardwareCheck() {
                 : osId === 'macos-intel' ? 'macOS · Intel'
                 : osId,
         },
-        mode: 'ollama',
+        mode: usesManagedOllama() ? 'ollama' : 'external',
     }
 }
 
@@ -1243,13 +1271,6 @@ function broadcastCaptureStatus() {
     }
 }
 
-function notifyVisionUnload() {
-
-    httpPost(apiUrl('/residency/capture-stop'), {}, 10000).catch((e) => {
-        console.log('[Capture] vision unload notify failed:', e.message)
-    })
-}
-
 function startCapture() {
     // Capture is a separate Python process because keyboard hooks and image
     // processing must not block Electron's renderer or tray event loop.
@@ -1263,7 +1284,6 @@ function startCapture() {
         if (captureProcess !== proc) return
         captureProcess = null
         writeCaptureState(false)
-        notifyVisionUnload()
         updateTrayIcon()
         rebuildTrayMenu()
         broadcastCaptureStatus()
@@ -1288,7 +1308,6 @@ function stopCapture() {
         try { proc.kill('SIGTERM') } catch (_) { }
     }
 
-    notifyVisionUnload()
     updateTrayIcon()
     rebuildTrayMenu()
     broadcastCaptureStatus()
@@ -1570,6 +1589,12 @@ app.on('before-quit', () => {
             apiProcess.kill('SIGTERM')
         }
         apiProcess = null
+    }
+    // Only a server Clippy started is stopped here. A server owned by the
+    // Ollama tray app must survive, or it will relaunch and fight for the port.
+    if (ollamaProcess) {
+        try { ollamaProcess.kill('SIGTERM') } catch (_) { }
+        ollamaProcess = null
     }
     clearApiState()
     // Windows keeps painting a tray icon whose owner has exited until the user
