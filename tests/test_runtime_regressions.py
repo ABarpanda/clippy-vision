@@ -132,7 +132,7 @@ class RuntimeRegressionTests(unittest.TestCase):
             self.assertEqual(_foreground_accessibility_text(), "editor text")
 
     def test_screen_text_is_included_in_session_summary_prompt(self):
-        marker = "project alpha private milestone 4827"
+        marker = "project alpha private milestone 4827 planning notes"
         prompt = _build_prompt([{
             "timestamp": 100.0,
             "summary": "Background screenshot",
@@ -459,7 +459,7 @@ class RuntimeRegressionTests(unittest.TestCase):
     def test_vision_updates_only_pending_vision_events(self):
         event = make_event("vision-race")
         store_event(event)
-        conn.execute("UPDATE events SET classification_status='awaiting_vision' WHERE event_id=?", (event["event_id"],))
+        conn.execute("UPDATE events SET classification_status='screenshot_only' WHERE event_id=?", (event["event_id"],))
         conn.commit()
         verdict = {
             "verdict": "interesting",
@@ -559,12 +559,39 @@ class RuntimeRegressionTests(unittest.TestCase):
         with patch(
             "core.screenshot_enrichment.get_capture_settings",
             return_value={"ocr_enabled": True, "image_embeddings_enabled": False},
-        ), patch("core.screenshot_enrichment.extract_text", return_value="Document body from OCR") as extract_ocr:
+        ), patch("core.screenshot_enrichment.extract_text", return_value="Document body from OCR with enough words to count as useful screen text") as extract_ocr:
             captured_text, _, _ = enrich_screenshot(path)
 
         extract_ocr.assert_called_once_with(path)
-        self.assertIn("OK", captured_text)
-        self.assertIn("Document body from OCR", captured_text)
+        # Useful OCR replaces weak a11y — do not merge chrome/noise with OCR.
+        self.assertEqual(
+            captured_text,
+            "Document body from OCR with enough words to count as useful screen text",
+        )
+        self.assertNotIn("OK", captured_text)
+
+    def test_weak_ocr_keeps_accessibility_fallback(self):
+        path = get_screenshots_dir() / "accessibility-ocr-weak.jpg"
+        Image.new("RGB", (4, 4), "white").save(path, format="JPEG")
+        self.addCleanup(path.unlink, missing_ok=True)
+        weak_a11y = "remote\nWarnings: 7\nToggle Panel"
+        remember_accessibility_text(path, weak_a11y)
+
+        with patch(
+            "core.screenshot_enrichment.get_capture_settings",
+            return_value={"ocr_enabled": True, "image_embeddings_enabled": False},
+        ), patch("core.screenshot_enrichment.extract_text", return_value="OK"):
+            captured_text, _, _ = enrich_screenshot(path)
+
+        self.assertIn("Warnings: 7", captured_text)
+        self.assertNotIn("OK", captured_text)
+
+    def test_choose_screen_text_prefers_useful_ocr_over_a11y_noise(self):
+        from core.screenshot_enrichment import choose_screen_text
+
+        a11y = "\n".join(["Pin conversation", "Open conversation options"] * 8)
+        ocr = "Crafting Interview Introduction. Write a strong opening paragraph about your goals."
+        self.assertEqual(choose_screen_text(a11y, ocr), ocr)
 
     def test_capture_models_and_event_rag_are_opt_in(self):
         settings = normalize_capture_settings({})
@@ -658,6 +685,254 @@ class RuntimeRegressionTests(unittest.TestCase):
         _ensure_column("events", "classification_status", "TEXT DEFAULT 'pending'")
         _ensure_column("sessions", "summary_embedding", "TEXT")
         self.assertEqual(_table_columns("events"), before)
+
+    def test_ram_floors_tier_work_by_model_size(self):
+        from core import model_residency as residency
+        gb = residency._GB
+        with patch.object(residency, "_commit_pressured", return_value=False), patch.object(
+            residency, "text_model_loaded", return_value=False
+        ):
+            with patch.object(residency, "_available", return_value=int(3.0 * gb)):
+                self.assertTrue(residency.can_load_text())
+            with patch.object(residency, "_available", return_value=int(1.2 * gb)):
+                self.assertFalse(residency.can_load_text())
+                self.assertTrue(residency.can_load_light())
+            with patch.object(residency, "_available", return_value=int(0.6 * gb)):
+                self.assertFalse(residency.can_load_light())
+                self.assertTrue(residency.can_run_ocr())
+            with patch.object(residency, "_available", return_value=int(0.2 * gb)):
+                self.assertFalse(residency.can_run_ocr())
+
+    def test_resident_text_model_allows_inference_despite_low_free_ram(self):
+        """Chat already paid for the model; summarizer must not defer on available RAM."""
+        from core import model_residency as residency
+        with patch.object(residency, "text_model_loaded", return_value=True), patch.object(
+            residency, "_available", return_value=int(0.4 * residency._GB)
+        ), patch.object(residency, "_commit_pressured", return_value=False):
+            self.assertTrue(residency.can_load_text())
+            self.assertFalse(residency.can_cold_load_text())
+
+    def test_ensure_text_model_tries_warm_below_floor(self):
+        """Startup/summarizer must attempt load instead of hard-skipping on free RAM."""
+        from core import model_residency as residency
+
+        with patch.object(residency, "text_model_loaded", side_effect=[False, True]), patch.object(
+            residency, "_available", return_value=int(0.9 * residency._GB)
+        ), patch.object(residency, "_commit_pressured", return_value=False), patch.object(
+            residency, "_warm"
+        ) as warm:
+            self.assertTrue(residency.ensure_text_model(force=True))
+            warm.assert_called_once()
+
+    def test_ensure_text_model_skips_when_commit_pressured(self):
+        from core import model_residency as residency
+
+        with patch.object(residency, "text_model_loaded", return_value=False), patch.object(
+            residency, "_commit_pressured", return_value=True
+        ), patch.object(residency, "_warm") as warm:
+            self.assertFalse(residency.ensure_text_model(force=False))
+            warm.assert_not_called()
+
+    def test_commit_pressure_defers_work_even_with_free_ram(self):
+        """Zombie model runners exhaust Windows commit while physical RAM looks fine."""
+        from core import model_residency as residency
+        with patch.object(residency, "text_model_loaded", return_value=False), patch.object(
+            residency, "_available", return_value=int(8 * residency._GB)
+        ), patch.object(residency, "_commit_pressured", return_value=True):
+            self.assertFalse(residency.can_load_text())
+            self.assertFalse(residency.can_load_light())
+            self.assertFalse(residency.can_run_ocr())
+
+    def test_live_classify_defers_ambiguous_events_without_llm(self):
+        from classifier.worker import classify_event
+
+        event = make_event("defer-ambiguous", event_type="context_change")
+        event["window_context"]["process_name"] = "Cursor.exe"
+        event["window_context"]["current_window_title"] = "Clippy_Vision"
+        event["summary"] = "Switched to Cursor.exe from chrome.exe after 12s"
+        store_event(event)
+        payload = {
+            "event_id": event["event_id"],
+            "timestamp": event["timestamp"],
+            "event_type": event["event_type"],
+            "process_name": "Cursor.exe",
+            "summary": event["summary"],
+            "payload": "{}",
+            "window_context": event["window_context"],
+            "previous_window_context": {
+                "process_name": "chrome.exe",
+                "current_window_title": "Docs",
+            },
+        }
+        with patch("classifier.worker.tier_zero_classifier", return_value=None), patch(
+            "classifier.worker.tier1_score", return_value=None
+        ), patch("classifier.worker.lookup_duplicate_verdict", return_value=None), patch(
+            "classifier.worker.classify_with_llm"
+        ) as llm:
+            classify_event(payload, allow_tier2=False)
+        llm.assert_not_called()
+        status = conn.execute(
+            "SELECT classification_status FROM events WHERE event_id=?",
+            (event["event_id"],),
+        ).fetchone()[0]
+        self.assertEqual(status, "deferred")
+
+    def test_duplicate_ambiguous_events_reuse_cached_verdict(self):
+        from classifier.worker import classify_event
+
+        first = make_event("dup-first", event_type="context_change", timestamp=1000.0)
+        first["window_context"]["process_name"] = "chrome.exe"
+        first["window_context"]["current_window_title"] = "Docs"
+        first["summary"] = "Switched to chrome.exe - Docs from Cursor.exe"
+        store_event(first)
+        apply_verdict(first["event_id"], {
+            "verdict": "not_interesting",
+            "score": 2,
+            "reason": "routine app switch",
+        })
+
+        second = make_event("dup-second", event_type="context_change", timestamp=1010.0)
+        second["window_context"]["process_name"] = "chrome.exe"
+        second["window_context"]["current_window_title"] = "Docs"
+        second["summary"] = "Switched to chrome.exe - Docs from Cursor.exe"
+        store_event(second)
+        payload = {
+            "event_id": second["event_id"],
+            "timestamp": second["timestamp"],
+            "event_type": second["event_type"],
+            "process_name": "chrome.exe",
+            "summary": second["summary"],
+            "payload": "{}",
+            "window_context": second["window_context"],
+            "previous_window_context": {
+                "process_name": "Cursor.exe",
+                "current_window_title": "Editor",
+            },
+        }
+        with patch("classifier.worker.tier_zero_classifier", return_value=None), patch(
+            "classifier.worker.tier1_score", return_value=None
+        ), patch("classifier.worker.classify_with_llm") as llm:
+            classify_event(payload, allow_tier2=False)
+        llm.assert_not_called()
+        row = conn.execute(
+            "SELECT classification_status, interesting, interest_reason FROM events WHERE event_id=?",
+            (second["event_id"],),
+        ).fetchone()
+        self.assertEqual(row[0], "done")
+        self.assertEqual(row[1], 0)
+        self.assertIn("Cached duplicate", row[2])
+
+    def test_catch_up_classify_calls_llm_and_completes(self):
+        from classifier.worker import classify_event
+
+        event = make_event("catch-up-llm", event_type="context_change")
+        event["window_context"]["process_name"] = "UniqueApp.exe"
+        event["summary"] = "Switched to UniqueApp.exe for rare work"
+        store_event(event)
+        conn.execute(
+            "UPDATE events SET classification_status='deferred' WHERE event_id=?",
+            (event["event_id"],),
+        )
+        conn.commit()
+        payload = {
+            "event_id": event["event_id"],
+            "timestamp": event["timestamp"],
+            "event_type": event["event_type"],
+            "process_name": "UniqueApp.exe",
+            "summary": event["summary"],
+            "payload": "{}",
+            "window_context": event["window_context"],
+            "previous_window_context": None,
+        }
+        with patch("classifier.worker.tier_zero_classifier", return_value=None), patch(
+            "classifier.worker.tier1_score", return_value=None
+        ), patch("classifier.worker.lookup_duplicate_verdict", return_value=None), patch(
+            "classifier.worker.classify_with_llm",
+            return_value={"verdict": "interesting", "score": 8, "reason": "novel app"},
+        ) as llm:
+            classify_event(payload, allow_tier2=True)
+        llm.assert_called_once()
+        row = conn.execute(
+            "SELECT classification_status, interesting FROM events WHERE event_id=?",
+            (event["event_id"],),
+        ).fetchone()
+        self.assertEqual(row, ("done", 1))
+
+    def test_catch_up_ram_failure_leaves_deferred_without_sleeping(self):
+        from classifier.worker import classify_event
+
+        event = make_event("catch-up-ram", event_type="context_change")
+        event["window_context"]["process_name"] = "OtherApp.exe"
+        store_event(event)
+        conn.execute(
+            "UPDATE events SET classification_status='deferred' WHERE event_id=?",
+            (event["event_id"],),
+        )
+        conn.commit()
+        payload = {
+            "event_id": event["event_id"],
+            "timestamp": event["timestamp"],
+            "event_type": event["event_type"],
+            "process_name": "OtherApp.exe",
+            "summary": event["summary"],
+            "payload": "{}",
+            "window_context": event["window_context"],
+            "previous_window_context": None,
+        }
+        with patch("classifier.worker.tier_zero_classifier", return_value=None), patch(
+            "classifier.worker.tier1_score", return_value=None
+        ), patch("classifier.worker.lookup_duplicate_verdict", return_value=None), patch(
+            "classifier.worker.classify_with_llm",
+            side_effect=OSError("deferred: ram below floor"),
+        ), patch("classifier.worker.time.sleep") as sleep:
+            classify_event(payload, allow_tier2=True)
+        sleep.assert_not_called()
+        status = conn.execute(
+            "SELECT classification_status FROM events WHERE event_id=?",
+            (event["event_id"],),
+        ).fetchone()[0]
+        self.assertEqual(status, "deferred")
+
+    def test_backlog_status_auto_catch_up_gates(self):
+        from core.backlog import get_backlog_status
+        from core import backlog as backlog_mod
+
+        event = make_event("backlog-api-event", timestamp=time.time() - 20 * 60)
+        store_event(event)
+        conn.execute(
+            "UPDATE events SET classification_status='deferred' WHERE event_id=?",
+            (event["event_id"],),
+        )
+        conn.commit()
+
+        status = get_backlog_status()
+        self.assertGreaterEqual(status["deferred"], 1)
+        self.assertTrue(status["recommend"])
+
+        with patch.object(backlog_mod, "_counts", return_value={
+            "deferred": 3,
+            "pending": 0,
+            "oldest_deferred_ts": time.time(),
+            "oldest_deferred_age_secs": 10,
+            "recommend": False,
+        }), patch.object(backlog_mod, "get_capture_status", return_value={"active": True}):
+            self.assertFalse(backlog_mod.catch_up_allowed())
+        with patch.object(backlog_mod, "_counts", return_value={
+            "deferred": 80,
+            "pending": 0,
+            "oldest_deferred_ts": time.time() - 1000,
+            "oldest_deferred_age_secs": 1000,
+            "recommend": True,
+        }), patch.object(backlog_mod, "get_capture_status", return_value={"active": True}):
+            self.assertTrue(backlog_mod.catch_up_allowed())
+        with patch.object(backlog_mod, "_counts", return_value={
+            "deferred": 1,
+            "pending": 0,
+            "oldest_deferred_ts": time.time(),
+            "oldest_deferred_age_secs": 1,
+            "recommend": False,
+        }), patch.object(backlog_mod, "get_capture_status", return_value={"active": False}):
+            self.assertTrue(backlog_mod.catch_up_allowed())
 
 
 if __name__ == "__main__":
