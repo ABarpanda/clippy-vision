@@ -1445,37 +1445,15 @@
         </div>
       </section>
 
-      <section class="settings-section settings-section-disabled" id="privacy-section">
-        <div class="settings-section-title-row">
-          <h2>Access control</h2>
-          <span class="settings-badge">Coming soon</span>
-        </div>
+      <section class="settings-section" id="privacy-section">
+        <h2>Access control</h2>
         <p class="settings-hint">
-          Soon you’ll be able to pick which apps and windows Clippy can see — sensitive ones
-          (messages, banking, etc.) will be blacked out automatically in screenshots.
+          Choose which apps and windows Clippy should black out in screenshots.
+          Clippy Vision’s own window is always redacted and isn’t listed here.
         </p>
-        <div class="settings-coming-soon" aria-disabled="true">
-          <p>
-            <strong style="font-weight:600; color: var(--text);">For now:</strong>
-            use screen capture as your privacy switch. When capture is off, Clippy stops
-            taking screenshots until you turn it back on.
-          </p>
-          <span class="settings-coming-label">Header controls</span>
-          <div class="settings-capture-demos">
-            <button type="button" class="capture-btn" tabindex="-1" aria-hidden="true">
-              <span class="capture-dot"></span>
-              <span>Start Capture</span>
-            </button>
-            <button type="button" class="capture-btn active" tabindex="-1" aria-hidden="true">
-              <span class="capture-dot"></span>
-              <span>Stop Capture</span>
-            </button>
-          </div>
-          <p>
-            Find these on the main chat header. Tap <em>Start Capture</em> when you want
-            Clippy watching your screen; tap <em>Stop Capture</em> whenever you need privacy
-            or you’re done for the moment.
-          </p>
+        <div id="privacy-list" class="privacy-list"></div>
+        <div class="settings-actions">
+          <span id="privacy-status" class="settings-status"></span>
         </div>
       </section>
 
@@ -1574,6 +1552,8 @@
     const updateCheckToggle = document.getElementById('update-check-toggle')
     const updatesStatus = document.getElementById('updates-status')
     const aboutVersion = document.getElementById('about-version')
+    const privacyList = document.getElementById('privacy-list')
+    const privacyStatus = document.getElementById('privacy-status')
 
     let isLoading = false
     // In-flight bot reply kept across conversation switches
@@ -2441,24 +2421,79 @@
       }
     }
 
-    async function saveUpdateCheck() {
-      const desired = updateCheckToggle.checked
-      updateCheckToggle.disabled = true
+    function renderPrivacyTargets(targets) {
+      privacyList.innerHTML = ''
+      if (!targets.length) {
+        const empty = document.createElement('div')
+        empty.className = 'settings-hint'
+        empty.style.marginBottom = '0'
+        empty.textContent = 'No privacy targets available.'
+        privacyList.appendChild(empty)
+        return
+      }
+      for (const target of targets) {
+        const row = document.createElement('div')
+        row.className = 'privacy-row'
+
+        const textWrap = document.createElement('div')
+        textWrap.className = 'privacy-row-text'
+        const strong = document.createElement('strong')
+        strong.textContent = target.label
+        const span = document.createElement('span')
+        span.textContent = target.description
+        textWrap.appendChild(strong)
+        textWrap.appendChild(span)
+
+        const toggleLabel = document.createElement('label')
+        toggleLabel.className = 'toggle'
+        const checkbox = document.createElement('input')
+        checkbox.type = 'checkbox'
+        checkbox.checked = !!target.enabled
+        const track = document.createElement('span')
+        track.className = 'toggle-track'
+        toggleLabel.appendChild(checkbox)
+        toggleLabel.appendChild(track)
+
+        checkbox.addEventListener('change', () => togglePrivacyTarget(target.id, checkbox))
+
+        row.appendChild(textWrap)
+        row.appendChild(toggleLabel)
+        privacyList.appendChild(row)
+      }
+    }
+
+    async function loadPrivacySettings() {
+      setStatus(privacyStatus, 'Loading…', null)
       try {
-        const saved = await window.clippy.setUpdateCheckEnabled(desired)
-        updateCheckToggle.checked = saved
-        setStatus(updatesStatus, saved ? 'Update checks on.' : 'Update checks off.', 'ok')
+        const data = await window.clippy.getPrivacySettings()
+        renderPrivacyTargets(data.targets || [])
+        setStatus(privacyStatus, '', null)
       } catch (error) {
-        updateCheckToggle.checked = !desired
-        setStatus(updatesStatus, `Could not save: ${error.message}`, 'error')
+        privacyList.innerHTML = ''
+        setStatus(privacyStatus, `Could not load privacy settings: ${error.message}`, 'error')
+      }
+    }
+
+    async function togglePrivacyTarget(id, checkbox) {
+      const desired = checkbox.checked
+      checkbox.disabled = true
+      setStatus(privacyStatus, 'Saving…', null)
+      try {
+        await window.clippy.updatePrivacySettings({ [id]: desired })
+        setStatus(privacyStatus, 'Saved.', 'ok')
+        setTimeout(() => setStatus(privacyStatus, '', null), 1500)
+      } catch (error) {
+        checkbox.checked = !desired
+        setStatus(privacyStatus, `Could not save: ${error.message}`, 'error')
       } finally {
-        updateCheckToggle.disabled = false
+        checkbox.disabled = false
       }
     }
 
     async function loadSettings() {
       loadUpdateCheck()
       loadAppVersion()
+      loadPrivacySettings()
       setStatus(profileStatus, 'Loading…', null)
       try {
         const profile = await window.clippy.getProfile()
@@ -2532,6 +2567,21 @@
     })
     profileSaveBtn.addEventListener('click', saveProfile)
     updateCheckToggle.addEventListener('change', saveUpdateCheck)
+
+    async function saveUpdateCheck() {
+      const desired = updateCheckToggle.checked
+      updateCheckToggle.disabled = true
+      try {
+        const saved = await window.clippy.setUpdateCheckEnabled(desired)
+        updateCheckToggle.checked = saved
+        setStatus(updatesStatus, saved ? 'Update checks on.' : 'Update checks off.', 'ok')
+      } catch (error) {
+        updateCheckToggle.checked = !desired
+        setStatus(updatesStatus, `Could not save: ${error.message}`, 'error')
+      } finally {
+        updateCheckToggle.disabled = false
+      }
+    }
 
     init()
   </script>
