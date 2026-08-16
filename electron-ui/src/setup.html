@@ -546,7 +546,6 @@
             <label id="llm-base-url-field">Base URL<input id="llm-base-url" placeholder="http://127.0.0.1:1234/v1" /></label>
             <div class="provider-fields">
               <label>Chat model<input id="llm-chat-model" placeholder="local-chat" /></label>
-              <label id="llm-vision-model-field">Vision model<input id="llm-vision-model" placeholder="local-vision" /></label>
             </div>
             <label id="llm-cli-command-field" hidden>CLI command/path<input id="llm-cli-command" placeholder="Detected from PATH" /></label>
             <div class="provider-help">MiniLM embeddings are bundled and event RAG is opt-in.</div>
@@ -813,13 +812,11 @@
       $('llm-provider').value = provider
       $('provider-details').hidden = false
       $('llm-base-url-field').hidden = false
-      $('llm-vision-model-field').hidden = true
       $('llm-api-key-field').hidden = true
       $('llm-cli-command-field').hidden = true
       $('llm-connect-btn').hidden = true
       $('llm-base-url').value = config.base_url || 'http://127.0.0.1:11434'
       $('llm-chat-model').value = config.chat_model || 'qwen3:8b'
-      $('llm-vision-model').value = config.vision_model || $('llm-chat-model').value
       $('llm-cli-command').value = config.cli_command || ''
       $('llm-api-key').value = ''
       $('llm-api-key').placeholder = config.api_key_set ? 'Saved key is set · leave blank to keep it' : 'Leave blank if your local server needs no key'
@@ -836,7 +833,6 @@
         base_url: $('llm-base-url').value.trim(),
         cli_command: $('llm-cli-command').value.trim(),
         chat_model: $('llm-chat-model').value.trim(),
-        vision_model: $('llm-vision-model').value.trim(),
       }
       const apiKey = $('llm-api-key').value.trim()
       if (apiKey) values.api_key = apiKey
@@ -855,7 +851,6 @@
       $('llm-provider').value = 'ollama'
       $('llm-base-url').value = 'http://127.0.0.1:11434'
       $('llm-chat-model').value = 'qwen3:8b'
-      $('llm-vision-model').value = 'qwen3-vl:4b'
       $('provider-help').textContent = 'Ollama manages the chat model; capture uses accessibility text and local OCR.'
       try {
         await saveSelectedLLMConfig()

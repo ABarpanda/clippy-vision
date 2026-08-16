@@ -85,7 +85,7 @@ const DEFAULT_LLM_CONFIG = {
     api_key: '',
     cli_command: '',
     chat_model: 'qwen3:8b',
-    vision_model: 'qwen3-vl:4b',
+    // Capture uses accessibility + OCR; no vision model is downloaded or required.
     embedding_model: LOCAL_EMBEDDING_MODEL,
 }
 
@@ -105,9 +105,9 @@ function normalizeLLMConfig(values = {}) {
     // endpoint does not require an API key.
     merged.api_key = ''
     merged.cli_command = ''
-    for (const field of ['chat_model', 'vision_model']) {
-        merged[field] = String(merged[field] || DEFAULT_LLM_CONFIG[field]).trim()
-    }
+    merged.chat_model = String(merged.chat_model || DEFAULT_LLM_CONFIG.chat_model).trim()
+    // Drop leftover vision_model keys from older installs — setup never pulls VL.
+    delete merged.vision_model
     // Embeddings remain a local Ollama responsibility and cannot be redirected
     // to a hosted service through the desktop settings.
     merged.embedding_model = LOCAL_EMBEDDING_MODEL
@@ -115,7 +115,7 @@ function normalizeLLMConfig(values = {}) {
 }
 
 function validateLLMConfig(values = {}) {
-    for (const field of ['base_url', 'chat_model', 'vision_model']) {
+    for (const field of ['base_url', 'chat_model']) {
         if (Object.prototype.hasOwnProperty.call(values, field) && !String(values[field] || '').trim()) {
             throw new Error(`${field} cannot be empty.`)
         }
@@ -123,9 +123,7 @@ function validateLLMConfig(values = {}) {
     if (values.provider !== 'ollama' || !/^https?:\/\/[^\s]+$/i.test(values.base_url)) {
         throw new Error('Base URL must be a valid HTTP or HTTPS URL.')
     }
-    for (const field of ['chat_model', 'vision_model']) {
-        if (values[field].length > 240) throw new Error(`${field} is too long.`)
-    }
+    if (values.chat_model.length > 240) throw new Error('chat_model is too long.')
     return values
 }
 
@@ -138,7 +136,6 @@ function readLLMConfig() {
         api_key: process.env.CLIPPY_LLM_API_KEY,
         cli_command: process.env.CLIPPY_CLI_COMMAND,
         chat_model: process.env.CLIPPY_CHAT_MODEL,
-        vision_model: process.env.CLIPPY_VISION_MODEL,
     }
     return normalizeLLMConfig({ ...saved, ...Object.fromEntries(Object.entries(env).filter(([, value]) => value)) })
 }
@@ -152,7 +149,6 @@ function publicLLMConfig() {
         api_key: 'CLIPPY_LLM_API_KEY',
         cli_command: 'CLIPPY_CLI_COMMAND',
         chat_model: 'CLIPPY_CHAT_MODEL',
-        vision_model: 'CLIPPY_VISION_MODEL',
     }).filter(([, envName]) => String(process.env[envName] || '').trim()).map(([field]) => field)
     return { ...safe, api_key_set: Boolean(config.api_key), environment_overrides }
 }
@@ -611,13 +607,10 @@ async function stepInstallPackages() {
 }
 
 async function stepPullModels() {
-    // MiniLM ships with the app; setup only pulls the chat/reasoning model.
-    // Capture uses accessibility text + OCR and does not need a vision model.
+    // MiniLM ships with the app. Setup only pulls the chat model — capture uses
+    // accessibility text + OCR and never downloads a vision model.
     const models = [
         { name: 'qwen3:8b', label: 'qwen3:8b (~4.7 GB)' },
-        // Intentionally not downloaded. Capture no longer loads VL; keeping this
-        // commented avoids ~3 GB on every install and the old 16 GB / 6 GB floor.
-        // { name: 'qwen3-vl:4b', label: 'qwen3-vl:4b (~3.2 GB)' },
     ]
 
     stepUpdate('models', 'running', 'Checking existing models...')
