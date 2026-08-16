@@ -891,7 +891,7 @@
 
     #input-row {
       display: flex;
-      align-items: center;
+      align-items: flex-end;
       padding: 16px;
       gap: 10px;
       background: var(--panel);
@@ -907,7 +907,12 @@
       color: var(--text);
       font-size: 14px;
       font-family: inherit;
+      line-height: 1.45;
       outline: none;
+      resize: none;
+      min-height: 40px;
+      max-height: 160px;
+      overflow-y: auto;
     }
 
     #input-box:focus { border-color: var(--accent); }
@@ -1395,7 +1400,7 @@
         <div id="messages"></div>
 
         <div id="input-row">
-          <input id="input-box" type="text" placeholder="Ask Clippy..." maxlength="4000" />
+          <textarea id="input-box" rows="1" placeholder="Ask Clippy..." maxlength="4000"></textarea>
           <span id="input-char-count" class="char-count" aria-live="polite"></span>
           <button id="send-btn">Send</button>
         </div>
@@ -1827,6 +1832,7 @@
       conversationId = crypto.randomUUID()
       messages.innerHTML = ''
       inputBox.value = ''
+      inputBox.style.height = 'auto'
       setChatMode('welcome')
       highlightActiveConversation()
       closeDrawer()
@@ -2108,7 +2114,7 @@
       isLoading = true
       addMessage(text, 'user')
       source.value = ''
-      if (fromWelcome) welcomeInput.style.height = 'auto'
+      source.style.height = 'auto'
       sendBtn.disabled = true
       welcomeSend.disabled = true
 
@@ -2286,7 +2292,10 @@
     newChatBtn.addEventListener('click', resetConversation)
     sendBtn.addEventListener('click', () => send(false))
     inputBox.addEventListener('keydown', e => {
-      if (e.key === 'Enter') send(false)
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault()
+        send(false)
+      }
     })
 
     welcomeSend.addEventListener('click', () => send(true))
@@ -2302,6 +2311,8 @@
       updateCharCount(welcomeInput, welcomeCharCount)
     })
     inputBox.addEventListener('input', () => {
+      inputBox.style.height = 'auto'
+      inputBox.style.height = Math.min(inputBox.scrollHeight, 160) + 'px'
       updateCharCount(inputBox, inputCharCount)
     })
 
