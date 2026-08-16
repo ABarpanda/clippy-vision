@@ -353,6 +353,10 @@ def _stream_ollama(messages: list[dict], prefetch_active: bool = False):
         timeout=180,
         think=True,
     ):
+        gateway_status = chunk.get("_gateway_status")
+        if gateway_status:
+            yield ("status", gateway_status)
+            continue
         msg = chunk.get("message") or {}
         t_delta = msg.get("thinking") or ""
         c_delta = msg.get("content") or ""
@@ -469,7 +473,7 @@ def _finalize_answer(user_message: str, conversation_id: str, thinking: str, ans
 
 def run_stream(user_message: str, conversation_id: str):
     """Yield SSE-ready event dicts while running the ReAct loop with streamed thinking."""
-    yield {"type": "status", "text": "Thinking"}
+    yield {"type": "status", "text": "Preparing response"}
     messages, active_tools, prefetch_active, user_message = _prepare_turn(user_message, conversation_id)
 
     for step in range(MAX_STEPS):
@@ -486,6 +490,8 @@ def run_stream(user_message: str, conversation_id: str):
             if kind == "thinking":
                 thinking += payload
                 yield {"type": "thinking", "delta": payload}
+            elif kind == "status":
+                yield {"type": "status", "text": payload}
             elif kind == "content":
                 content += payload
 

@@ -17,11 +17,15 @@ from core.storage import conn
 RECOMMEND_COUNT = 50
 RECOMMEND_AGE_SECS = 15 * 60
 CATCH_UP_COOLDOWN_SECS = 45
+# LLM timeouts need a long pause — short cooldowns just re-hammer the same event.
+CATCH_UP_TIMEOUT_COOLDOWN_SECS = 5 * 60
+DEFERRED_EVENT_SKIP_SECS = 10 * 60
 
 _lock = threading.Lock()
 _running = False
 _cooldown_until = 0.0
 _last_error: str | None = None
+_deferred_skip_until: dict[str, float] = {}
 
 
 def catch_up_allowed() -> bool:
@@ -42,12 +46,38 @@ def set_catch_up_running(active: bool) -> None:
         _running = bool(active)
 
 
-def note_catch_up_failure(message: str, cooldown_secs: float = CATCH_UP_COOLDOWN_SECS) -> None:
-    """Record a soft failure without blocking the worker thread for 30s."""
+def note_catch_up_failure(message: str, cooldown_secs: float | None = None) -> None:
+    """Record a soft failure and pause catch-up. Timeouts get a longer cooldown."""
     global _cooldown_until, _last_error
+    text = str(message)
+    if cooldown_secs is None:
+        low = text.casefold()
+        if "timed out" in low or "timeout" in low:
+            cooldown_secs = CATCH_UP_TIMEOUT_COOLDOWN_SECS
+        else:
+            cooldown_secs = CATCH_UP_COOLDOWN_SECS
     with _lock:
         _cooldown_until = time.time() + max(5.0, float(cooldown_secs))
-        _last_error = str(message)[:240]
+        _last_error = text[:240]
+
+
+def note_deferred_event_skip(event_id: str, skip_secs: float = DEFERRED_EVENT_SKIP_SECS) -> None:
+    """Temporarily skip one deferred event so timeouts rotate instead of sticking."""
+    with _lock:
+        _deferred_skip_until[str(event_id)] = time.time() + max(30.0, float(skip_secs))
+
+
+def deferred_event_skipped(event_id: str) -> bool:
+    now = time.time()
+    eid = str(event_id)
+    with _lock:
+        until = _deferred_skip_until.get(eid)
+        if until is None:
+            return False
+        if now >= until:
+            _deferred_skip_until.pop(eid, None)
+            return False
+        return True
 
 
 def _counts() -> dict:

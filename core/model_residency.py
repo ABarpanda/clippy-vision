@@ -9,14 +9,22 @@ Persists to <data>/model_residency.json. Gateway reads policy via keep_alive_for
 from __future__ import annotations
 
 import json
+import subprocess
 import threading
 import time
-import urllib.error
-import urllib.request
 from pathlib import Path
 from typing import Any, Literal
 
 import psutil
+
+from core.ollama_client import (
+    OllamaUnavailable,
+    base_url,
+    get_json,
+    post_json,
+    server_reachable,
+    wait_until_reachable,
+)
 
 try:
     from core.paths import get_data_dir
@@ -25,6 +33,8 @@ except ImportError:
 
 TEXT_MODEL = "qwen3:8b"
 VL_MODEL = "qwen3-vl:4b"
+# Ollama's model runner across versions and platforms.
+_RUNNER_PROCESS_NAMES = ("llama-server", "ollama_llama_server")
 
 VisionPolicy = Literal["idle", "pinned", "on_demand"]
 
@@ -45,7 +55,7 @@ KEEP_ALIVE_PINNED = "1h"
 KEEP_ALIVE_VL_EPHEMERAL = "5m"
 KEEP_ALIVE_UNLOAD = 0
 
-_OLLAMA = "http://127.0.0.1:11434"
+_OLLAMA = base_url()
 _STATE_NAME = "model_residency.json"
 
 _policy: VisionPolicy = "idle"
@@ -55,6 +65,10 @@ _lock = threading.Lock()
 _ps_cache: tuple[float, set[str]] | None = None
 _last_warm_attempt_mono = 0.0
 _WARM_RETRY_SECS = 120.0
+# Whether a GPU can host the text model. When it can, free *system* RAM says
+# nothing about whether a load will succeed, so the RAM floors must not gate it.
+_gpu_resident = False
+_gpu_probe: bool | None = None
 
 
 def _state_path() -> Path:
@@ -84,19 +98,20 @@ def _commit_pressured() -> bool:
 
 def _ollama_loaded_models() -> set[str]:
     """Names currently resident in Ollama (/api/ps). Cached briefly."""
-    global _ps_cache
+    global _ps_cache, _gpu_resident
     now = time.monotonic()
     if _ps_cache and (now - _ps_cache[0]) < _PS_CACHE_TTL_S:
         return _ps_cache[1]
     names: set[str] = set()
     try:
-        req = urllib.request.Request(f"{_OLLAMA}/api/ps", method="GET")
-        with urllib.request.urlopen(req, timeout=2) as resp:
-            data = json.loads(resp.read().decode("utf-8", errors="replace"))
+        data = get_json("/api/ps", timeout=2)
         for item in data.get("models") or []:
             name = str(item.get("name") or item.get("model") or "").strip()
             if name:
                 names.add(name)
+            # A model sitting in VRAM proves system RAM is not the constraint.
+            if int(item.get("size_vram") or 0) > 0:
+                _gpu_resident = True
     except Exception:
         names = set(_ps_cache[1]) if _ps_cache else set()
     _ps_cache = (now, names)
@@ -114,8 +129,47 @@ def text_model_loaded(model: str = TEXT_MODEL) -> bool:
     return False
 
 
+def gpu_can_host_text() -> bool:
+    """True when a CUDA GPU is present, so system-RAM floors do not apply.
+
+    Ollama offloads the text model to VRAM when a GPU is available. Gating that
+    load on free system RAM strands summarizer/catch-up on machines that load the
+    model without difficulty. Probed once via nvidia-smi and cached.
+    """
+    global _gpu_probe
+    if _gpu_resident:
+        return True
+    if _gpu_probe is not None:
+        return _gpu_probe
+
+    _gpu_probe = False
+    try:
+        creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits"],
+            capture_output=True,
+            text=True,
+            timeout=8,
+            creationflags=creation_flags,
+        )
+        if result.returncode == 0:
+            for line in (result.stdout or "").splitlines():
+                digits = "".join(ch for ch in line if ch.isdigit())
+                if digits and int(digits) >= 2048:  # MiB — enough to hold a small model
+                    _gpu_probe = True
+                    break
+    except (OSError, subprocess.SubprocessError, ValueError):
+        _gpu_probe = False
+    return _gpu_probe
+
+
 def can_cold_load_text(available: int | None = None) -> bool:
-    """True if free memory is enough to *load* the text model from scratch."""
+    """True if the text model can be loaded from scratch right now."""
+    if not server_reachable():
+        return False
+    if gpu_can_host_text():
+        # VRAM hosts the weights; only runaway commit charge is a real blocker.
+        return not _commit_pressured()
     free = _available() if available is None else available
     return free >= _TEXT_FLOOR and not _commit_pressured()
 
@@ -130,6 +184,22 @@ def can_load_text(available: int | None = None) -> bool:
     if text_model_loaded():
         return True
     return can_cold_load_text(available)
+
+
+def text_unavailable_reason() -> str:
+    """Why text inference cannot run right now — for logs that must be actionable."""
+    if text_model_loaded():
+        return "text model is available"
+    if not server_reachable():
+        return f"ollama not reachable at {base_url()} — is the Ollama server running?"
+    if _commit_pressured():
+        return "windows commit charge is near exhaustion"
+    if not gpu_can_host_text() and _available() < _TEXT_FLOOR:
+        return (
+            f"free RAM {_available() / _GB:.1f}GB is below the "
+            f"{_TEXT_FLOOR / _GB:.1f}GB cold-load floor (no GPU detected)"
+        )
+    return "text model is not resident yet"
 
 
 def can_load_light(available: int | None = None) -> bool:
@@ -194,13 +264,39 @@ def keep_alive_for(model: str) -> str | int:
 
 
 def _ollama_post(path: str, body: dict, timeout: float = 90) -> None:
-    req = urllib.request.Request(
-        f"{_OLLAMA}{path}",
-        data=json.dumps(body).encode(),
-        headers={"Content-Type": "application/json"},
-    )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        resp.read()
+    # Raises OllamaError/OllamaUnavailable carrying the server's own message.
+    post_json(path, body, timeout=timeout)
+
+
+def _is_out_of_memory(exc: BaseException) -> bool:
+    text = str(exc).casefold()
+    return "out of memory" in text or "unable to allocate" in text
+
+
+def reap_orphaned_runners() -> int:
+    """Kill model runners whose parent Ollama is gone, and return how many.
+
+    Ollama holds model weights in a child runner process. When the parent exits
+    abnormally the runner survives and keeps its VRAM reserved, so later loads
+    fail with "cudaMalloc failed: out of memory" while /api/ps reports nothing
+    resident. Only runners whose parent PID no longer exists are killed, so a
+    runner belonging to a live server is never touched.
+    """
+    reaped = 0
+    for proc in psutil.process_iter(["name", "ppid"]):
+        try:
+            name = (proc.info.get("name") or "").casefold()
+            if not any(marker in name for marker in _RUNNER_PROCESS_NAMES):
+                continue
+            parent_pid = proc.info.get("ppid")
+            if parent_pid and psutil.pid_exists(parent_pid):
+                continue
+            proc.kill()
+            reaped += 1
+            print(f"[residency] reclaimed orphaned model runner pid={proc.pid}")
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            continue
+    return reaped
 
 
 def _warm(model: str, keep_alive: str | int = KEEP_ALIVE_PINNED, timeout: float = 90) -> None:
@@ -220,9 +316,9 @@ def ensure_text_model(*, force: bool = False) -> bool:
     """
     Best-effort: make the chat/summary model resident in Ollama.
 
-    Prefers trying a load over a hard free-RAM skip. A static floor often
-    strands the app (summarizer/distil forever deferred) even when Ollama
-    could still load the model. Retries are rate-limited unless force=True.
+    Prefers trying a load over a hard free-RAM skip, which strands
+    summarizer/distil on machines that would have loaded the model fine.
+    Retries are rate-limited unless force=True.
     """
     global _last_warm_attempt_mono
     if text_model_loaded(TEXT_MODEL):
@@ -230,21 +326,34 @@ def ensure_text_model(*, force: bool = False) -> bool:
     # Extreme commit pressure usually means Windows will page-fault hard.
     if _commit_pressured() and not force:
         return False
+
     now = time.monotonic()
     with _lock:
         if not force and (now - _last_warm_attempt_mono) < _WARM_RETRY_SECS:
             return False
         _last_warm_attempt_mono = now
+
     free = _available()
-    if free < _TEXT_FLOOR:
+    if free < _TEXT_FLOOR and not gpu_can_host_text():
         print(
             f"[residency] trying text warm below floor "
-            f"(free~{free / _GB:.1f}GB < {_TEXT_FLOOR / _GB:.1f}GB) — "
-            "better than leaving the model unloaded"
+            f"(free~{free / _GB:.1f}GB < {_TEXT_FLOOR / _GB:.1f}GB)"
         )
     try:
         _warm(TEXT_MODEL, timeout=120)
+    except OllamaUnavailable as exc:
+        print(f"[residency] text warm skipped — {exc}")
+        return False
     except Exception as exc:
+        # An allocation failure is usually stale runners holding VRAM, not a
+        # machine too small for the model, so reclaim it and try once more.
+        if _is_out_of_memory(exc) and reap_orphaned_runners():
+            try:
+                _warm(TEXT_MODEL, timeout=120)
+                return text_model_loaded(TEXT_MODEL)
+            except Exception as retry_exc:
+                print(f"[residency] text warm failed after reclaiming VRAM: {retry_exc}")
+                return False
         print(f"[residency] text warm failed: {exc}")
         return False
     return text_model_loaded(TEXT_MODEL)
@@ -263,7 +372,7 @@ def _unload_vision() -> None:
             },
             timeout=30,
         )
-    except (urllib.error.URLError, TimeoutError, OSError) as e:
+    except OSError as e:
         print(f"[residency] unload failed: {e}")
 
 
@@ -310,6 +419,22 @@ def warm_for_startup() -> dict:
         _stop_monitor()
     before = _available()
     print(f"[residency] startup warm (text only)  free~{before / _GB:.1f}GB")
+
+    # Leftover runners from an earlier crash still hold VRAM, which is what
+    # makes a cold load fail. Reclaim it before asking Ollama for the weights.
+    reap_orphaned_runners()
+
+    # The API can boot before Ollama finishes binding its port. Waiting here
+    # avoids reporting a startup failure for a server that is merely slow.
+    if not server_reachable() and not wait_until_reachable(max_wait=20.0):
+        print(f"[residency] ollama not reachable at {base_url()} — skipping startup warm")
+        with _lock:
+            return _persist(
+                "idle",
+                reason="ollama_unreachable",
+                error="Ollama server is not running",
+                available_before_mb=_mb(before),
+            )
 
     _state_path().write_text(
         json.dumps(

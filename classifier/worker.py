@@ -5,7 +5,9 @@ import time
 
 from core.backlog import (
     catch_up_allowed,
+    deferred_event_skipped,
     note_catch_up_failure,
+    note_deferred_event_skip,
     set_catch_up_running,
 )
 from core.capture_state import get_capture_status
@@ -305,7 +307,8 @@ def classify_event(event: dict, *, allow_tier2: bool = False):
         )
     except Exception as e:
         note_catch_up_failure(str(e))
-        print(f"  [TIER-2] Failed: {e} - leaving deferred (cooldown)")
+        note_deferred_event_skip(event["event_id"])
+        print(f"  [TIER-2] Failed: {e} - leaving deferred (cooldown + skip)")
         mark_deferred(event["event_id"], reason=f"Catch-up deferred: {e}")
         return
 
@@ -408,7 +411,9 @@ def catch_up_loop():
                 time.sleep(CATCH_UP_POLL_SECS)
                 continue
 
-        rows = _fetch_status_rows("deferred", limit=CATCH_UP_BATCH)
+        # Fetch extra so per-event skip after timeouts can rotate the queue.
+        rows = _fetch_status_rows("deferred", limit=CATCH_UP_BATCH * 4)
+        rows = [r for r in rows if not deferred_event_skipped(r[0])][:CATCH_UP_BATCH]
         if not rows:
             set_catch_up_running(False)
             time.sleep(CATCH_UP_POLL_SECS)

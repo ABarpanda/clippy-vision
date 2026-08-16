@@ -253,27 +253,68 @@ function buildPythonEnv(extra = {}) {
 }
 
 
-async function ensureOllamaParallelConfig({ persist = true, restart = false } = {}) {
+async function ensureOllamaParallelConfig({ persist = true } = {}) {
     // Keep text-model residency predictable on machines with limited RAM.
     // Windows needs setx because Ollama may be started outside Electron.
     process.env.OLLAMA_MAX_LOADED_MODELS = OLLAMA_MAX_LOADED_MODELS
     process.env.OLLAMA_NUM_PARALLEL = OLLAMA_NUM_PARALLEL
 
     if (persist && process.platform === 'win32') {
-
         await runCommand('setx', ['OLLAMA_MAX_LOADED_MODELS', OLLAMA_MAX_LOADED_MODELS])
         await runCommand('setx', ['OLLAMA_NUM_PARALLEL', OLLAMA_NUM_PARALLEL])
     }
+}
 
-    if (!restart) return
+async function ollamaReachable(tries = 1, intervalMs = 250) {
+    return pollUntilAlive(configuredOllamaBaseURL(), intervalMs, tries).then(() => true).catch(() => false)
+}
 
 
+// Only one caller may launch a server at a time, otherwise two concurrent
+// spawns race for port 11434 and the loser dies with a bind error.
+let ollamaStartPromise = null
 
+async function ensureOllamaServing({ waitTries = 30 } = {}) {
+    /*
+     * Adopt any server that is already listening on the Ollama port.
+     *
+     * The desktop app and the Ollama tray app share one port. Restarting or
+     * force-killing `ollama.exe` makes the tray app relaunch its own server,
+     * and the two instances then fight over the socket: the loser exits with
+     * "bind: Only one usage of each socket address", while in-flight requests
+     * fail as HTTP 500 or connection refused. So Clippy never kills a server it
+     * does not own, and starts one only when the port is genuinely free.
+     */
+    if (!usesManagedOllama()) {
+        return ollamaReachable(3, 500)
+    }
+    if (await ollamaReachable(1, 250)) return true
+    if (ollamaStartPromise) return ollamaStartPromise
 
-    if (process.platform === 'win32') {
-        await runCommand('taskkill', ['/IM', 'ollama.exe', '/F'])
-        await new Promise((r) => setTimeout(r, 1500))
-        spawnHidden(OLLAMA_COMMAND, ['serve'], { cwd: ROOT, detached: false })
+    ollamaStartPromise = (async () => {
+        if (ollamaProcess && !ollamaProcess.killed) {
+            return ollamaReachable(waitTries, 1000)
+        }
+        console.log('[ollama] no server on', configuredOllamaBaseURL(), '— starting one')
+        const proc = spawnHidden(OLLAMA_COMMAND, ['serve'], { cwd: ROOT, detached: false })
+        ollamaProcess = proc
+        // Ollama reports load failures and bind conflicts on stderr. Surfacing
+        // them here is what turns an opaque HTTP 500 into a readable cause.
+        proc.stdout.on('data', (d) => console.log('[ollama]', d.toString().trim()))
+        proc.stderr.on('data', (d) => console.error('[ollama ERR]', d.toString().trim()))
+        proc.on('exit', (code) => {
+            console.log('[ollama] serve exited', code)
+            if (ollamaProcess === proc) ollamaProcess = null
+        })
+        const alive = await ollamaReachable(waitTries, 1000)
+        if (!alive) console.error('[ollama] server did not become reachable')
+        return alive
+    })()
+
+    try {
+        return await ollamaStartPromise
+    } finally {
+        ollamaStartPromise = null
     }
 }
 
@@ -283,6 +324,7 @@ let setupWindow   = null
 let tray          = null
 let captureProcess = null
 let apiProcess    = null
+let ollamaProcess = null
 let isQuitting    = false
 
 app.on('second-instance', () => {
@@ -494,36 +536,22 @@ async function stepStartOllamaService() {
 
 
     log('Setting OLLAMA_MAX_LOADED_MODELS=1...', 'info')
-    await ensureOllamaParallelConfig({ persist: true, restart: true })
-
-
-
-
-    let serviceAlreadyAlive = false
-    try {
-        await pollUntilAlive(configuredOllamaBaseURL(), 250, 1)
-        serviceAlreadyAlive = true
-    } catch (_) {
-
-    }
-    if (!serviceAlreadyAlive && process.platform !== 'win32') {
-        log('Ollama is not running; starting a local service...', 'info')
-        spawnHidden(OLLAMA_COMMAND, ['serve'], { cwd: ROOT, detached: false })
-    }
+    await ensureOllamaParallelConfig({ persist: true })
 
     log('Waiting for Ollama service...', 'dim')
     stepProgress('ollama-service', -1)
 
-    try {
-        // Ensure Ollama is reachable before asking the API to load weights.
-        await pollUntilAlive(configuredOllamaBaseURL(), 1000, 30)
+    // Reuses a running server and starts one only when the port is free, so
+    // setup can never trigger a bind conflict with the Ollama tray app.
+    if (await ensureOllamaServing({ waitTries: 30 })) {
         log('Ollama ready.', 'ok')
         markDone('ollama-service', 'Ollama service running')
-    } catch (e) {
-        stepUpdate('ollama-service', 'error', 'Ollama service did not start in time.')
-        log(e.message, 'err')
-        throw new Error('ollama-service-timeout')
+        return
     }
+
+    stepUpdate('ollama-service', 'error', 'Ollama service did not start in time.')
+    log('Ollama did not become reachable on ' + configuredOllamaBaseURL(), 'err')
+    throw new Error('ollama-service-timeout')
 }
 
 async function stepInstallPackages() {
@@ -812,10 +840,7 @@ async function runPreflightChecks() {
     const managedOllama = usesManagedOllama()
     const alreadyConfigured = process.env.OLLAMA_MAX_LOADED_MODELS === OLLAMA_MAX_LOADED_MODELS
     if (managedOllama) {
-        await ensureOllamaParallelConfig({
-            persist: !alreadyConfigured,
-            restart: false,
-        })
+        await ensureOllamaParallelConfig({ persist: !alreadyConfigured })
     }
 
     const py = await runCommand(PYTHON_COMMAND, ['--version'])
@@ -823,9 +848,8 @@ async function runPreflightChecks() {
         return { ok: false, step: 'python', reason: 'Python not found or not on PATH.' }
     }
 
-    const serviceAlive = await pollUntilAlive(configuredOllamaBaseURL(), 500, 3).then(() => true).catch(() => false)
     if (!managedOllama) {
-        if (!serviceAlive) {
+        if (!(await ollamaReachable(3, 500))) {
             return { ok: false, step: 'warmup', reason: 'The configured local API is not reachable.' }
         }
     } else {
@@ -834,23 +858,11 @@ async function runPreflightChecks() {
             return { ok: false, step: 'ollama', reason: 'Ollama not found or not on PATH.' }
         }
 
-        // If the environment changed, restart Ollama so the running service picks
-        // up the persisted residency limits before checking required models.
-        if (!alreadyConfigured) {
-            await ensureOllamaParallelConfig({ persist: false, restart: process.platform === 'win32' })
-            if (!serviceAlive && process.platform !== 'win32') {
-                spawnHidden(OLLAMA_COMMAND, ['serve'], { cwd: ROOT, detached: false })
-            }
-            const started = await pollUntilAlive(configuredOllamaBaseURL(), 1000, 15).then(() => true).catch(() => false)
-            if (!started) {
-                return { ok: false, step: 'ollama-service', reason: 'Ollama service could not be started.' }
-            }
-        } else if (!serviceAlive) {
-            spawnHidden(OLLAMA_COMMAND, ['serve'], { cwd: ROOT, detached: false })
-            const started = await pollUntilAlive(configuredOllamaBaseURL(), 1000, 10).then(() => true).catch(() => false)
-            if (!started) {
-                return { ok: false, step: 'ollama-service', reason: 'Ollama service could not be started.' }
-            }
+        // Residency limits apply to whichever server owns the port; a running
+        // server is adopted as-is rather than restarted, because killing it
+        // starts a bind war with the Ollama tray app.
+        if (!(await ensureOllamaServing({ waitTries: 20 }))) {
+            return { ok: false, step: 'ollama-service', reason: 'Ollama service could not be started.' }
         }
 
         const list = await runCommand(OLLAMA_COMMAND, ['list'])
@@ -1583,6 +1595,12 @@ app.on('before-quit', () => {
             apiProcess.kill('SIGTERM')
         }
         apiProcess = null
+    }
+    // Only a server Clippy started is stopped here. A server owned by the
+    // Ollama tray app must survive, or it will relaunch and fight for the port.
+    if (ollamaProcess) {
+        try { ollamaProcess.kill('SIGTERM') } catch (_) { }
+        ollamaProcess = null
     }
     clearApiState()
     // Windows keeps painting a tray icon whose owner has exited until the user

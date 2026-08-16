@@ -38,6 +38,11 @@ MAX_VISION_REFRESHES_PER_TICK = 1
 MAX_EVENTS_PER_WINDOW = 25
 MAX_PROMPT_CHARS = 7000
 PER_EVENT_SCREEN_CHARS = 500
+# Vision-refresh hot-loop guard: timeouts must not re-queue the same session every tick.
+REFRESH_FAIL_MARK_AFTER = 3
+REFRESH_BACKOFF_BASE_SECS = 120
+REFRESH_BACKOFF_MAX_SECS = 30 * 60
+_refresh_failures: dict[str, dict] = {}  # summary_id -> {count, retry_after}
 _WINDOW_TITLE_SUFFIXES = (
     " - cursor",
     " - google chrome",
@@ -152,6 +157,34 @@ def _window_has_useful_screen_text(events: list[dict]) -> bool:
     return any(is_useful_screen_text(event.get("vision_ocr_text") or "") for event in events)
 
 
+def _refresh_in_backoff(summary_id: str) -> bool:
+    state = _refresh_failures.get(summary_id)
+    if not state:
+        return False
+    return time.time() < float(state.get("retry_after", 0))
+
+
+def _note_refresh_failure(summary_id: str, err: BaseException) -> bool:
+    """Record a failed vision refresh. Returns True if caller should give up (mark enriched)."""
+    prev = _refresh_failures.get(summary_id) or {"count": 0, "retry_after": 0.0}
+    count = int(prev["count"]) + 1
+    delay = min(REFRESH_BACKOFF_MAX_SECS, REFRESH_BACKOFF_BASE_SECS * (2 ** (count - 1)))
+    _refresh_failures[summary_id] = {
+        "count": count,
+        "retry_after": time.time() + delay,
+    }
+    print(
+        f"  [SUMMARIZER] Refresh failed for {summary_id[:8]} "
+        f"(attempt {count}/{REFRESH_FAIL_MARK_AFTER}): {err} — "
+        f"backoff {delay:.0f}s"
+    )
+    return count >= REFRESH_FAIL_MARK_AFTER
+
+
+def _clear_refresh_failure(summary_id: str) -> None:
+    _refresh_failures.pop(summary_id, None)
+
+
 def summarize_window(events: list[dict], session_id: str) -> dict | None:
     if len(events) < MIN_EVENTS:
         return None
@@ -205,16 +238,22 @@ def _refresh_vision_enriched_sessions(session_id: str):
 
     refreshed = 0
     for s in stale:
+        summary_id = s["summary_id"]
+        if _refresh_in_backoff(summary_id):
+            continue
+
         events = get_events_for_window(s["window_start"], s["window_end"])
         if len(events) < MIN_EVENTS:
-            mark_session_vision_enriched(s["summary_id"])
+            mark_session_vision_enriched(summary_id)
+            _clear_refresh_failure(summary_id)
             continue
 
         # Chrome-only / empty a11y must not keep sessions in the refresh queue forever.
         if not _window_has_useful_screen_text(events):
-            mark_session_vision_enriched(s["summary_id"])
+            mark_session_vision_enriched(summary_id)
+            _clear_refresh_failure(summary_id)
             print(
-                f"  [SUMMARIZER] Skipping refresh {s['summary_id'][:8]} — "
+                f"  [SUMMARIZER] Skipping refresh {summary_id[:8]} — "
                 "no useful screen text (UI chrome only)"
             )
             continue
@@ -224,19 +263,32 @@ def _refresh_vision_enriched_sessions(session_id: str):
 
         selected = _select_events_for_prompt(events)
         print(
-            f"  [SUMMARIZER] Re-summarizing session {s['summary_id'][:8]}... "
+            f"  [SUMMARIZER] Re-summarizing session {summary_id[:8]}... "
             f"with vision data ({len(selected)}/{len(events)} events)"
         )
-        summary = summarize_window(events, session_id)
+        try:
+            summary = summarize_window(events, session_id)
+        except Exception as e:
+            if _note_refresh_failure(summary_id, e):
+                mark_session_vision_enriched(summary_id)
+                _clear_refresh_failure(summary_id)
+                print(
+                    f"  [SUMMARIZER] Giving up vision refresh for {summary_id[:8]} "
+                    f"after {REFRESH_FAIL_MARK_AFTER} failures — keeping prior summary"
+                )
+            break  # one LLM failure per tick; leave gateway for chat / catch-up
+
         if summary:
-            summary["summary_id"] = s["summary_id"]  # overwrite in-place via INSERT OR REPLACE
+            summary["summary_id"] = summary_id  # overwrite in-place via INSERT OR REPLACE
             if should_distil():
                 distil()
             store_summary(summary, vision_enriched=True, embedding=summary.pop("embedding", None))
+            _clear_refresh_failure(summary_id)
             print(f"  [SUMMARIZER] Refreshed — {summary['active_task']}")
             refreshed += 1
         else:
-            mark_session_vision_enriched(s["summary_id"])
+            mark_session_vision_enriched(summary_id)
+            _clear_refresh_failure(summary_id)
 
 
 def summarizer_loop():

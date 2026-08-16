@@ -154,8 +154,6 @@ def print_snapshot(*, watch_interval: float | None = None) -> None:
     print("  deferred = ambiguous; waiting for automatic Tier-2 catch-up")
     print(f"  Tier-2 catch-up queue (deferred): {deferred}")
     print(f"  Live/idle classify queue (pending): {pending}")
-    if pending and not capture.get("active"):
-        print("  NOTE: capture off — API catch-up should drain pending → done/deferred")
     print()
 
     backlog = get_backlog_status()
@@ -167,8 +165,6 @@ def print_snapshot(*, watch_interval: float | None = None) -> None:
     print(f"  cooldown remaining: {backlog.get('cooldown_remaining_secs')}s")
     if backlog.get("last_error"):
         print(f"  last_error: {backlog['last_error']}")
-    if watch_interval is not None:
-        print("  note: catch_up_running is API in-process; probe always sees False")
     print()
 
     shot_n, shot_oldest = _unprocessed_screenshots()

@@ -52,7 +52,9 @@ def _load_bundle():
             model = AutoModel.from_pretrained(path, local_files_only=True)
             if int(model.config.hidden_size) != MODEL_DIMENSION:
                 raise ValueError(f"Expected {MODEL_DIMENSION}-dimensional MiniLM, got {model.config.hidden_size}")
-            requested_device = os.environ.get("CLIPPY_EMBED_DEVICE", "auto").strip().lower()
+            # MiniLM is fast on CPU, and a CUDA context here would cost VRAM the
+            # chat model needs as one contiguous block. GPU stays opt-in.
+            requested_device = os.environ.get("CLIPPY_EMBED_DEVICE", "cpu").strip().lower()
             if requested_device == "auto":
                 if torch.cuda.is_available():
                     requested_device = "cuda"

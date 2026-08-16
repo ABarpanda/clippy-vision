@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 import os
 import sys
@@ -101,6 +102,18 @@ def make_event(event_id: str, event_type: str = "typing_burst", timestamp: float
         interest_reason=None,
         interesting=None,
     )
+
+
+class _FakeProcess:
+    """Stand-in for psutil.Process so reaping can be tested without real kills."""
+
+    def __init__(self, pid: int, name: str, ppid: int):
+        self.pid = pid
+        self.info = {"name": name, "ppid": ppid}
+        self.killed = False
+
+    def kill(self) -> None:
+        self.killed = True
 
 
 class RuntimeRegressionTests(unittest.TestCase):
@@ -613,6 +626,32 @@ class RuntimeRegressionTests(unittest.TestCase):
         vector = gateway.embed("provider-independent embedding", embed_model="remote-provider-model")
         self.assertEqual(len(vector), MODEL_DIMENSION)
 
+    def test_gateway_preempts_background_response_for_waiting_chat(self):
+        from core.llm_gateway import Job, Priority
+
+        class FakeResponse:
+            closed = False
+
+            def close(self):
+                self.closed = True
+
+        job = Job("http://example.invalid", {}, timeout=1)
+        response = FakeResponse()
+        with gateway._state_lock:
+            old_job = gateway._current_job
+            old_priority = gateway._current_priority
+            gateway._current_job = job
+            gateway._current_priority = Priority.BACKGROUND
+            job.response = response
+        try:
+            gateway._cancel_background_for_chat(job)
+            self.assertTrue(job.cancel_requested.is_set())
+            self.assertTrue(response.closed)
+        finally:
+            with gateway._state_lock:
+                gateway._current_job = old_job
+                gateway._current_priority = old_priority
+
     def test_normal_classifier_can_finish_pending_event(self):
         event = make_event("normal-classification")
         store_event(event)
@@ -687,10 +726,13 @@ class RuntimeRegressionTests(unittest.TestCase):
         self.assertEqual(_table_columns("events"), before)
 
     def test_ram_floors_tier_work_by_model_size(self):
+        """CPU-only floors; a GPU box is covered by the gpu_can_host_text test."""
         from core import model_residency as residency
         gb = residency._GB
         with patch.object(residency, "_commit_pressured", return_value=False), patch.object(
             residency, "text_model_loaded", return_value=False
+        ), patch.object(residency, "server_reachable", return_value=True), patch.object(
+            residency, "gpu_can_host_text", return_value=False
         ):
             with patch.object(residency, "_available", return_value=int(3.0 * gb)):
                 self.assertTrue(residency.can_load_text())
@@ -708,8 +750,11 @@ class RuntimeRegressionTests(unittest.TestCase):
         from core import model_residency as residency
         with patch.object(residency, "text_model_loaded", return_value=True), patch.object(
             residency, "_available", return_value=int(0.4 * residency._GB)
-        ), patch.object(residency, "_commit_pressured", return_value=False):
+        ), patch.object(residency, "_commit_pressured", return_value=False), patch.object(
+            residency, "server_reachable", return_value=True
+        ), patch.object(residency, "gpu_can_host_text", return_value=False):
             self.assertTrue(residency.can_load_text())
+            # Without a GPU the cold-load floor still applies to a fresh load.
             self.assertFalse(residency.can_cold_load_text())
 
     def test_ensure_text_model_tries_warm_below_floor(self):
@@ -719,10 +764,111 @@ class RuntimeRegressionTests(unittest.TestCase):
         with patch.object(residency, "text_model_loaded", side_effect=[False, True]), patch.object(
             residency, "_available", return_value=int(0.9 * residency._GB)
         ), patch.object(residency, "_commit_pressured", return_value=False), patch.object(
-            residency, "_warm"
-        ) as warm:
+            residency, "gpu_can_host_text", return_value=False
+        ), patch.object(residency, "_warm") as warm:
             self.assertTrue(residency.ensure_text_model(force=True))
             warm.assert_called_once()
+
+    def test_ollama_bind_address_is_normalized_for_clients(self):
+        """OLLAMA_HOST often holds a bind address; 0.0.0.0 is not connectable."""
+        from core import ollama_client
+
+        cases = {
+            "0.0.0.0:11434": "http://127.0.0.1:11434",
+            "http://0.0.0.0:11434": "http://127.0.0.1:11434",
+            "0.0.0.0": "http://127.0.0.1:11434",
+            "http://127.0.0.1:11434": "http://127.0.0.1:11434",
+            "http://192.168.1.5:11434": "http://192.168.1.5:11434",
+        }
+        for raw, expected in cases.items():
+            with patch.dict(os.environ, {"OLLAMA_HOST": raw, "CLIPPY_OLLAMA_URL": ""}, clear=False):
+                self.assertEqual(ollama_client.base_url(), expected, raw)
+
+    def test_ollama_errors_carry_server_message(self):
+        """A bare 'HTTP Error 500' hides the cause; the body must be surfaced."""
+        import urllib.error
+        from core import ollama_client
+
+        body = io.BytesIO(json.dumps({"error": "model requires more system memory"}).encode())
+        err = urllib.error.HTTPError("http://x/api/generate", 500, "Internal Server Error", {}, body)
+        described = ollama_client.describe_http_error(err)
+        self.assertIn("HTTP 500", described)
+        self.assertIn("model requires more system memory", described)
+
+    def test_unreachable_ollama_is_distinct_from_rejection(self):
+        from core import ollama_client
+
+        with patch.dict(os.environ, {"CLIPPY_OLLAMA_URL": "http://127.0.0.1:1"}, clear=False):
+            with self.assertRaises(ollama_client.OllamaUnavailable):
+                ollama_client.get_json("/api/version", timeout=2)
+            self.assertFalse(ollama_client.server_reachable(timeout=2))
+
+    def test_gpu_machines_ignore_system_ram_floor_for_text_load(self):
+        """qwen3:8b loads into VRAM, so free system RAM must not gate the load."""
+        from core import model_residency as residency
+
+        with patch.object(residency, "server_reachable", return_value=True), patch.object(
+            residency, "gpu_can_host_text", return_value=True
+        ), patch.object(residency, "_available", return_value=int(0.3 * residency._GB)), patch.object(
+            residency, "_commit_pressured", return_value=False
+        ):
+            self.assertTrue(residency.can_cold_load_text())
+
+        with patch.object(residency, "server_reachable", return_value=True), patch.object(
+            residency, "gpu_can_host_text", return_value=False
+        ), patch.object(residency, "_available", return_value=int(0.3 * residency._GB)), patch.object(
+            residency, "_commit_pressured", return_value=False
+        ):
+            self.assertFalse(residency.can_cold_load_text())
+
+    def test_text_load_blocked_when_ollama_is_down(self):
+        """An unreachable server must be reported as such, not as low memory."""
+        from core import model_residency as residency
+
+        with patch.object(residency, "text_model_loaded", return_value=False), patch.object(
+            residency, "server_reachable", return_value=False
+        ):
+            self.assertFalse(residency.can_cold_load_text())
+            self.assertIn("not reachable", residency.text_unavailable_reason())
+
+    def test_orphaned_model_runners_are_reaped_but_live_ones_survive(self):
+        """Runners outliving their Ollama squat VRAM until a fresh load OOMs."""
+        from core import model_residency as residency
+
+        orphan = _FakeProcess(4001, "llama-server.exe", ppid=9999)
+        adopted = _FakeProcess(4002, "llama-server.exe", ppid=1234)
+        unrelated = _FakeProcess(4003, "chrome.exe", ppid=9999)
+
+        with patch.object(
+            residency.psutil, "process_iter", return_value=[orphan, adopted, unrelated]
+        ), patch.object(residency.psutil, "pid_exists", side_effect=lambda pid: pid == 1234):
+            self.assertEqual(residency.reap_orphaned_runners(), 1)
+
+        self.assertTrue(orphan.killed)
+        self.assertFalse(adopted.killed)
+        self.assertFalse(unrelated.killed)
+
+    def test_out_of_memory_warm_reclaims_vram_and_retries(self):
+        """A cudaMalloc failure must self-heal instead of leaving text unloaded."""
+        from core import model_residency as residency
+
+        attempts = []
+
+        def warm(*args, **kwargs):
+            attempts.append(1)
+            if len(attempts) == 1:
+                raise RuntimeError("HTTP 500: cudaMalloc failed: out of memory")
+
+        with patch.object(residency, "text_model_loaded", side_effect=[False, True]), patch.object(
+            residency, "_commit_pressured", return_value=False
+        ), patch.object(residency, "_available", return_value=int(8 * residency._GB)), patch.object(
+            residency, "gpu_can_host_text", return_value=True
+        ), patch.object(residency, "_warm", side_effect=warm), patch.object(
+            residency, "reap_orphaned_runners", return_value=1
+        ) as reap:
+            self.assertTrue(residency.ensure_text_model(force=True))
+            reap.assert_called_once()
+            self.assertEqual(len(attempts), 2)
 
     def test_ensure_text_model_skips_when_commit_pressured(self):
         from core import model_residency as residency
@@ -897,6 +1043,8 @@ class RuntimeRegressionTests(unittest.TestCase):
         from core.backlog import get_backlog_status
         from core import backlog as backlog_mod
 
+        backlog_mod._cooldown_until = 0.0
+        backlog_mod._deferred_skip_until.clear()
         event = make_event("backlog-api-event", timestamp=time.time() - 20 * 60)
         store_event(event)
         conn.execute(
@@ -933,6 +1081,35 @@ class RuntimeRegressionTests(unittest.TestCase):
             "recommend": False,
         }), patch.object(backlog_mod, "get_capture_status", return_value={"active": False}):
             self.assertTrue(backlog_mod.catch_up_allowed())
+
+    def test_catch_up_timeout_uses_long_cooldown_and_event_skip(self):
+        from core import backlog as backlog_mod
+
+        backlog_mod._cooldown_until = 0.0
+        backlog_mod._deferred_skip_until.clear()
+        backlog_mod.note_catch_up_failure("timed out")
+        self.assertGreater(
+            backlog_mod._cooldown_until - time.time(),
+            backlog_mod.CATCH_UP_COOLDOWN_SECS,
+        )
+        self.assertFalse(backlog_mod.catch_up_allowed())
+        backlog_mod.note_deferred_event_skip("evt-timeout")
+        self.assertTrue(backlog_mod.deferred_event_skipped("evt-timeout"))
+        backlog_mod._cooldown_until = 0.0
+        backlog_mod._deferred_skip_until.clear()
+
+    def test_vision_refresh_backoff_then_give_up(self):
+        from core import summarizer as summarizer_mod
+
+        summarizer_mod._refresh_failures.clear()
+        sid = "summary-hot-loop"
+        self.assertFalse(summarizer_mod._note_refresh_failure(sid, TimeoutError("timed out")))
+        self.assertTrue(summarizer_mod._refresh_in_backoff(sid))
+        self.assertFalse(summarizer_mod._note_refresh_failure(sid, TimeoutError("timed out")))
+        self.assertTrue(
+            summarizer_mod._note_refresh_failure(sid, TimeoutError("timed out"))
+        )
+        summarizer_mod._refresh_failures.clear()
 
 
 if __name__ == "__main__":
