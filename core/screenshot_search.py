@@ -177,6 +177,7 @@ def search_screenshots(
 
     settings = get_capture_settings()
     query_vector = None
+    # PARKED: rag_enabled / image_embeddings_enabled — see app_settings defaults.
     if settings["rag_enabled"]:
         try:
             query_vector = embed_text(query)

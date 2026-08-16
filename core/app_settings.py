@@ -13,7 +13,14 @@ _DEFAULTS: dict[str, Any] = {
     "capture_all_monitors": False,
     "capture_clipboard": True,
     "ocr_enabled": True,
+    # PARKED — contributor feature; default off. Ask the contributor whether to
+    # keep CLIP image embeddings and why. Clippy's spine is text (a11y/OCR +
+    # router/prefetch); CLIP only helps "search by look" and costs RAM/Torch.
     "image_embeddings_enabled": False,
+    # PARKED — contributor feature; default off. Ask the contributor whether to
+    # keep event-level RAG and why. Router + prefetch already handle most chat
+    # recall; this only adds MiniLM vectors on raw events for fuzzy
+    # search_events / empty-session topic_search fallbacks.
     "rag_enabled": False,
     "min_gap_seconds": 8.0,
     "background_interval_seconds": 60.0,

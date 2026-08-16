@@ -1,11 +1,18 @@
-"""Small, dependency-free hybrid RAG index for local activity events.
+"""Optional hybrid RAG index for raw activity events.
 
-The database already stores JSON vectors for sessions, conversations, and
-memory facts.  This module completes the path for low-level events: useful
-events are embedded after classification, persisted in ``events.vector_embedding``,
-and recalled with cosine similarity plus a lightweight keyword score.  SQLite
-remains the source of truth, so there is no vector database to install or
-maintain.
+PARKED / under review with the contributor who added this. Default is off
+(``rag_enabled``). Decide keep-or-remove with them and document the reason.
+
+This is NOT the primary chat retrieval path. Router + prefetch already cover
+most recall via session summaries, time windows, artifact SQL/FTS, and memory
+facts. When enabled it only adds fuzzy semantic search over raw events
+(OCR/titles/payloads) for:
+  - search_events first try (falls back to LLM→SQL when off/empty)
+  - topic_search fallback when no session summaries exist
+
+Useful events are embedded with local MiniLM, stored in
+``events.vector_embedding``, and ranked by cosine + keyword score. SQLite
+stays the source of truth; there is no separate vector DB.
 """
 
 from __future__ import annotations
@@ -218,6 +225,8 @@ def search_event_rag(
         semantic = _cosine(query_vector, vector) if query_vector and vector else 0.0
         if semantic or keyword:
             text_scores[row["event_id"]] = (semantic * 0.78) + (keyword * 0.22)
+    # PARKED: CLIP visual branch — only if image embeddings were stored as clip:*.
+    # See image_embeddings.py / image_embeddings_enabled (default off).
     image_scores = {}
     image_rows = [
         row for row in rows

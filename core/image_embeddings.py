@@ -1,3 +1,14 @@
+"""Optional CLIP / pixel image embeddings for screenshots.
+
+PARKED / under review with the contributor who added this. Default is off
+(``image_embeddings_enabled``). Ask them whether to keep CLIP and why —
+Clippy today retrieves by text (a11y/OCR, titles, sessions, router/prefetch),
+not by visual similarity. Enabling this loads Torch/CLIP (or falls back to a
+non-text-searchable pixel signature) and adds per-frame RAM/CPU cost.
+
+When on, vectors are stored on events and only used by screenshot_search /
+event RAG visual scoring if the model id starts with ``clip:``.
+"""
 from __future__ import annotations
 
 import os
