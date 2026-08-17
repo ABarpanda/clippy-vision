@@ -2436,12 +2436,18 @@
         })
       }
 
-      return date.toLocaleString('en-US', {
+      const options = {
         month: 'short',
         day: 'numeric',
         hour: 'numeric',
         minute: '2-digit',
-      })
+      }
+
+      if (date.getFullYear() !== today.getFullYear()) {
+        options.year = 'numeric'
+      }
+
+      return date.toLocaleString('en-US', options)
     }
 
     function getTimeBucket(timestamp) {
