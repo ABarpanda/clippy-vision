@@ -1,38 +1,36 @@
 import json
-import os
-import sqlite3
 import sys
 import time
 from pathlib import Path
 
-from agent.prefetch.topic_search import cosine_similarity
-from core.llm_gateway import Priority, gateway
-from core.paths import get_db_path
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-DB_PATH = get_db_path()
-conn = sqlite3.connect(str(DB_PATH), check_same_thread=False, timeout=30.0)
-conn.execute("PRAGMA journal_mode=WAL")
+from agent.prefetch.topic_search import cosine_similarity
+from core.local_embeddings import embed_text
+from core.storage import conn
 
 MEMORY_TOP_K = 8
 MEMORY_MIN_SIM = 0.55
 CLUSTER_GATE_SIM = 0.38
-EMBED_MODEL = "nomic-embed-text"
-
 
 def _fetch_memory(q_vec: list) -> str:
-    # Pass 1: cluster gate (compare query to cluster centeroids)
 
-    cluster_rows = conn.execute("""
+
+    # Pass 1: cluster gate (compare query to cluster centeroids)
+    cluster_rows =  conn.execute("""
     SELECT cluster_id, label, description, centroid FROM memory_clusters
     """).fetchall()
 
     if not cluster_rows:
         return "No semantic memory clusters found."
 
+
     surviving_clusters_ids = set()
 
     for cluster_id, label, description, centroid in cluster_rows:
         if not centroid:
+
             # No centroid yet - cluster newly created
             surviving_clusters_ids.add(cluster_id)
             continue
@@ -42,6 +40,7 @@ def _fetch_memory(q_vec: list) -> str:
 
     if not surviving_clusters_ids:
         return "No relevant semantic memory clusters found."
+
 
     # Pass 2: fact re-rank within surviving clusters
     placeholders = ",".join("?" * len(surviving_clusters_ids))
@@ -72,8 +71,10 @@ def _fetch_memory(q_vec: list) -> str:
     if not scored:
         return ""
 
-    # Merge and format results
 
+
+
+    # Merge and format results
     scored.sort(key=lambda x: x[0], reverse=True)
     top_k = scored[:MEMORY_TOP_K]
 
@@ -89,8 +90,8 @@ def _fetch_memory(q_vec: list) -> str:
         seen_clusters[cluster_id]["facts"].append((sim, text))
 
     clusters_ordered = sorted(
-        seen_clusters.values(), key=lambda x: x["max_sim"], reverse=True
-    )
+        seen_clusters.values(), key=lambda x: x["max_sim"], reverse=True)
+
 
     sections = []
     chars = 0
@@ -110,9 +111,7 @@ def memory_query(query: str = "", q_vec: list | None = None) -> str:
         if not query:
             return "memory_query: no query or vector provided."
         try:
-            q_vec = gateway.embed(
-                query, embed_model=EMBED_MODEL, priority=Priority.INTERACTIVE
-            )
+            q_vec = embed_text(query)
         except Exception as e:
             return f"memory_query: embedding failed — {e}"
     result = _fetch_memory(q_vec)

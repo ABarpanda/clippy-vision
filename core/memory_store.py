@@ -5,28 +5,28 @@ import sys
 import time
 from typing import Optional
 
-# Ensure core/ is on sys.path so 'storage' can be found whether this module
-# is imported as 'storage' (from core/) or as 'core.memory_store' (from root).
-_CORE_DIR = os.path.dirname(os.path.abspath(__file__))
-if _CORE_DIR not in sys.path:
-    sys.path.insert(0, _CORE_DIR)
+try:
+    from core.storage import conn
+except ImportError:
+    # Ensure core/ is on sys.path so 'storage' can be found whether this module
+    # is imported as 'storage' (from core/) or as 'core.memory_store' (from root).
+    from storage import conn
 
-from storage import conn
-
-
-def save_identity_field(
-    field: str,
-    value: str,
-    source: str = "agent",
-    op: str = "set",
-    items: list[str] | None = None,
-) -> str:
+def save_identity_field( field: str, value: str, source: str="agent", op: str="set", items: list[str] | None=None) -> str:
+    field = (field or "").strip().lower().replace(" ", "_")
+    if not field:
+        return "Identity field cannot be empty."
+    if field == "name" and op in {"set", "override"}:
+        from core.storage import set_user_name
+        saved = set_user_name(value)
+        return f"Saved name: {saved}"
     key = f"identity.{field}"
     existing_row = conn.execute(
         "SELECT value FROM memory_meta WHERE key = ?", (key,)
     ).fetchone()
     if existing_row:
         existing = json.loads(existing_row[0])
+
         # distiller never overwrites an agent-written field
         if source == "distiller" and existing.get("source") == "agent":
             return f"Skipped — agent-written value for '{field}' is protected."
@@ -35,9 +35,12 @@ def save_identity_field(
 
     now = time.time()
 
+
     # SCALAR SET
     if op == "set":
         current_count = existing.get("mention_count", 0)
+
+
 
         # Refuse a low confidence update if the field is well established
         #  existing.get("value") != value --> value is different from the current value
@@ -66,9 +69,11 @@ def save_identity_field(
         conn.commit()
         return f"Saved {field}: {value}"
 
-    # LIST ADD
 
+
+    # LIST ADD
     elif op == "add_items":
+
         # Robustness: fail if no items are provided
         if not items:
             return f"add_items called for '{field}' with no items."
@@ -78,8 +83,9 @@ def save_identity_field(
         else:
             current_items = {}
 
-        ## NOTE: Think about fuzzy matching for items later
 
+
+        ## NOTE: Think about fuzzy matching for items later
         for item in items:
             item = item.strip().lower()
             if item in current_items:
@@ -107,8 +113,9 @@ def save_identity_field(
         conn.commit()
         return f"Added to {field}: {', '.join(items)}"
 
-    # LIST REMOVE
 
+
+    # LIST REMOVE
     elif op == "remove_items":
         if not items or existing.get("type") != "list":
             return f"Nothing to remove from '{field}'."
@@ -128,6 +135,7 @@ def save_identity_field(
         )
         conn.commit()
         return f"Removed from {field}: {', '.join(removed)}"
+
 
     # EXPLICIT OVERRIDE
     elif op == "override":
@@ -155,10 +163,13 @@ def get_identity() -> dict:
     ).fetchall()
     result = {}
     for key, val in rows:
-        field = key[len("identity.") :]
+        field = key[len("identity."):]
+        if field == "name":
+            continue
         data = json.loads(val)
 
         if data.get("type") == "list":
+
             # Only show active items, sorted by count descending
             active = {
                 k: v for k, v in data.get("items", {}).items() if v.get("active", True)
@@ -170,9 +181,18 @@ def get_identity() -> dict:
         else:
             result[field] = data.get("value", "")
 
+
     # Filter out empty values
     return {k: v for k, v in result.items() if v}
 
+
+def get_profile() -> dict:
+    from core.storage import get_user_name
+    return {
+        "name": get_user_name(),
+        "introduction": get_introduction(),
+        "identity": get_identity(),
+    }
 
 def get_introduction_meta() -> dict:
     """Return introduction payload: {value, source, updated_at}. Empty defaults if missing."""
@@ -294,8 +314,10 @@ def get_identity_for_semantic_profile() -> list[dict]:
     ).fetchall()
     result = []
     for key, val in rows:
-        field = key[len("identity.") :]
-        data = json.loads(val)
+        field = key[len("identity."):]
+        if field == "name":
+            continue
+        data  = json.loads(val)
         if data.get("type") == "list":
             active = {
                 k: v for k, v in data.get("items", {}).items() if v.get("active", True)

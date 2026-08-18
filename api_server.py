@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 
@@ -7,12 +8,15 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import json
 import threading
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Optional
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 import uvicorn
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from agent.conversation import (
@@ -23,20 +27,30 @@ from agent.conversation import (
 )
 from agent.react_agent import USER_MESSAGE_MAX_CHARS, run, run_stream
 from agent.router import load_classifier
+from core.app_settings import get_capture_settings, set_capture_settings
+from core.backlog import get_backlog_status
+from core.capture_state import get_capture_status
+from core.diagnostics import get_diagnostics
 from core.intro_builder import start_intro_rebuild_daemon
-from core.memory_store import (
-    get_identity,
-    get_introduction,
-    save_identity_field,
-    set_introduction,
-)
-from core.model_residency import on_capture_stop, warm_for_startup
+from core.memory_store import get_profile, save_identity_field, set_introduction
+from core.model_residency import can_load_light, on_capture_stop, warm_for_startup
+from core.paths import get_data_dir, get_screenshots_dir
+from core.platform_support import platform_label
 from core.privacy_settings import list_privacy_targets, set_privacy_enabled
-from core.storage import get_user_name, set_user_name
+from core.rag import start_event_indexer, stop_event_indexer
+from core.screenshot_search import search_screenshots
+from core.storage import (
+    clear_data,
+    export_data,
+    get_data_stats,
+    get_user_name,
+    set_user_name,
+)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+
     # Weekly intro rebuild: immediate check + periodic background loop
     start_intro_rebuild_daemon()
     # Preload router classifier so the first chat does not pay the load cost
@@ -136,8 +150,10 @@ def read_user_name():
 
 @app.post("/user/name")
 def write_user_name(req: NameRequest):
-
-    name = set_user_name(req.name)
+    try:
+        name = set_user_name(req.name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     return {"name": name}
 
@@ -170,8 +186,9 @@ def write_user_profile(req: ProfileUpdateRequest):
 
             value = (value or "").strip()
 
-            # User edits from Settings always win over agent/distiller values.
 
+
+            # User edits from Settings always win over agent/distiller values.
             save_identity_field(field, value=value, source="user", op="override")
 
     return {

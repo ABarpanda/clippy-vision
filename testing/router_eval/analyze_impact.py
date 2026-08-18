@@ -17,11 +17,11 @@ from pathlib import Path
 
 HERE = Path(__file__).parent
 records = [
-    json.loads(l)
-    for l in (HERE / "results" / "records_minilm.jsonl")
+    json.loads(line)
+    for line in (HERE / "results" / "records_minilm.jsonl")
     .read_text(encoding="utf-8")
     .splitlines()
-    if l.strip()
+    if line.strip()
 ]
 
 PREFETCH_THRESHOLDS = {

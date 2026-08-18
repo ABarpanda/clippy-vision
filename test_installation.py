@@ -4,6 +4,7 @@ Run this after setup to ensure everything is working correctly
 """
 
 import os
+import platform
 import sys
 
 
@@ -11,11 +12,12 @@ def test_imports():
     """Test if all required Python packages are installed"""
     print("\n[1/5] Testing Python imports...")
     try:
-        import imagehash
+        if platform.system() == "Windows":
+            import uiautomation
+            import win32api
+            import win32gui
         import mss
         import psutil
-        import win32api
-        import win32gui
         from PIL import Image
         from pynput import keyboard
 
@@ -28,26 +30,27 @@ def test_imports():
 
 
 def test_ollama_connection():
-    """Test connection to Ollama"""
-    print("\n[2/5] Testing Ollama connection...")
+    """Test the bundled local embedding path."""
+    print("\n[2/5] Testing local embeddings...")
     try:
         from core.llm_gateway import gateway
 
         result = gateway.embed("test", embed_model="nomic-embed-text", timeout=30)
+        from core.local_embeddings import embed_text
+        result = embed_text("test")
         if result:
-            print("  ✓ Ollama connection successful")
+            print("  ✓ Local embeddings available")
             return True
-        print("  ✗ Ollama returned empty embedding")
+        print("  ✗ Local embeddings returned an empty vector")
         return False
     except Exception as e:
-        print(f"  ✗ Ollama connection failed: {e}")
-        print("  Make sure Ollama is running: ollama serve")
+        print(f"  ✗ Local embeddings failed: {e}")
         return False
 
 
 def test_models():
-    """Test if required models are available"""
-    print("\n[3/5] Checking installed models...")
+    """Check that the local Ollama chat model is installed."""
+    print("\n[3/5] Checking local chat model...")
     try:
         import subprocess
 
@@ -72,6 +75,17 @@ def test_models():
                 print(f"    ollama pull {model}")
             return False
         return True
+        import json
+        import urllib.request
+
+        with urllib.request.urlopen("http://127.0.0.1:11434/api/tags", timeout=10) as response:
+            payload = json.loads(response.read())
+        models = [str(item.get("name") or "") for item in payload.get("models", [])]
+        if any(name == "qwen3:8b" or name.startswith("qwen3:8b-") for name in models):
+            print("  ✓ qwen3:8b")
+            return True
+        print("  ✗ qwen3:8b is not installed")
+        return False
     except Exception as e:
         print(f"  ✗ Error checking models: {e}")
         return False
@@ -156,8 +170,8 @@ def main():
     if all_passed:
         print("\n✓ All tests passed! Clippy Vision is ready to use.")
         print("\nNext steps:")
-        print("  1. Start capture: python core\\screen_capture.py")
-        print("  2. Chat with Clippy: python agent\\react_agent.py")
+        print(f"  1. Start capture: python core{os.sep}screen_capture.py")
+        print(f"  2. Chat with Clippy: python agent{os.sep}react_agent.py")
     else:
         print("\n✗ Some tests failed. Please fix the issues above.")
         print("  See QUICKSTART.md for troubleshooting help.")

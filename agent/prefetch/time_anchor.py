@@ -5,18 +5,16 @@ Tier 2 --> Distiller (beyond 7 days)
 """
 
 import json
-import sqlite3
+import sys
 import time
 from pathlib import Path
 
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 from agent.helpers.time_resolver import TemporalRange, resolve_temporal_range
 from agent.prefetch.topic_search import cosine_similarity
-from core.paths import get_db_path
-
-DB_PATH = get_db_path()
-conn = sqlite3.connect(str(DB_PATH), check_same_thread=False, timeout=30.0)
-conn.execute("PRAGMA journal_mode = WAL")
-
+from core.storage import conn
 
 EVENT_TIER_MAX_SECONDS = 7200  # 2 hours'
 RAW_EVENTS_TTL_DAYS = 7
@@ -31,13 +29,17 @@ COMPRESSION_THRESHOLD_NARROW = 0.86  # tight window (1-3 days)
 COMPRESSION_THRESHOLD_WIDE = 0.78  # broad window (3-7 days)
 
 
+
 NOISE_TYPES = "('typing_burst', 'deviation', 'context_change')"
+
+
+
+
+
 
 ###########################################
 ############# TIER SELECTOR ###############
 ###########################################
-
-
 def select_tier(temporal_range: TemporalRange) -> str:
     now = time.time()
     if temporal_range.start_ts > now:
@@ -55,11 +57,12 @@ def select_tier(temporal_range: TemporalRange) -> str:
     return "distiller"
 
 
+
+
+
 ###########################################
 ############### COMPRESSOR  ##################
 ###########################################
-
-
 def compress_threshold(temporal_range: TemporalRange) -> float:
     window_days = (temporal_range.end_ts - temporal_range.start_ts) / (86400)
     if window_days <= 3:
@@ -67,11 +70,12 @@ def compress_threshold(temporal_range: TemporalRange) -> float:
     return COMPRESSION_THRESHOLD_WIDE
 
 
+
+
+
 ###########################################
 ############# Tier 1: Events ###############
 ###########################################
-
-
 def fetch_events(temporal_range: TemporalRange) -> list[dict]:
     now = time.time()
     raw_ttl_cutoff = now - RAW_EVENTS_TTL_DAYS * 24 * 60 * 60
@@ -116,11 +120,12 @@ def fetch_events(temporal_range: TemporalRange) -> list[dict]:
     ]
 
 
+
+
+
 ###########################################
 ############# Tier 2: Sessions ############
 ###########################################
-
-
 def fetch_sessions(temporal_range: TemporalRange) -> list[dict]:
     sql = """
     SELECT window_start, window_end, summary, active_task, entities, summary_embedding, event_count
@@ -213,11 +218,12 @@ def cap_sessions(sessions: list[dict], limit: int = MAX_SESSIONS) -> list[dict]:
     return top
 
 
+
+
+
 ###########################################
 ############ Tier 3: Distiller ############
 ###########################################
-
-
 def fetch_distiller_facts(temporal_range: TemporalRange, q_vec: list) -> list[dict]:
     cluster_rows = conn.execute(
         "SELECT cluster_id, centroid FROM memory_clusters"
@@ -274,11 +280,13 @@ def fetch_distiller_facts(temporal_range: TemporalRange, q_vec: list) -> list[di
     return scored[:MAX_DISTILLER_FACTS]
 
 
+
+
+
+
 ###########################################
 ############# Formatting ##################
 ###########################################
-
-
 def format_events(events: list[dict], temporal_range: TemporalRange) -> str:
     if not events:
         start_str = time.strftime(
@@ -361,6 +369,7 @@ def format_distiller(facts: list[dict], temporal_range: TemporalRange) -> str:
         f"Note: these are distilled from session summaries. "
         f"Timestamps reflect when the fact was recorded, not exact activity time."
     )
+
     # Group by label so related facts are presented together
     by_label: dict[str, list[str]] = {}
     for f in facts:
@@ -372,11 +381,12 @@ def format_distiller(facts: list[dict], temporal_range: TemporalRange) -> str:
     return "\n\n".join(sections)
 
 
+
+
+
 ###########################################
 ############# Time Anchor #################
 ###########################################
-
-
 def time_anchor_fetch(temporal_range: TemporalRange, q_vec: list | None = None) -> str:
     tier = select_tier(temporal_range)
 

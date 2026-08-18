@@ -5,17 +5,25 @@ import threading
 import time
 from typing import Optional
 
-from paths import get_baseline_path
+try:
+    from core.paths import get_baseline_path
+except ImportError:
+    from paths import get_baseline_path
 
 BASELINE_PATH = str(get_baseline_path())
 _baseline_lock = threading.Lock()
 
-# --------------------------------#
+
+
+
+
+
+
+#--------------------------------#
 # Change the alpha value in------#
 # Future to be adaptive for------#
 # each context-------------------#
-# --------------------------------#
-
+#--------------------------------#
 ALPHA = 0.05
 MIN_SAMPLES = 30
 
@@ -108,14 +116,12 @@ def compute_deviation(metrics: dict, context_key: str) -> dict | None:
         mean = context_data["metrics"][m]["mean"]
         variance = context_data["metrics"][m]["variance"]
         if variance > 1e-6:
-            z_scores[m] = round((metrics[m] - mean) / math.sqrt(variance), 2)
+             z_scores[m] = round((metrics[m] - mean) / math.sqrt(variance), 2)
 
     if not z_scores:
         return None
 
-    overall_deviation = round(
-        math.sqrt(sum(z**2 for z in z_scores.values()) / len(z_scores)), 2
-    )
+    overall_deviation =  round(math.sqrt(sum(z**2 for z in z_scores.values()) / len(z_scores)), 2)
 
     return {
         "context_key": context_key,
@@ -123,3 +129,4 @@ def compute_deviation(metrics: dict, context_key: str) -> dict | None:
         "anomaly": overall_deviation > 2.0,
         "z_scores": z_scores,
     }
+
