@@ -109,4 +109,4 @@ def tier1_score(event: dict, conn: sqlite3.Connection) -> dict | None:
         return {"verdict": "not_interesting", "score": score,
                 "reason": ", ".join(notes) or "feature score low"}
 
-    return None   # ambiguous → Tier 2
+    return None  # ambiguous → Tier 2

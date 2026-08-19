@@ -47,15 +47,20 @@ try:
     from core.privacy_settings import is_clippy_window, should_redact_window
 except ImportError:
     from privacy_settings import is_clippy_window, should_redact_window
-def get_capture_settings() -> dict:
-    return {
-        "capture_screenshots": True,
-        "capture_all_monitors": False,
-        "min_gap_seconds": 8.0,
-        "screenshot_retention_days": 1,
-        "activity_debounce_seconds": 2.0,
-        "background_interval_seconds": 60.0,
-    }
+try:
+    from core.accessibility_text import (
+        extract_accessibility_text,
+        foreground_content_bounds,
+    )
+    from core.app_settings import get_capture_settings
+    from core.ocr_crop import save_crop_metadata
+    from core.screenshot_enrichment import remember_accessibility_text
+except ImportError:
+    from accessibility_text import extract_accessibility_text, foreground_content_bounds
+    from app_settings import get_capture_settings
+    from ocr_crop import save_crop_metadata
+    from screenshot_enrichment import remember_accessibility_text
+
 
 _lock = threading.Lock()
 _last_capture_ms = 0
