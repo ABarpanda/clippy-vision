@@ -28,13 +28,9 @@ class RouterDecision:
     # Label → softmax score for secondaries (used by should_prefetch thresholds)
     secondary_scores: dict[str, float] = field(default_factory=dict)
 
-
 CATEGORIES = [
-    "time_anchored",
-    "topic_search",
-    "specific_recall",
-    "memory_query",
-    "casual",
+    "time_anchored", "topic_search", "specific_recall",
+    "memory_query", "casual",
 ]
 ID2LABEL = {i: c for i, c in enumerate(CATEGORIES)}
 
@@ -45,8 +41,8 @@ SECONDARY_THRESHOLD = 0.20
 CLASSIFIER_PATH = Path(__file__).parent.parent / "models" / "router_classifier" / "best"
 
 _PREFETCH_THRESHOLDS: dict[str, float] = {
-    "memory_query": 0.55,
-    "time_anchored": 0.55,
+    "memory_query":    0.55,
+    "time_anchored":   0.55,
     "specific_recall": 0.30,
     "topic_search":    0.25,
 
@@ -114,22 +110,20 @@ class MiniLMClassifier(torch.nn.Module):
     self.dropout = torch.nn.Dropout(0.1)
     self.classifier = torch.nn.Linear(h, num_labels)
 
-    def mean_pool(self, token, mask):
-        m = mask.unsqueeze(-1).expand(token.size()).float()
-        return torch.sum(token * m, 1) / torch.clamp(m.sum(1), min=1e-9)
+  def mean_pool(self, token, mask):
+    m = mask.unsqueeze(-1).expand(token.size()).float()
+    return torch.sum(token * m, 1) / torch.clamp(m.sum(1), min=1e-9)
 
-    def forward(self, input_ids, attention_mask):
-        out = self.encoder(input_ids=input_ids, attention_mask=attention_mask)
-        return self.classifier(
-            self.dropout(self.mean_pool(out.last_hidden_state, attention_mask))
-        )
+  def forward(self, input_ids, attention_mask):
+    out = self.encoder(input_ids=input_ids, attention_mask=attention_mask)
+    return self.classifier(self.dropout(self.mean_pool(out.last_hidden_state, attention_mask)))
 
 
 def load_classifier():
-    global _classification_model, _classification_tokenizer
-    with _classifier_lock:
-        if _classification_model is not None:
-            return _classification_model, _classification_tokenizer
+  global _classification_model, _classification_tokenizer
+  with _classifier_lock:
+    if _classification_model is not None:
+      return _classification_model, _classification_tokenizer
 
     if not CLASSIFIER_PATH.exists() or not (CLASSIFIER_PATH / "model.pt").is_file():
       print(f"[router] Classifier checkpoint not found at {CLASSIFIER_PATH}; using tool-driven retrieval")
@@ -162,8 +156,8 @@ def classify_query(query: str) -> tuple[RouterDecision|None, float|None]:
 
   model, tokenizer = load_classifier()
 
-    if model is None:
-        return None, 0.0
+  if model is None:
+    return None, 0.0
 
   enc = tokenizer(query,
   return_tensors="pt",
@@ -171,32 +165,29 @@ def classify_query(query: str) -> tuple[RouterDecision|None, float|None]:
   truncation=True,
   max_length=128)
 
-    with torch.no_grad():
-        logits = model(enc["input_ids"], enc["attention_mask"]).squeeze(0)
+  with torch.no_grad():
+    logits = model(enc["input_ids"], enc["attention_mask"]).squeeze(0)
 
-    probs = torch.softmax(logits, dim=0).tolist()
-    primary_idx = int(torch.tensor(probs).argmax())
+  probs = torch.softmax(logits, dim=0).tolist()
+  primary_idx = int(torch.tensor(probs).argmax())
 
-    primary_label = ID2LABEL[primary_idx]
-    confidence = probs[primary_idx]
+  primary_label = ID2LABEL[primary_idx]
+  confidence = probs[primary_idx]
 
-    secondary_scores = {
-        ID2LABEL[i]: p
-        for i, p in enumerate(probs)
-        if p >= SECONDARY_THRESHOLD and i != primary_idx
-    }
-    secondary_labels = list(secondary_scores.keys())
+  secondary_scores = {
+      ID2LABEL[i]: p for i, p in enumerate(probs)
+      if p >= SECONDARY_THRESHOLD and i != primary_idx
+  }
+  secondary_labels = list(secondary_scores.keys())
 
-    return RouterDecision(
-        primary=primary_label,
-        secondary=secondary_labels,
-        temporal_hint=None,
-        needs_memory_fetch=(
-            primary_label in ("memory_query", "topic_search")
-            or "memory_query" in secondary_labels
-        ),
-        secondary_scores=secondary_scores,
-    ), confidence
+  return RouterDecision(
+    primary=primary_label,
+    secondary=secondary_labels,
+    temporal_hint=None,
+    needs_memory_fetch=
+    (primary_label in ("memory_query", "topic_search") or "memory_query" in secondary_labels),
+    secondary_scores=secondary_scores,
+  ), confidence
 
 
 def should_prefetch(decision: RouterDecision, confidence: float) -> bool:

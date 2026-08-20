@@ -5,7 +5,6 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 
-import json
 import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -32,7 +31,7 @@ from core.backlog import get_backlog_status
 from core.capture_state import get_capture_status
 from core.diagnostics import get_diagnostics
 from core.intro_builder import start_intro_rebuild_daemon
-from core.memory_store import get_profile, save_identity_field, set_introduction
+from core.memory_store import get_profile, save_identity_field, set_introduction, get_introduction, get_identity
 from core.model_residency import can_load_light, on_capture_stop, warm_for_startup
 from core.paths import get_data_dir, get_screenshots_dir
 from core.platform_support import platform_label

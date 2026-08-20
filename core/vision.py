@@ -49,7 +49,10 @@ except ImportError:
     # Redaction rules (Clippy window + user privacy toggles) live in privacy_settings.
     from privacy_settings import is_clippy_window, should_redact_window
 try:
-    from core.accessibility_text import extract_accessibility_text, foreground_content_bounds
+    from core.accessibility_text import (
+        extract_accessibility_text,
+        foreground_content_bounds,
+    )
     from core.app_settings import get_capture_settings
     from core.ocr_crop import save_crop_metadata
     from core.screenshot_enrichment import remember_accessibility_text
